@@ -1,0 +1,488 @@
+package ast_test
+
+import (
+	"testing"
+
+	. "github.com/mia0x75/myparser/ast"
+)
+
+func TestDDLVisitorCover(t *testing.T) {
+	ce := &checkExpr{}
+	constraint := &Constraint{Keys: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, Refer: &ReferenceDef{}, Option: &IndexOption{}}
+
+	alterTableSpec := &AlterTableSpec{Constraint: constraint, Options: []*TableOption{{}}, NewTable: &TableName{}, NewColumns: []*ColumnDef{{Name: &ColumnName{}}}, OldColumnName: &ColumnName{}, Position: &ColumnPosition{RelativeColumn: &ColumnName{}}}
+
+	stmts := []struct {
+		node             Node
+		expectedEnterCnt int
+		expectedLeaveCnt int
+	}{
+		{&CreateDatabaseStmt{}, 0, 0},
+		{&AlterDatabaseStmt{}, 0, 0},
+		{&DropDatabaseStmt{}, 0, 0},
+		{&DropIndexStmt{Table: &TableName{}}, 0, 0},
+		{&DropTableStmt{Tables: []*TableName{{}, {}}}, 0, 0},
+		{&RenameTableStmt{OldTable: &TableName{}, NewTable: &TableName{}}, 0, 0},
+		{&TruncateTableStmt{Table: &TableName{}}, 0, 0},
+
+		// TODO: cover children
+		{&AlterTableStmt{Table: &TableName{}, Specs: []*AlterTableSpec{alterTableSpec}}, 0, 0},
+		{&CreateIndexStmt{Table: &TableName{}}, 0, 0},
+		{&CreateTableStmt{Table: &TableName{}, ReferTable: &TableName{}}, 0, 0},
+		{&CreateViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
+		{&AlterViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
+		{&DropFunctionStmt{Name: &TableName{}}, 0, 0},
+		{&DropProcedureStmt{Name: &TableName{}}, 0, 0},
+		{&DropTriggerStmt{Name: &TableName{}}, 0, 0},
+		{&DropEventStmt{Name: &TableName{}}, 0, 0},
+		{&CreateFunctionStmt{Name: &TableName{}, Body: &ReturnStmt{Expr: ce}}, 1, 1},
+		{&CreateProcedureStmt{Name: &TableName{}, Body: &ReturnStmt{Expr: ce}}, 1, 1},
+		{&CreateTriggerStmt{Name: &TableName{}, Table: &TableName{}, Body: &ReturnStmt{Expr: ce}}, 1, 1},
+		{&CreateEventStmt{Name: &TableName{}, Body: &ReturnStmt{Expr: ce}}, 1, 1},
+		{&AlterFunctionStmt{Name: &TableName{}}, 0, 0},
+		{&AlterProcedureStmt{Name: &TableName{}}, 0, 0},
+		{&AlterEventStmt{Name: &TableName{}, Body: &ReturnStmt{Expr: ce}}, 1, 1},
+		{&AlterEventStmt{Name: &TableName{}, RenameName: &TableName{}}, 0, 0},
+		{&ReturnStmt{Expr: ce}, 1, 1},
+		{&AlterTableSpec{}, 0, 0},
+		{&ColumnDef{Name: &ColumnName{}, Options: []*ColumnOption{{Expr: ce}}}, 1, 1},
+		{&ColumnOption{Expr: ce}, 1, 1},
+		{&ColumnPosition{RelativeColumn: &ColumnName{}}, 0, 0},
+		{&Constraint{Keys: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, Refer: &ReferenceDef{}, Option: &IndexOption{}}, 0, 0},
+		{&IndexColName{Column: &ColumnName{}}, 0, 0},
+		{&ReferenceDef{Table: &TableName{}, IndexColNames: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, OnDelete: &OnDeleteOpt{}, OnUpdate: &OnUpdateOpt{}}, 0, 0},
+	}
+
+	for _, v := range stmts {
+		ce.reset()
+		v.node.Accept(checkVisitor{})
+		if ce.enterCnt != v.expectedEnterCnt {
+			t.Errorf("enterCnt got %d, want %d", ce.enterCnt, v.expectedEnterCnt)
+		}
+		if ce.leaveCnt != v.expectedLeaveCnt {
+			t.Errorf("leaveCnt got %d, want %d", ce.leaveCnt, v.expectedLeaveCnt)
+		}
+		v.node.Accept(visitor1{})
+	}
+}
+
+func TestDDLIndexColNameRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"world", "`world`"},
+		{"world(2)", "`world`(2)"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateIndexStmt).IndexColNames[0]
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE INDEX idx ON t (%s) USING HASH", extractNodeFunc)
+}
+
+func TestDDLOnDeleteRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"on delete restrict", "ON DELETE RESTRICT"},
+		{"on delete CASCADE", "ON DELETE CASCADE"},
+		{"on delete SET NULL", "ON DELETE SET NULL"},
+		{"on delete no action", "ON DELETE NO ACTION"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Constraints[1].Refer.OnDelete
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) REFERENCES parent(id) %s)", extractNodeFunc)
+}
+
+func TestDDLOnUpdateRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"ON UPDATE RESTRICT", "ON UPDATE RESTRICT"},
+		{"on update CASCADE", "ON UPDATE CASCADE"},
+		{"on update SET NULL", "ON UPDATE SET NULL"},
+		{"on update no action", "ON UPDATE NO ACTION"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Constraints[1].Refer.OnUpdate
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE child ( id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE %s )", extractNodeFunc)
+}
+
+func TestDDLIndexOption(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"key_block_size=16", "KEY_BLOCK_SIZE=16"},
+		{"USING HASH", "USING HASH"},
+		{"comment 'hello'", "COMMENT 'hello'"},
+		{"key_block_size=16 USING HASH", "KEY_BLOCK_SIZE=16 USING HASH"},
+		{"USING HASH KEY_BLOCK_SIZE=16", "KEY_BLOCK_SIZE=16 USING HASH"},
+		{"USING HASH COMMENT 'foo'", "USING HASH COMMENT 'foo'"},
+		{"COMMENT 'foo'", "COMMENT 'foo'"},
+		{"key_block_size = 32 using hash comment 'hello'", "KEY_BLOCK_SIZE=32 USING HASH COMMENT 'hello'"},
+		{"key_block_size=32 using btree comment 'hello'", "KEY_BLOCK_SIZE=32 USING BTREE COMMENT 'hello'"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateIndexStmt).IndexOption
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE INDEX idx ON t (a) %s", extractNodeFunc)
+}
+
+func TestTableToTableRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"t1 to t2", "`t1` TO `t2`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*RenameTableStmt).TableToTables[0]
+	}
+	RunNodeRestoreTest(t, testCases, "rename table %s", extractNodeFunc)
+}
+
+func TestDDLReferenceDefRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"REFERENCES parent(id) ON DELETE CASCADE", "REFERENCES `parent`(`id`) ON DELETE CASCADE"},
+		{"REFERENCES parent(id) ON UPDATE CASCADE", "REFERENCES `parent`(`id`) ON UPDATE CASCADE"},
+		{"REFERENCES parent(id) ON UPDATE RESTRICT ON DELETE CASCADE", "REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"REFERENCES parent(id,hello) ON DELETE CASCADE", "REFERENCES `parent`(`id`, `hello`) ON DELETE CASCADE"},
+		{"REFERENCES parent(id,hello(12)) ON DELETE CASCADE", "REFERENCES `parent`(`id`, `hello`(12)) ON DELETE CASCADE"},
+		{"REFERENCES parent(id(8),hello(12)) ON DELETE CASCADE", "REFERENCES `parent`(`id`(8), `hello`(12)) ON DELETE CASCADE"},
+		{"REFERENCES parent(id)", "REFERENCES `parent`(`id`)"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Constraints[1].Refer
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) %s)", extractNodeFunc)
+}
+
+func TestDDLConstraintRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"INDEX par_ind (parent_id)", "INDEX `par_ind`(`parent_id`)"},
+		{"INDEX par_ind (parent_id(6))", "INDEX `par_ind`(`parent_id`(6))"},
+		{"key par_ind (parent_id)", "INDEX `par_ind`(`parent_id`)"},
+		{"unique par_ind (parent_id)", "UNIQUE `par_ind`(`parent_id`)"},
+		{"unique key par_ind (parent_id)", "UNIQUE `par_ind`(`parent_id`)"},
+		{"unique index par_ind (parent_id)", "UNIQUE `par_ind`(`parent_id`)"},
+		{"fulltext key full_id (parent_id)", "FULLTEXT `full_id`(`parent_id`)"},
+		{"fulltext INDEX full_id (parent_id)", "FULLTEXT `full_id`(`parent_id`)"},
+		{"PRIMARY KEY (id)", "PRIMARY KEY(`id`)"},
+		{"PRIMARY KEY (id) key_block_size = 32 using hash comment 'hello'", "PRIMARY KEY(`id`) KEY_BLOCK_SIZE=32 USING HASH COMMENT 'hello'"},
+		{"CONSTRAINT FOREIGN KEY (parent_id(2),hello(4)) REFERENCES parent(id) ON DELETE CASCADE", "CONSTRAINT FOREIGN KEY (`parent_id`(2), `hello`(4)) REFERENCES `parent`(`id`) ON DELETE CASCADE"},
+		{"CONSTRAINT FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "CONSTRAINT FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"CONSTRAINT fk_123 FOREIGN KEY (parent_id(2),hello(4)) REFERENCES parent(id) ON DELETE CASCADE", "CONSTRAINT `fk_123` FOREIGN KEY (`parent_id`(2), `hello`(4)) REFERENCES `parent`(`id`) ON DELETE CASCADE"},
+		{"CONSTRAINT fk_123 FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "CONSTRAINT `fk_123` FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"FOREIGN KEY (parent_id(2),hello(4)) REFERENCES parent(id) ON DELETE CASCADE", "CONSTRAINT FOREIGN KEY (`parent_id`(2), `hello`(4)) REFERENCES `parent`(`id`) ON DELETE CASCADE"},
+		{"FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "CONSTRAINT FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Constraints[0]
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT, parent_id INT, %s)", extractNodeFunc)
+}
+
+func TestDDLColumnOptionRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"primary key", "PRIMARY KEY"},
+		{"not null", "NOT NULL"},
+		{"null", "NULL"},
+		{"auto_increment", "AUTO_INCREMENT"},
+		{"DEFAULT 10", "DEFAULT 10"},
+		{"DEFAULT '10'", "DEFAULT '10'"},
+		{"DEFAULT 'hello'", "DEFAULT 'hello'"},
+		{"DEFAULT 1.1", "DEFAULT 1.1"},
+		{"DEFAULT NULL", "DEFAULT NULL"},
+		{"DEFAULT ''", "DEFAULT ''"},
+		{"DEFAULT TRUE", "DEFAULT TRUE"},
+		{"DEFAULT FALSE", "DEFAULT FALSE"},
+		{"UNIQUE KEY", "UNIQUE KEY"},
+		{"on update CURRENT_TIMESTAMP", "ON UPDATE CURRENT_TIMESTAMP()"},
+		{"comment 'hello'", "COMMENT 'hello'"},
+		{"generated always as(id + 1)", "GENERATED ALWAYS AS(`id`+1) VIRTUAL"},
+		{"generated always as(id + 1) virtual", "GENERATED ALWAYS AS(`id`+1) VIRTUAL"},
+		{"generated always as(id + 1) stored", "GENERATED ALWAYS AS(`id`+1) STORED"},
+		{"REFERENCES parent(id)", "REFERENCES `parent`(`id`)"},
+		{"COLLATE utf8_bin", "COLLATE utf8_bin"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Cols[0].Options[0]
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT %s)", extractNodeFunc)
+}
+
+func TestDDLColumnDefRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		// for type
+		{"id json", "`id` JSON"},
+		{"id time(5)", "`id` TIME(5)"},
+		{"id int(5) unsigned", "`id` INT(5) UNSIGNED"},
+		{"id int(5) UNSIGNED ZEROFILL", "`id` INT(5) UNSIGNED ZEROFILL"},
+		{"id float(12,3)", "`id` FLOAT(12,3)"},
+		{"id float", "`id` FLOAT"},
+		{"id double(22,3)", "`id` DOUBLE(22,3)"},
+		{"id double", "`id` DOUBLE"},
+		{"id tinyint(4)", "`id` TINYINT(4)"},
+		{"id smallint(6)", "`id` SMALLINT(6)"},
+		{"id mediumint(9)", "`id` MEDIUMINT(9)"},
+		{"id integer(11)", "`id` INT(11)"},
+		{"id bigint(20)", "`id` BIGINT(20)"},
+		{"id DATE", "`id` DATE"},
+		{"id DATETIME", "`id` DATETIME"},
+		{"id DECIMAL(4,2)", "`id` DECIMAL(4,2)"},
+		{"id char(1)", "`id` CHAR(1)"},
+		{"id varchar(10) BINARY", "`id` VARCHAR(10) BINARY"},
+		{"id binary(1)", "`id` BINARY(1)"},
+		{"id timestamp(2)", "`id` TIMESTAMP(2)"},
+		{"id timestamp", "`id` TIMESTAMP"},
+		{"id datetime(2)", "`id` DATETIME(2)"},
+		{"id date", "`id` DATE"},
+		{"id year", "`id` YEAR"},
+		{"id INT", "`id` INT"},
+		{"id INT NULL", "`id` INT NULL"},
+		{"id enum('a','b')", "`id` ENUM('a','b')"},
+		{"id enum('''a''','''b''')", "`id` ENUM('''a''','''b''')"},
+		{"id enum('a\\nb','a\\tb','a\\rb')", "`id` ENUM('a\nb','a\tb','a\rb')"},
+		{"id set('a','b')", "`id` SET('a','b')"},
+		{"id set('''a''','''b''')", "`id` SET('''a''','''b''')"},
+		{"id set('a\\nb','a''	\\r\\nb','a\\rb')", "`id` SET('a\nb','a''	\r\nb','a\rb')"},
+		{`id set("a'\nb","a'b\tc")`, "`id` SET('a''\nb','a''b\tc')"},
+		{"id TEXT CHARACTER SET utf8 COLLATE UTF8_UNICODE_CI", "`id` TEXT CHARACTER SET utf8 COLLATE utf8_unicode_ci"},
+		{"id text character set UTF8", "`id` TEXT CHARACTER SET utf8"},
+		{"id text charset UTF8", "`id` TEXT CHARACTER SET utf8"},
+		{"id varchar(50) collate UTF8MB4_CZECH_CI", "`id` VARCHAR(50) COLLATE utf8mb4_czech_ci"},
+		{"id varchar(50) collate utf8_bin", "`id` VARCHAR(50) COLLATE utf8_bin"},
+		{"id varchar(50) collate utf8_unicode_ci collate utf8mb4_bin", "`id` VARCHAR(50) COLLATE utf8_unicode_ci COLLATE utf8mb4_bin"},
+		{"c1 char(10) character set LATIN1 collate latin1_german1_ci", "`c1` CHAR(10) CHARACTER SET latin1 COLLATE latin1_german1_ci"},
+
+		{"id int(11) PRIMARY KEY", "`id` INT(11) PRIMARY KEY"},
+		{"id int(11) NOT NULL", "`id` INT(11) NOT NULL"},
+		{"id INT(11) NULL", "`id` INT(11) NULL"},
+		{"id INT(11) auto_increment", "`id` INT(11) AUTO_INCREMENT"},
+		{"id INT(11) DEFAULT 10", "`id` INT(11) DEFAULT 10"},
+		{"id INT(11) DEFAULT '10'", "`id` INT(11) DEFAULT '10'"},
+		{"id INT(11) DEFAULT 1.1", "`id` INT(11) DEFAULT 1.1"},
+		{"id INT(11) UNIQUE KEY", "`id` INT(11) UNIQUE KEY"},
+		{"id INT(11) COLLATE ascii_bin", "`id` INT(11) COLLATE ascii_bin"},
+		{"id INT(11) collate ascii_bin collate utf8_bin", "`id` INT(11) COLLATE ascii_bin COLLATE utf8_bin"},
+		{"id INT(11) on update CURRENT_TIMESTAMP", "`id` INT(11) ON UPDATE CURRENT_TIMESTAMP()"},
+		{"id INT(11) comment 'hello'", "`id` INT(11) COMMENT 'hello'"},
+		{"id INT(11) generated always as(id + 1)", "`id` INT(11) GENERATED ALWAYS AS(`id`+1) VIRTUAL"},
+		{"id INT(11) REFERENCES parent(id)", "`id` INT(11) REFERENCES `parent`(`id`)"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*CreateTableStmt).Cols[0]
+	}
+	RunNodeRestoreTest(t, testCases, "CREATE TABLE t (%s)", extractNodeFunc)
+}
+
+func TestDDLTruncateTableStmtRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"truncate t1", "TRUNCATE TABLE `t1`"},
+		{"truncate table t1", "TRUNCATE TABLE `t1`"},
+		{"truncate a.t1", "TRUNCATE TABLE `a`.`t1`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*TruncateTableStmt)
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestColumnPositionRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"", ""},
+		{"first", "FIRST"},
+		{"after b", "AFTER `b`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*AlterTableStmt).Specs[0].Position
+	}
+	RunNodeRestoreTest(t, testCases, "alter table t add column a varchar(255) %s", extractNodeFunc)
+}
+
+func TestAlterTableSpecRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"ENGINE innodb", "ENGINE = innodb"},
+		{"ENGINE = innodb", "ENGINE = innodb"},
+		{"ENGINE = 'innodb'", "ENGINE = innodb"},
+		{"ENGINE tokudb", "ENGINE = tokudb"},
+		{"ENGINE = tokudb", "ENGINE = tokudb"},
+		{"ENGINE = 'tokudb'", "ENGINE = tokudb"},
+		{"DEFAULT CHARACTER SET utf8", "DEFAULT CHARACTER SET = utf8"},
+		{"DEFAULT CHARACTER SET = utf8", "DEFAULT CHARACTER SET = utf8"},
+		{"DEFAULT CHARSET utf8", "DEFAULT CHARACTER SET = utf8"},
+		{"DEFAULT CHARSET = utf8", "DEFAULT CHARACTER SET = utf8"},
+		{"DEFAULT COLLATE utf8_bin", "DEFAULT COLLATE = utf8_bin"},
+		{"DEFAULT COLLATE = utf8_bin", "DEFAULT COLLATE = utf8_bin"},
+		{"AUTO_INCREMENT 3", "AUTO_INCREMENT = 3"},
+		{"AUTO_INCREMENT = 6", "AUTO_INCREMENT = 6"},
+		{"COMMENT ''", "COMMENT = ''"},
+		{"COMMENT 'system role'", "COMMENT = 'system role'"},
+		{"COMMENT = 'system role'", "COMMENT = 'system role'"},
+		{"AVG_ROW_LENGTH 12", "AVG_ROW_LENGTH = 12"},
+		{"AVG_ROW_LENGTH = 6", "AVG_ROW_LENGTH = 6"},
+		{"connection 'abc'", "CONNECTION = 'abc'"},
+		{"CONNECTION = 'abc'", "CONNECTION = 'abc'"},
+		{"checksum 1", "CHECKSUM = 1"},
+		{"checksum = 0", "CHECKSUM = 0"},
+		{"PASSWORD '123456'", "PASSWORD = '123456'"},
+		{"PASSWORD = ''", "PASSWORD = ''"},
+		{"compression 'NONE'", "COMPRESSION = 'NONE'"},
+		{"compression = 'lz4'", "COMPRESSION = 'lz4'"},
+		{"key_block_size 1024", "KEY_BLOCK_SIZE = 1024"},
+		{"KEY_BLOCK_SIZE = 1024", "KEY_BLOCK_SIZE = 1024"},
+		{"max_rows 1000", "MAX_ROWS = 1000"},
+		{"max_rows = 1000", "MAX_ROWS = 1000"},
+		{"min_rows 1000", "MIN_ROWS = 1000"},
+		{"MIN_ROWS = 1000", "MIN_ROWS = 1000"},
+		{"DELAY_KEY_WRITE 1", "DELAY_KEY_WRITE = 1"},
+		{"DELAY_KEY_WRITE = 1000", "DELAY_KEY_WRITE = 1000"},
+		{"ROW_FORMAT default", "ROW_FORMAT = DEFAULT"},
+		{"ROW_FORMAT = default", "ROW_FORMAT = DEFAULT"},
+		{"ROW_FORMAT = fixed", "ROW_FORMAT = FIXED"},
+		{"ROW_FORMAT = compressed", "ROW_FORMAT = COMPRESSED"},
+		{"ROW_FORMAT = compact", "ROW_FORMAT = COMPACT"},
+		{"ROW_FORMAT = redundant", "ROW_FORMAT = REDUNDANT"},
+		{"ROW_FORMAT = dynamic", "ROW_FORMAT = DYNAMIC"},
+		{"ROW_FORMAT tokudb_default", "ROW_FORMAT = TOKUDB_DEFAULT"},
+		{"ROW_FORMAT = tokudb_default", "ROW_FORMAT = TOKUDB_DEFAULT"},
+		{"ROW_FORMAT = tokudb_fast", "ROW_FORMAT = TOKUDB_FAST"},
+		{"ROW_FORMAT = tokudb_small", "ROW_FORMAT = TOKUDB_SMALL"},
+		{"ROW_FORMAT = tokudb_zlib", "ROW_FORMAT = TOKUDB_ZLIB"},
+		{"ROW_FORMAT = tokudb_quicklz", "ROW_FORMAT = TOKUDB_QUICKLZ"},
+		{"ROW_FORMAT = tokudb_lzma", "ROW_FORMAT = TOKUDB_LZMA"},
+		{"ROW_FORMAT = tokudb_snappy", "ROW_FORMAT = TOKUDB_SNAPPY"},
+		{"ROW_FORMAT = tokudb_uncompressed", "ROW_FORMAT = TOKUDB_UNCOMPRESSED"},
+		{"shard_row_id_bits 1", "SHARD_ROW_ID_BITS = 1"},
+		{"shard_row_id_bits = 1", "SHARD_ROW_ID_BITS = 1"},
+		{"CONVERT TO CHARACTER SET utf8", "CONVERT TO CHARACTER SET utf8"},
+		{"CONVERT TO CHARSET utf8", "CONVERT TO CHARACTER SET utf8"},
+		{"CONVERT TO CHARSET DEFAULT", "CONVERT TO CHARACTER SET DEFAULT"},
+		{"DEFAULT CHARSET utf8 COLLATE utf8_bin", "DEFAULT CHARACTER SET = utf8 DEFAULT COLLATE = utf8_bin"},
+		{"CONVERT TO CHARACTER SET utf8 COLLATE utf8_bin", "CONVERT TO CHARACTER SET utf8 COLLATE utf8_bin"},
+		{"CONVERT TO CHARSET utf8 COLLATE utf8_bin", "CONVERT TO CHARACTER SET utf8 COLLATE utf8_bin"},
+		{"ADD COLUMN (a SMALLINT UNSIGNED)", "ADD COLUMN (`a` SMALLINT UNSIGNED)"},
+		{"ADD COLUMN (a SMALLINT UNSIGNED, b varchar(255))", "ADD COLUMN (`a` SMALLINT UNSIGNED, `b` VARCHAR(255))"},
+		{"ADD COLUMN a SMALLINT UNSIGNED", "ADD COLUMN `a` SMALLINT UNSIGNED"},
+		{"ADD COLUMN a SMALLINT UNSIGNED FIRST", "ADD COLUMN `a` SMALLINT UNSIGNED FIRST"},
+		{"ADD COLUMN a SMALLINT UNSIGNED AFTER b", "ADD COLUMN `a` SMALLINT UNSIGNED AFTER `b`"},
+		{"ADD COLUMN name mediumtext CHARACTER SET UTF8MB4 COLLATE utf8mb4_unicode_ci NOT NULL", "ADD COLUMN `name` MEDIUMTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"},
+		{"ADD CONSTRAINT INDEX par_ind (parent_id)", "ADD INDEX `par_ind`(`parent_id`)"},
+		{"ADD CONSTRAINT INDEX par_ind (parent_id(6))", "ADD INDEX `par_ind`(`parent_id`(6))"},
+		{"ADD CONSTRAINT key par_ind (parent_id)", "ADD INDEX `par_ind`(`parent_id`)"},
+		{"ADD CONSTRAINT unique par_ind (parent_id)", "ADD UNIQUE `par_ind`(`parent_id`)"},
+		{"ADD CONSTRAINT unique key par_ind (parent_id)", "ADD UNIQUE `par_ind`(`parent_id`)"},
+		{"ADD CONSTRAINT unique index par_ind (parent_id)", "ADD UNIQUE `par_ind`(`parent_id`)"},
+		{"ADD CONSTRAINT fulltext key full_id (parent_id)", "ADD FULLTEXT `full_id`(`parent_id`)"},
+		{"ADD CONSTRAINT fulltext INDEX full_id (parent_id)", "ADD FULLTEXT `full_id`(`parent_id`)"},
+		{"ADD CONSTRAINT PRIMARY KEY (id)", "ADD PRIMARY KEY(`id`)"},
+		{"ADD CONSTRAINT PRIMARY KEY (id) key_block_size = 32 using hash comment 'hello'", "ADD PRIMARY KEY(`id`) KEY_BLOCK_SIZE=32 USING HASH COMMENT 'hello'"},
+		{"ADD CONSTRAINT FOREIGN KEY (parent_id(2),hello(4)) REFERENCES parent(id) ON DELETE CASCADE", "ADD CONSTRAINT FOREIGN KEY (`parent_id`(2), `hello`(4)) REFERENCES `parent`(`id`) ON DELETE CASCADE"},
+		{"ADD CONSTRAINT FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "ADD CONSTRAINT FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"ADD CONSTRAINT fk_123 FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE ON UPDATE RESTRICT", "ADD CONSTRAINT `fk_123` FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE CASCADE ON UPDATE RESTRICT"},
+		{"DROP COLUMN a", "DROP COLUMN `a`"},
+		{"DROP COLUMN a RESTRICT", "DROP COLUMN `a`"},
+		{"DROP COLUMN a CASCADE", "DROP COLUMN `a`"},
+		{"DROP PRIMARY KEY", "DROP PRIMARY KEY"},
+		{"drop index a", "DROP INDEX `a`"},
+		{"drop key a", "DROP INDEX `a`"},
+		{"drop FOREIGN key a", "DROP FOREIGN KEY `a`"},
+		{"MODIFY column a varchar(255)", "MODIFY COLUMN `a` VARCHAR(255)"},
+		{"modify COLUMN a varchar(255) FIRST", "MODIFY COLUMN `a` VARCHAR(255) FIRST"},
+		{"modify COLUMN a varchar(255) AFTER b", "MODIFY COLUMN `a` VARCHAR(255) AFTER `b`"},
+		{"change column a b VARCHAR(255)", "CHANGE COLUMN `a` `b` VARCHAR(255)"},
+		{"change COLUMN a b varchar(255) CHARACTER SET UTF8 BINARY", "CHANGE COLUMN `a` `b` VARCHAR(255) BINARY CHARACTER SET utf8"},
+		{"CHANGE column a b varchar(255) FIRST", "CHANGE COLUMN `a` `b` VARCHAR(255) FIRST"},
+		{"change COLUMN a b varchar(255) AFTER c", "CHANGE COLUMN `a` `b` VARCHAR(255) AFTER `c`"},
+		{"RENAME db1.t1", "RENAME AS `db1`.`t1`"},
+		{"RENAME to db1.t1", "RENAME AS `db1`.`t1`"},
+		{"RENAME as t1", "RENAME AS `t1`"},
+		{"ALTER a SET DEFAULT 1", "ALTER COLUMN `a` SET DEFAULT 1"},
+		{"ALTER a DROP DEFAULT", "ALTER COLUMN `a` DROP DEFAULT"},
+		{"ALTER COLUMN a SET DEFAULT 1", "ALTER COLUMN `a` SET DEFAULT 1"},
+		{"ALTER COLUMN a DROP DEFAULT", "ALTER COLUMN `a` DROP DEFAULT"},
+		{"LOCK=NONE", "LOCK = NONE"},
+		{"LOCK=DEFAULT", "LOCK = DEFAULT"},
+		{"LOCK=SHARED", "LOCK = SHARED"},
+		{"LOCK=EXCLUSIVE", "LOCK = EXCLUSIVE"},
+		{"RENAME KEY a TO b", "RENAME INDEX `a` TO `b`"},
+		{"RENAME INDEX a TO b", "RENAME INDEX `a` TO `b`"},
+		{"ADD PARTITION", "ADD PARTITION"},
+		{"ADD PARTITION ( PARTITION P1 VALUES LESS THAN (2010))", "ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010))"},
+		{"ADD PARTITION ( PARTITION P2 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P2` VALUES LESS THAN (MAXVALUE))"},
+		{"ADD PARTITION (\nPARTITION P1 VALUES LESS THAN (2010),\nPARTITION P2 VALUES LESS THAN (2015),\nPARTITION P3 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010), PARTITION `P2` VALUES LESS THAN (2015), PARTITION `P3` VALUES LESS THAN (MAXVALUE))"},
+		{"ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT 'AP_START \\' AP_END')", "ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'AP_START '' AP_END')"},
+		{"ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'xxx')", "ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'xxx')"},
+		{"coalesce partition 3", "COALESCE PARTITION 3"},
+		{"drop partition p1", "DROP PARTITION `p1`"},
+		{"TRUNCATE PARTITION p0", "TRUNCATE PARTITION `p0`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*AlterTableStmt).Specs[0]
+	}
+	RunNodeRestoreTest(t, testCases, "ALTER TABLE t %s", extractNodeFunc)
+}
+
+func TestAlterViewRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"ALTER VIEW v AS SELECT 1", "ALTER ALGORITHM = UNDEFINED DEFINER = CURRENT_USER SQL SECURITY DEFINER VIEW `v` AS SELECT 1"},
+		{"ALTER ALGORITHM = MERGE DEFiner = root@localhost SQL SECURITY INVOKER VIEW db.v(a,b) AS SELECT 1,2 WITH LOCAL CHECK OPTION", "ALTER ALGORITHM = MERGE DEFINER = `root`@`localhost` SQL SECURITY INVOKER VIEW `db`.`v` (`a`,`b`) AS SELECT 1,2 WITH LOCAL CHECK OPTION"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestDropRoutineRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"DROP FUNCTION f", "DROP FUNCTION `f`"},
+		{"DROP FUNCTION IF EXISTS db.f", "DROP FUNCTION IF EXISTS `db`.`f`"},
+		{"DROP PROCEDURE p", "DROP PROCEDURE `p`"},
+		{"DROP PROCEDURE IF EXISTS db.p", "DROP PROCEDURE IF EXISTS `db`.`p`"},
+		{"DROP TRIGGER trg", "DROP TRIGGER `trg`"},
+		{"DROP TRIGGER IF EXISTS db.trg", "DROP TRIGGER IF EXISTS `db`.`trg`"},
+		{"DROP EVENT ev", "DROP EVENT `ev`"},
+		{"DROP EVENT IF EXISTS db.ev", "DROP EVENT IF EXISTS `db`.`ev`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestCreateRoutineRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"CREATE FUNCTION f() RETURNS INT RETURN 1", "CREATE DEFINER = CURRENT_USER FUNCTION `f`() RETURNS INT RETURN 1"},
+		{"CREATE FUNCTION f(a INT, b VARCHAR(10)) RETURNS INT RETURN a", "CREATE DEFINER = CURRENT_USER FUNCTION `f`(`a` INT, `b` VARCHAR(10)) RETURNS INT RETURN `a`"},
+		{"CREATE OR REPLACE DEFINER = root@localhost FUNCTION db.f(a INT, OUT b INT) RETURNS INT LANGUAGE SQL NOT DETERMINISTIC CONTAINS SQL SQL SECURITY INVOKER COMMENT 'c' RETURN a", "CREATE OR REPLACE DEFINER = `root`@`localhost` FUNCTION `db`.`f`(`a` INT, OUT `b` INT) RETURNS INT LANGUAGE SQL NOT DETERMINISTIC CONTAINS SQL SQL SECURITY INVOKER COMMENT 'c' RETURN `a`"},
+		{"CREATE FUNCTION IF NOT EXISTS f() RETURNS INT NO SQL RETURN 1", "CREATE DEFINER = CURRENT_USER FUNCTION IF NOT EXISTS `f`() RETURNS INT NO SQL RETURN 1"},
+		{"CREATE PROCEDURE p() SELECT 1", "CREATE DEFINER = CURRENT_USER PROCEDURE `p`() SELECT 1"},
+		{"CREATE PROCEDURE p(IN a INT, OUT b INT, INOUT c INT) COMMENT 'c' READS SQL DATA SELECT a", "CREATE DEFINER = CURRENT_USER PROCEDURE `p`(`a` INT, OUT `b` INT, INOUT `c` INT) READS SQL DATA COMMENT 'c' SELECT `a`"},
+		{"ALTER FUNCTION f DETERMINISTIC COMMENT 'x'", "ALTER FUNCTION `f` DETERMINISTIC COMMENT 'x'"},
+		{"ALTER FUNCTION db.f NOT DETERMINISTIC SQL SECURITY INVOKER", "ALTER FUNCTION `db`.`f` NOT DETERMINISTIC SQL SECURITY INVOKER"},
+		{"ALTER PROCEDURE p MODIFIES SQL DATA", "ALTER PROCEDURE `p` MODIFIES SQL DATA"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestCreateTriggerRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"CREATE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW SET @a=1", "CREATE DEFINER = CURRENT_USER TRIGGER `trg` BEFORE INSERT ON `t` FOR EACH ROW SET @`a`=1"},
+		{"CREATE DEFINER = root@localhost TRIGGER db.trg AFTER UPDATE OF a, b ON db.t FOR EACH ROW FOLLOWS other SET @a=1", "CREATE DEFINER = `root`@`localhost` TRIGGER `db`.`trg` AFTER UPDATE OF `a`, `b` ON `db`.`t` FOR EACH ROW FOLLOWS `other` SET @`a`=1"},
+		{"CREATE OR REPLACE TRIGGER trg BEFORE DELETE ON t FOR EACH ROW PRECEDES other SET @a=1", "CREATE OR REPLACE DEFINER = CURRENT_USER TRIGGER `trg` BEFORE DELETE ON `t` FOR EACH ROW PRECEDES `other` SET @`a`=1"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestCreateEventRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"CREATE EVENT ev ON SCHEDULE AT '2020-01-01 00:00:00' DO SELECT 1", "CREATE DEFINER = CURRENT_USER EVENT `ev` ON SCHEDULE AT '2020-01-01 00:00:00' DO SELECT 1"},
+		{"CREATE EVENT db.ev ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01' ENDS '2021-01-01' ON COMPLETION PRESERVE ENABLE COMMENT 'c' DO SELECT 1", "CREATE DEFINER = CURRENT_USER EVENT `db`.`ev` ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01' ENDS '2021-01-01' ON COMPLETION PRESERVE ENABLE COMMENT 'c' DO SELECT 1"},
+		{"CREATE DEFINER = root@localhost EVENT IF NOT EXISTS ev ON SCHEDULE EVERY 2 HOUR ON COMPLETION NOT PRESERVE DISABLE ON SLAVE DO SELECT 1", "CREATE DEFINER = `root`@`localhost` EVENT IF NOT EXISTS `ev` ON SCHEDULE EVERY 2 HOUR ON COMPLETION NOT PRESERVE DISABLE ON SLAVE DO SELECT 1"},
+		{"ALTER EVENT ev ENABLE", "ALTER DEFINER = CURRENT_USER EVENT `ev` ENABLE"},
+		{"ALTER EVENT ev ON SCHEDULE EVERY 2 HOUR STARTS '2020-01-01' DISABLE COMMENT 'c' DO SELECT 1", "ALTER DEFINER = CURRENT_USER EVENT `ev` ON SCHEDULE EVERY 2 HOUR STARTS '2020-01-01' DISABLE COMMENT 'c' DO SELECT 1"},
+		{"ALTER EVENT ev RENAME TO ev2", "ALTER DEFINER = CURRENT_USER EVENT `ev` RENAME TO `ev2`"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}

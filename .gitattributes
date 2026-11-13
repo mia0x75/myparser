@@ -1,0 +1,4 @@
+testdata/mtr/**/*.sql -text -whitespace
+testdata/mtr/**/*.json -text
+testdata/mtr/**/*.jsonl -text
+testdata/mtr/report/manual-review.md -text -whitespace

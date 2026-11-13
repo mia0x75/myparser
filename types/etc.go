@@ -1,0 +1,211 @@
+package types
+
+import (
+	"io"
+	"strings"
+
+	"github.com/mia0x75/myparser/charset"
+	"github.com/mia0x75/myparser/errors"
+	"github.com/mia0x75/myparser/mysql"
+	"github.com/mia0x75/myparser/opcode"
+	"github.com/mia0x75/myparser/sqlerr"
+)
+
+// IsTypeBlob returns a boolean indicating whether the tp is a blob type.
+func IsTypeBlob(tp byte) bool {
+	switch tp {
+	case mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeBlob, mysql.TypeLongBlob:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsTypeChar returns a boolean indicating
+// whether the tp is the char type like a string type or a varchar type.
+func IsTypeChar(tp byte) bool {
+	return tp == mysql.TypeString || tp == mysql.TypeVarchar
+}
+
+var type2Str = map[byte]string{
+	mysql.TypeBit:        "bit",
+	mysql.TypeBlob:       "text",
+	mysql.TypeDate:       "date",
+	mysql.TypeDatetime:   "datetime",
+	mysql.TypeDecimal:    "unspecified",
+	mysql.TypeNewDecimal: "decimal",
+	mysql.TypeDouble:     "double",
+	mysql.TypeEnum:       "enum",
+	mysql.TypeFloat:      "float",
+	mysql.TypeGeometry:   "geometry",
+	mysql.TypeInt24:      "mediumint",
+	mysql.TypeJSON:       "json",
+	mysql.TypeLong:       "int",
+	mysql.TypeLonglong:   "bigint",
+	mysql.TypeLongBlob:   "longtext",
+	mysql.TypeMediumBlob: "mediumtext",
+	mysql.TypeNull:       "null",
+	mysql.TypeSet:        "set",
+	mysql.TypeShort:      "smallint",
+	mysql.TypeString:     "char",
+	mysql.TypeDuration:   "time",
+	mysql.TypeTimestamp:  "timestamp",
+	mysql.TypeTiny:       "tinyint",
+	mysql.TypeTinyBlob:   "tinytext",
+	mysql.TypeVarchar:    "varchar",
+	mysql.TypeVarString:  "var_string",
+	mysql.TypeYear:       "year",
+}
+
+// TypeStr converts tp to a string.
+func TypeStr(tp byte) (r string) {
+	return type2Str[tp]
+}
+
+// TypeToStr converts a field to a string.
+// It is used for converting Text to Blob,
+// or converting Char to Binary.
+// Args:
+//
+//	tp: type enum
+//	cs: charset
+func TypeToStr(tp byte, cs string) (r string) {
+	ts := type2Str[tp]
+	if cs != "binary" {
+		return ts
+	}
+	if IsTypeBlob(tp) {
+		ts = strings.Replace(ts, "text", "blob", 1)
+	} else if IsTypeChar(tp) {
+		ts = strings.Replace(ts, "char", "binary", 1)
+	}
+	return ts
+}
+
+// ErrInvalidDefault is returned when meet a invalid default value.
+var ErrInvalidDefault = sqlerr.ClassTypes.New(codeInvalidDefault, "Invalid default value for '%s'")
+
+// IsTypeVarchar returns a boolean indicating
+// whether the tp is the varchar type like a varstring type or a varchar type.
+func IsTypeVarchar(tp byte) bool {
+	return tp == mysql.TypeVarString || tp == mysql.TypeVarchar
+}
+
+// IsTypeUnspecified returns a boolean indicating whether the tp is the Unspecified type.
+func IsTypeUnspecified(tp byte) bool {
+	return tp == mysql.TypeUnspecified
+}
+
+// IsTypePrefixable returns a boolean indicating
+// whether an index on a column with the tp can be defined with a prefix.
+func IsTypePrefixable(tp byte) bool {
+	return IsTypeBlob(tp) || IsTypeChar(tp)
+}
+
+// IsTypeFractionable returns a boolean indicating
+// whether the tp can has time fraction.
+func IsTypeFractionable(tp byte) bool {
+	return tp == mysql.TypeDatetime || tp == mysql.TypeDuration || tp == mysql.TypeTimestamp
+}
+
+// IsTypeTime returns a boolean indicating
+// whether the tp is time type like datetime, date or timestamp.
+func IsTypeTime(tp byte) bool {
+	return tp == mysql.TypeDatetime || tp == mysql.TypeDate || tp == mysql.TypeTimestamp
+}
+
+// IsTypeNumeric returns a boolean indicating whether the tp is numeric type.
+func IsTypeNumeric(tp byte) bool {
+	switch tp {
+	case mysql.TypeBit, mysql.TypeTiny, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeNewDecimal,
+		mysql.TypeDecimal, mysql.TypeFloat, mysql.TypeDouble, mysql.TypeShort:
+		return true
+	}
+	return false
+}
+
+// IsTemporalWithDate returns a boolean indicating
+// whether the tp is time type with date.
+func IsTemporalWithDate(tp byte) bool {
+	return IsTypeTime(tp)
+}
+
+// IsBinaryStr returns a boolean indicating
+// whether the field type is a binary string type.
+func IsBinaryStr(ft *FieldType) bool {
+	if ft.Collate == charset.CollationBin && IsString(ft.Tp) {
+		return true
+	}
+	return false
+}
+
+// IsNonBinaryStr returns a boolean indicating
+// whether the field type is a non-binary string type.
+func IsNonBinaryStr(ft *FieldType) bool {
+	if ft.Collate != charset.CollationBin && IsString(ft.Tp) {
+		return true
+	}
+	return false
+}
+
+// IsString returns a boolean indicating
+// whether the field type is a string type.
+func IsString(tp byte) bool {
+	return IsTypeChar(tp) || IsTypeBlob(tp) || IsTypeVarchar(tp) || IsTypeUnspecified(tp)
+}
+
+var kind2Str = map[byte]string{
+	KindNull:          "null",
+	KindInt64:         "bigint",
+	KindUint64:        "unsigned bigint",
+	KindFloat32:       "float",
+	KindFloat64:       "double",
+	KindString:        "char",
+	KindBytes:         "bytes",
+	KindBinaryLiteral: "bit/hex literal",
+	KindMysqlDecimal:  "decimal",
+	KindMysqlDuration: "time",
+	KindMysqlEnum:     "enum",
+	KindMysqlBit:      "bit",
+	KindMysqlSet:      "set",
+	KindMysqlTime:     "datetime",
+	KindInterface:     "interface",
+	KindMinNotNull:    "min_not_null",
+	KindMaxValue:      "max_value",
+	KindRaw:           "raw",
+	KindMysqlJSON:     "json",
+}
+
+// KindStr converts kind to a string.
+func KindStr(kind byte) (r string) {
+	return kind2Str[kind]
+}
+
+// EOFAsNil filtrates errors,
+// If err is equal to io.EOF returns nil.
+func EOFAsNil(err error) error {
+	if sqlerr.ErrorEqual(err, io.EOF) {
+		return nil
+	}
+	return errors.Trace(err)
+}
+
+// InvOp2 returns an invalid operation error.
+func InvOp2(x, y any, o opcode.Op) (any, error) {
+	return nil, errors.Errorf("Invalid operation: %v %v %v (mismatched types %T and %T)", x, o, y, x, y)
+}
+
+// overflow returns an overflowed error.
+func overflow(v any, tp byte) error {
+	return ErrOverflow.GenWithStack("constant %v overflows %s", v, TypeStr(tp))
+}
+
+// IsTypeTemporal checks if a type is a temporal type.
+func IsTypeTemporal(tp byte) bool {
+	switch tp {
+	case mysql.TypeDuration, mysql.TypeDatetime, mysql.TypeTimestamp,
+		mysql.TypeDate, mysql.TypeNewDate:
+		return true
+	}
+	return false
+}
