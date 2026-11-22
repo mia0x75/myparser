@@ -1,84 +1,25 @@
 package ast
 
-import "github.com/mia0x75/myparser/types"
+import (
+	pkast "github.com/mia0x75/parserkit/ast"
+)
 
-// node is the struct implements node interface except for Accept method.
+// node shares the common syntax data; outer nodes implement Accept and Restore.
 // Node implementations should embed it in.
-type node struct {
-	text string
-}
+type node = pkast.BaseNode
 
-// SetText implements Node interface.
-func (n *node) SetText(text string) {
-	n.text = text
-}
-
-// Text implements Node interface.
-func (n *node) Text() string {
-	return n.text
-}
-
-// stmtNode implements StmtNode interface.
+// stmtNode shares the common statement marker; outer nodes implement Accept and Restore.
 // Statement implementations should embed it in.
-type stmtNode struct {
-	node
-}
+type stmtNode = pkast.BaseStmt
 
-// statement implements StmtNode interface.
-func (sn *stmtNode) statement() {}
-
-// ddlNode implements DDLNode interface.
+// ddlNode shares the common DDL marker; outer nodes implement Accept and Restore.
 // DDL implementations should embed it in.
-type ddlNode struct {
-	stmtNode
-}
+type ddlNode = pkast.BaseDDL
 
-// ddlStatement implements DDLNode interface.
-func (dn *ddlNode) ddlStatement() {}
-
-// dmlNode is the struct implements DMLNode interface.
+// dmlNode shares the common DML marker; outer nodes implement Accept and Restore.
 // DML implementations should embed it in.
-type dmlNode struct {
-	stmtNode
-}
+type dmlNode = pkast.BaseDML
 
-// dmlStatement implements DMLNode interface.
-func (dn *dmlNode) dmlStatement() {}
-
-// exprNode is the struct implements Expression interface.
-// Expression implementations should embed it in.
-type exprNode struct {
-	node
-	Type types.FieldType
-	flag uint64
-}
-
-// TexprNode is exported for parser driver.
-type TexprNode = exprNode
-
-// SetType implements ExprNode interface.
-func (en *exprNode) SetType(tp *types.FieldType) {
-	en.Type = *tp
-}
-
-// GetType implements ExprNode interface.
-func (en *exprNode) GetType() *types.FieldType {
-	return &en.Type
-}
-
-// SetFlag implements ExprNode interface.
-func (en *exprNode) SetFlag(flag uint64) {
-	en.flag = flag
-}
-
-// GetFlag implements ExprNode interface.
-func (en *exprNode) GetFlag() uint64 {
-	return en.flag
-}
-
-type funcNode struct {
-	exprNode
-}
-
-// functionExpression implements FunctionNode interface.
-func (fn *funcNode) functionExpression() {}
+// resultSetNode shares the common result-set marker; outer nodes implement Accept and Restore.
+// Result-set implementations should embed it in.
+type resultSetNode = pkast.BaseResultSet

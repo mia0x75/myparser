@@ -80,7 +80,7 @@ func TestDialectExecutableComments(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s: %v", target, err)
 				}
-				if got := len(stmt.(*ast.SelectStmt).Fields.Fields); got != want {
+				if got := len(stmt.(*ast.SelectStmt).Fields.Items); got != want {
 					t.Fatalf("%s fields = %d, want %d", target, got, want)
 				}
 			}
@@ -92,7 +92,7 @@ func TestDialectExecutableComments(t *testing.T) {
 			if tt.mariadb > want {
 				want = tt.mariadb
 			}
-			if got := len(stmt.(*ast.SelectStmt).Fields.Fields); got != want {
+			if got := len(stmt.(*ast.SelectStmt).Fields.Items); got != want {
 				t.Fatalf("union fields = %d, want %d (target state leaked)", got, want)
 			}
 		})
@@ -196,8 +196,6 @@ func TestDialectCompatibilityVerifiedBoundaries(t *testing.T) {
 		{"leading dot SET value", DialectMySQL, IssueMySQLLeadingDotSetValue, ".", "SET default_storage_engine = .a.MyISAM"},
 		// The five bare-set-scope forms ("SET GLOBAL = DEFAULT" et al.) are now
 		// rejected by the shared grammar itself; see TestSetBareScopeRejected.
-		{"quoted ODBC marker", DialectMySQL, IssueMySQLODBCEscapeMarker, "`OJ`", "SELECT * FROM { `OJ` t1 LEFT JOIN t2 ON TRUE }"},
-		{"arbitrary ODBC marker", DialectMySQL, IssueMySQLODBCEscapeMarker, "random_identifier", "SELECT * FROM { random_identifier t1 LEFT JOIN t2 ON TRUE }"},
 		{"duplicate same COLLATE", DialectMySQL, IssueMySQLDuplicateCollate, "COLLATE", "CREATE TABLE t1 (\n  x VARCHAR(10)\n  COLLATE ascii_bin\n  COLLATE ascii_bin\n)"},
 		{"duplicate conflicting COLLATE", DialectMySQL, IssueMySQLDuplicateCollate, "COLLATE", "CREATE TABLE t2 (\n  x VARCHAR(10)\n  COLLATE ascii_bin\n  COLLATE ascii_general_ci\n)"},
 		{"separated duplicate COLLATE", DialectMySQL, IssueMySQLDuplicateCollate, "COLLATE", "CREATE TABLE t3 (\n  x VARCHAR(10)\n  COLLATE ascii_bin\n  NOT NULL\n  COLLATE ascii_bin\n)"},
@@ -664,7 +662,6 @@ func TestDialectCompatibilityControlsAndUTF8Position(t *testing.T) {
 		"SELECT `log`()",
 		"SET GLOBAL default_storage_engine = DEFAULT",
 		"CREATE ROLE `FILE`, 'PROXY'",
-		"SELECT * FROM { OJ t1 LEFT JOIN t2 ON TRUE }",
 		"SELECT CONCAT(a1,a2) FROM t1",
 		"CREATE TABLE t (a VARCHAR(10) COLLATE ascii_bin)",
 	}

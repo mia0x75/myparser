@@ -24,7 +24,7 @@ type UserIdentity struct {
 // Restore implements Node interface.
 func (user *UserIdentity) Restore(ctx *format.RestoreCtx) error {
 	if user.CurrentUser {
-		ctx.WriteKeyWord("CURRENT_USER")
+		ctx.WriteKeyword("CURRENT_USER")
 	} else {
 		ctx.WriteName(user.Username)
 		if user.Hostname != "" {
@@ -32,7 +32,7 @@ func (user *UserIdentity) Restore(ctx *format.RestoreCtx) error {
 			ctx.WriteName(user.Hostname)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // String returns user@host with backtick-quoted components.
@@ -56,7 +56,7 @@ func (role *RoleIdentity) Restore(ctx *format.RestoreCtx) error {
 		ctx.WritePlain("@")
 		ctx.WriteName(role.Hostname)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // CheckScrambledPassword check scrambled password received from client.

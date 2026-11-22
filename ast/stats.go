@@ -4,7 +4,7 @@ import (
 	"github.com/mia0x75/myparser/errors"
 
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/model"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 var (
@@ -18,8 +18,8 @@ type AnalyzeTableStmt struct {
 	stmtNode
 
 	TableNames     []*TableName
-	PartitionNames []model.CIStr
-	IndexNames     []model.CIStr
+	PartitionNames []lex.Ident
+	IndexNames     []lex.Ident
 	MaxNumBuckets  uint64
 
 	// IndexFlag is true when we only analyze indices for a table.
@@ -31,17 +31,23 @@ type AnalyzeTableStmt struct {
 	// PersistentAll records FOR ALL. Otherwise nil name lists mean ALL,
 	// whereas non-nil empty lists mean an explicit empty list.
 	PersistentAll bool
-	ColumnNames   []model.CIStr
+	Columns       []lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *AnalyzeTableStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("ANALYZE ")
-	if n.NoWriteToBinLog {
-		ctx.WriteKeyWord("NO_WRITE_TO_BINLOG ")
+	if n == nil {
+		return errors.New("restore AnalyzeTableStmt: nil statement")
 	}
-	ctx.WriteKeyWord("TABLE ")
+	ctx.WriteKeyword("ANALYZE ")
+	if n.NoWriteToBinLog {
+		ctx.WriteKeyword("NO_WRITE_TO_BINLOG ")
+	}
+	ctx.WriteKeyword("TABLE ")
 	for i, table := range n.TableNames {
+		if table == nil {
+			return errors.Errorf("restore AnalyzeTableStmt.TableNames[%d]: missing table", i)
+		}
 		if i != 0 {
 			ctx.WritePlain(",")
 		}
@@ -50,28 +56,39 @@ func (n *AnalyzeTableStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	if n.Persistent {
-		ctx.WriteKeyWord(" PERSISTENT FOR ")
+		ctx.WriteKeyword(" PERSISTENT FOR ")
 		if n.PersistentAll {
-			ctx.WriteKeyWord("ALL")
+			ctx.WriteKeyword("ALL")
 		} else {
-			ctx.WriteKeyWord("COLUMNS ")
-			restoreAnalyzeNames(ctx, n.ColumnNames)
-			ctx.WriteKeyWord(" INDEXES ")
+			ctx.WriteKeyword("COLUMNS ")
+			if n.Columns == nil {
+				ctx.WriteKeyword("ALL")
+			} else {
+				ctx.WritePlain("(")
+				for i, column := range n.Columns {
+					if i > 0 {
+						ctx.WritePlain(",")
+					}
+					ctx.WriteIdent(column)
+				}
+				ctx.WritePlain(")")
+			}
+			ctx.WriteKeyword(" INDEXES ")
 			restoreAnalyzeNames(ctx, n.IndexNames)
 		}
-		return nil
+		return ctx.Err()
 	}
 	if len(n.PartitionNames) != 0 {
-		ctx.WriteKeyWord(" PARTITION ")
+		ctx.WriteKeyword(" PARTITION ")
 	}
 	for i, partition := range n.PartitionNames {
 		if i != 0 {
 			ctx.WritePlain(",")
 		}
-		ctx.WriteName(partition.O)
+		ctx.WriteIdent(partition)
 	}
 	if n.IndexFlag {
-		ctx.WriteKeyWord(" INDEX")
+		ctx.WriteKeyword(" INDEX")
 	}
 	for i, index := range n.IndexNames {
 		if i != 0 {
@@ -79,19 +96,19 @@ func (n *AnalyzeTableStmt) Restore(ctx *format.RestoreCtx) error {
 		} else {
 			ctx.WritePlain(" ")
 		}
-		ctx.WriteName(index.O)
+		ctx.WriteIdent(index)
 	}
 	if n.MaxNumBuckets != 0 {
-		ctx.WriteKeyWord(" WITH ")
+		ctx.WriteKeyword(" WITH ")
 		ctx.WritePlainf("%d", n.MaxNumBuckets)
-		ctx.WriteKeyWord(" BUCKETS")
+		ctx.WriteKeyword(" BUCKETS")
 	}
-	return nil
+	return ctx.Err()
 }
 
-func restoreAnalyzeNames(ctx *format.RestoreCtx, names []model.CIStr) {
+func restoreAnalyzeNames(ctx *format.RestoreCtx, names []lex.Ident) {
 	if names == nil {
-		ctx.WriteKeyWord("ALL")
+		ctx.WriteKeyword("ALL")
 		return
 	}
 	ctx.WritePlain("(")
@@ -99,24 +116,31 @@ func restoreAnalyzeNames(ctx *format.RestoreCtx, names []model.CIStr) {
 		if i > 0 {
 			ctx.WritePlain(",")
 		}
-		ctx.WriteName(name.O)
+		ctx.WriteIdent(name)
 	}
 	ctx.WritePlain(")")
 }
 
 // Accept implements Node Accept interface.
 func (n *AnalyzeTableStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*AnalyzeTableStmt)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*AnalyzeTableStmt](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
 	for i, val := range n.TableNames {
-		node, ok := val.Accept(v)
+		updated, ok := acceptNode[*TableName](v, val)
 		if !ok {
 			return n, false
 		}
-		n.TableNames[i] = node.(*TableName)
+		n.TableNames[i] = updated
 	}
 	return v.Leave(n)
 }
@@ -130,26 +154,36 @@ type DropStatsStmt struct {
 
 // Restore implements Node interface.
 func (n *DropStatsStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DROP STATS ")
+	if n == nil || n.Table == nil {
+		return errors.New("restore DropStatsStmt: missing table")
+	}
+	ctx.WriteKeyword("DROP STATS ")
 	if err := n.Table.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while add table")
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *DropStatsStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*DropStatsStmt)
-	node, ok := n.Table.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*DropStatsStmt](newNode)
 	if !ok {
 		return n, false
 	}
-	n.Table = node.(*TableName)
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
+	updated, ok := acceptNode[*TableName](v, n.Table)
+	if !ok {
+		return n, false
+	}
+	n.Table = updated
 	return v.Leave(n)
 }
 
@@ -162,17 +196,26 @@ type LoadStatsStmt struct {
 
 // Restore implements Node interface.
 func (n *LoadStatsStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("LOAD STATS ")
+	if n == nil {
+		return errors.New("restore LoadStatsStmt: nil statement")
+	}
+	ctx.WriteKeyword("LOAD STATS ")
 	ctx.WriteString(n.Path)
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *LoadStatsStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*LoadStatsStmt)
-	return v.Leave(n)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*LoadStatsStmt](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	return v.Leave(entered)
 }

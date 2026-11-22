@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"github.com/mia0x75/myparser/ast"
-	"github.com/mia0x75/myparser/model"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 // https://mariadb.com/docs/server/reference/sql-structure/operators/comparison-operators/is-json
@@ -28,7 +29,7 @@ func TestISJSONModifiers(t *testing.T) {
 				expected = strings.Join(strings.Fields(expected), " ")
 				t.Run(src, func(t *testing.T) {
 					RunRestoreTest(t, src, expected, false)
-					expr := mustParseOne(t, src).(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.IsJSONExpr)
+					expr := mustParseOne(t, src).(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.IsJSONExpr)
 					if expr.Type != tp || expr.UniqueKeys != key.restored || expr.Not != (not == "IS NOT JSON") {
 						t.Fatalf("unexpected IS JSON constraints: %#v", expr)
 					}
@@ -134,7 +135,7 @@ func TestIndexCacheModifiers(t *testing.T) {
 		})
 	}
 	cache := mustParseOne(t, "cache index t, t2 index (), t3 key (a) in c").(*ast.CacheIndexStmt)
-	if len(cache.Tables) != 3 || len(cache.TableIndexes) != 3 || cache.TableIndexes[0] != nil || cache.TableIndexes[1] == nil || len(cache.TableIndexes[1]) != 0 || len(cache.TableIndexes[2]) != 1 {
+	if len(cache.Tables) != 3 || cache.Tables[0].IndexNames != nil || cache.Tables[1].IndexNames == nil || len(cache.Tables[1].IndexNames) != 0 || len(cache.Tables[2].IndexNames) != 1 {
 		t.Fatalf("omitted, empty, and named index lists were not preserved: %#v", cache)
 	}
 	load := mustParseOne(t, "load index into cache t, t2 index (), t3 key (a)").(*ast.LoadIndexStmt)
@@ -259,8 +260,8 @@ func TestJSONTableBehaviorClauses(t *testing.T) {
 		}
 	}
 	cases := []struct{ src, restored string }{
-		{"select * from json_table(j, '$' columns (a int path '$.a' error on error default -1 on empty)) jt", "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`a` INT PATH '$.a' DEFAULT -1 ON EMPTY ERROR ON ERROR)) AS `jt`"},
-		{"select * from json_table(j, '$' columns (id for ordinality, nested '$.a[*]' columns (v int path '$' default 0 on error null on empty))) jt", "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`id` FOR ORDINALITY, NESTED PATH '$.a[*]' COLUMNS (`v` INT PATH '$' NULL ON EMPTY DEFAULT 0 ON ERROR))) AS `jt`"},
+		{"select * from json_table(j, '$' columns (a int path '$.a' error on error default -1 on empty)) jt", "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`a` INT PATH '$.a' ERROR ON ERROR DEFAULT -1 ON EMPTY)) AS `jt`"},
+		{"select * from json_table(j, '$' columns (id for ordinality, nested '$.a[*]' columns (v int path '$' default 0 on error null on empty))) jt", "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`id` FOR ORDINALITY, NESTED '$.a[*]' COLUMNS (`v` INT PATH '$' DEFAULT 0 ON ERROR NULL ON EMPTY))) AS `jt`"},
 		{"select * from json_table(j, '$' columns (a varchar(10) path '' default '\"missing\"' on empty)) jt", "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`a` VARCHAR(10) PATH '' DEFAULT '\"missing\"' ON EMPTY)) AS `jt`"},
 	}
 	for _, tc := range cases {
@@ -288,6 +289,22 @@ type extensionVisitor struct {
 	leave func(ast.Node) (ast.Node, bool)
 }
 
+// isValueOrLiteral reports whether the node holds a shared syntax literal.
+func isValueOrLiteral(n ast.Node) bool {
+	switch n.(type) {
+	case *ast.LiteralExpr:
+		return true
+	}
+	return false
+}
+
+// replaceLiteral retains source origin while changing canonical literal text.
+func replaceLiteral(n *ast.LiteralExpr, text string) *ast.LiteralExpr {
+	literal := *n
+	literal.Value = text
+	return &literal
+}
+
 func TestFullTextAndSoundsLikeFormatting(t *testing.T) {
 	cases := []struct{ src, formatted string }{
 		{"select match(db.t.a, t.b) against('Search')", `MATCH (db.t.a, t.b) AGAINST ("Search")`},
@@ -297,9 +314,9 @@ func TestFullTextAndSoundsLikeFormatting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.src, func(t *testing.T) {
-			expr := mustParseOne(t, tc.src).(*ast.SelectStmt).Fields.Fields[0].Expr
+			expr := mustParseOne(t, tc.src).(*ast.SelectStmt).Fields.Items[0].Expr
 			var out strings.Builder
-			expr.Format(&out)
+			ast.FormatExpr(expr, &out)
 			if out.String() != tc.formatted {
 				t.Fatalf("Format: got %q, want %q", out.String(), tc.formatted)
 			}
@@ -326,11 +343,11 @@ func TestCompatibilityExtensionVisitors(t *testing.T) {
 		src  string
 		want map[string]int
 	}{
-		{"reset master to 1, slave all", map[string]int{"*ast.ResetStmt": 3, "*driver.ValueExpr": 1}},
-		{"cache index t key (a), t2 index () in c", map[string]int{"*ast.CacheIndexStmt": 1, "*ast.TableName": 2}},
+		{"reset master to 1, slave all", map[string]int{"*ast.ResetStmt": 3, "*ast.LiteralExpr": 1}},
+		{"cache index t key (a), t2 index () in c", map[string]int{"*ast.CacheIndexStmt": 1, "*ast.CacheIndexTable": 2, "*ast.CacheIndexTarget": 1, "*ast.TableName": 2}},
 		{"load index into cache t key (a), t2 index ()", map[string]int{"*ast.LoadIndexStmt": 1, "*ast.LoadIndexTable": 2, "*ast.TableName": 2}},
-		{"load xml infile 'f' into table t (a, @b) set c=@b", map[string]int{"*ast.LoadXMLStmt": 1, "*ast.LoadDataStmt": 0, "*ast.TableName": 1, "*ast.ColumnName": 2, "*ast.VariableExpr": 2, "*ast.Assignment": 1}},
-		{"select * from json_table(j, '$' columns (id for ordinality, nested '$.a' columns (a int path '$' default 1 on empty default 2 on error))) jt", map[string]int{"*ast.JSONTable": 1, "*ast.JSONTableColumn": 3, "*driver.ValueExpr": 2, "*ast.ColumnNameExpr": 1}},
+		{"load xml infile 'f' into table t (a, @b) set c=@b", map[string]int{"*ast.LoadXMLStmt": 1, "*ast.LoadDataStmt": 0, "*ast.TableName": 1, "*ast.VariableExpr": 2, "*ast.Assignment": 1}},
+		{"select * from json_table(j, '$' columns (id for ordinality, nested '$.a' columns (a int path '$' default 1 on empty default 2 on error))) jt", map[string]int{"*ast.JSONTable": 1, "*ast.JSONTableColumn": 3, "*ast.JSONTableBehavior": 2, "*ast.LiteralExpr": 2, "*ast.ColumnRef": 1}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.src, func(t *testing.T) {
@@ -362,25 +379,31 @@ func TestCompatibilityExtensionVisitors(t *testing.T) {
 	_, ok := stmt.Accept(extensionVisitor{enter: func(n ast.Node) (ast.Node, bool) {
 		switch n := n.(type) {
 		case *ast.JSONTableColumn:
-			if n.Name.L == "a" {
+			if strings.EqualFold(n.Name.Name, "a") {
 				copy := *n
-				copy.Name = model.NewCIStr("b")
+				copy.Name = lex.Ident{Name: "b"}
 				return &copy, false
 			}
-		case ast.ValueExpr:
-			return ast.NewValueExpr(int64(9)), false
+		case *ast.LiteralExpr:
+			if n.Kind != pkast.LiteralInteger {
+				return n, false
+			}
+			return replaceLiteral(n, "9"), false
 		}
 		return n, false
 	}})
 	if !ok {
 		t.Fatal("replacement visitor aborted")
 	}
-	if got := restoreStmt(t, stmt); got != "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`id` FOR ORDINALITY, NESTED PATH '$.a' COLUMNS (`b` INT PATH '$' DEFAULT 9 ON EMPTY DEFAULT 9 ON ERROR))) AS `jt`" {
+	if got := restoreStmt(t, stmt); got != "SELECT * FROM JSON_TABLE(`j`, '$' COLUMNS (`id` FOR ORDINALITY, NESTED '$.a' COLUMNS (`b` INT PATH '$' DEFAULT 9 ON EMPTY DEFAULT 9 ON ERROR))) AS `jt`" {
 		t.Fatalf("replacement visitor did not reach nested defaults: %s", got)
 	}
 	_, ok = stmt.Accept(extensionVisitor{leave: func(n ast.Node) (ast.Node, bool) {
-		_, value := n.(ast.ValueExpr)
-		return n, !value
+		switch n.(type) {
+		case *ast.LiteralExpr:
+			return n, true
+		}
+		return n, false
 	}})
 	if ok {
 		t.Fatal("visitor abort was not propagated")

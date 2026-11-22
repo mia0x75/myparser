@@ -1,7 +1,11 @@
 package ast
 
 import (
+	"strings"
+
+	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 var (
@@ -28,26 +32,39 @@ type ResourceGroupVCPU struct {
 
 // Restore implements Node interface.
 func (n *ResourceGroupVCPU) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil {
+		return errors.New("ast: missing resource group VCPU")
+	}
 	if n.From == n.To {
 		ctx.WritePlainf("%d", n.From)
 	} else {
 		ctx.WritePlainf("%d-%d", n.From, n.To)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *ResourceGroupVCPU) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*ResourceGroupVCPU)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*ResourceGroupVCPU)
 	return v.Leave(n)
 }
 
 func restoreVCPUList(ctx *format.RestoreCtx, vcpu []*ResourceGroupVCPU) error {
-	ctx.WriteKeyWord(" VCPU = ")
+	ctx.WriteKeyword(" VCPU = ")
 	for i, v := range vcpu {
 		if i > 0 {
 			ctx.WritePlain(",")
@@ -56,19 +73,19 @@ func restoreVCPUList(ctx *format.RestoreCtx, vcpu []*ResourceGroupVCPU) error {
 			return err
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func restoreResourceGroupOptional(ctx *format.RestoreCtx, tp *int, state int) {
 	if tp != nil {
-		ctx.WriteKeyWord(" THREAD_PRIORITY = ")
+		ctx.WriteKeyword(" THREAD_PRIORITY = ")
 		ctx.WritePlainf("%d", *tp)
 	}
 	switch state {
 	case ResourceGroupStateEnable:
-		ctx.WriteKeyWord(" ENABLE")
+		ctx.WriteKeyword(" ENABLE")
 	case ResourceGroupStateDisable:
-		ctx.WriteKeyWord(" DISABLE")
+		ctx.WriteKeyword(" DISABLE")
 	}
 }
 
@@ -77,8 +94,8 @@ func restoreResourceGroupOptional(ctx *format.RestoreCtx, tp *int, state int) {
 type CreateResourceGroupStmt struct {
 	ddlNode
 
-	Name           string
-	IsSystem       bool
+	Name           lex.Ident
+	Type           lex.Ident
 	VCPU           []*ResourceGroupVCPU
 	ThreadPriority *int
 	State          int
@@ -86,13 +103,22 @@ type CreateResourceGroupStmt struct {
 
 // Restore implements Node interface.
 func (n *CreateResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CREATE RESOURCE GROUP ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" TYPE = ")
-	if n.IsSystem {
-		ctx.WriteKeyWord("SYSTEM")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() || !n.Type.Present() {
+		return errors.New("ast: missing resource group name or type")
+	}
+	if n.State < ResourceGroupStateNone || n.State > ResourceGroupStateDisable {
+		return errors.New("ast: invalid resource group state")
+	}
+	ctx.WriteKeyword("CREATE RESOURCE GROUP ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" TYPE = ")
+	if n.Type.Quote == lex.QuoteUnquoted && (strings.EqualFold(n.Type.Name, "SYSTEM") || strings.EqualFold(n.Type.Name, "USER")) {
+		ctx.WriteKeyword(n.Type.Name)
 	} else {
-		ctx.WriteKeyWord("USER")
+		ctx.WriteIdent(n.Type)
 	}
 	if len(n.VCPU) > 0 {
 		if err := restoreVCPUList(ctx, n.VCPU); err != nil {
@@ -100,22 +126,36 @@ func (n *CreateResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	restoreResourceGroupOptional(ctx, n.ThreadPriority, n.State)
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *CreateResourceGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*CreateResourceGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*CreateResourceGroupStmt)
 	for i, vcpu := range n.VCPU {
+		if vcpu == nil {
+			return n, false
+		}
 		node, ok := vcpu.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.VCPU[i] = node.(*ResourceGroupVCPU)
+		nextVCPU, ok := node.(*ResourceGroupVCPU)
+		if !ok || nextVCPU == nil {
+			return n, false
+		}
+		n.VCPU[i] = nextVCPU
 	}
 	return v.Leave(n)
 }
@@ -125,7 +165,7 @@ func (n *CreateResourceGroupStmt) Accept(v Visitor) (Node, bool) {
 type AlterResourceGroupStmt struct {
 	ddlNode
 
-	Name           string
+	Name           lex.Ident
 	VCPU           []*ResourceGroupVCPU
 	ThreadPriority *int
 	State          int
@@ -133,30 +173,53 @@ type AlterResourceGroupStmt struct {
 
 // Restore implements Node interface.
 func (n *AlterResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("ALTER RESOURCE GROUP ")
-	ctx.WriteName(n.Name)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing resource group name")
+	}
+	if n.State < ResourceGroupStateNone || n.State > ResourceGroupStateDisable {
+		return errors.New("ast: invalid resource group state")
+	}
+	ctx.WriteKeyword("ALTER RESOURCE GROUP ")
+	ctx.WriteIdent(n.Name)
 	if len(n.VCPU) > 0 {
 		if err := restoreVCPUList(ctx, n.VCPU); err != nil {
 			return err
 		}
 	}
 	restoreResourceGroupOptional(ctx, n.ThreadPriority, n.State)
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *AlterResourceGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*AlterResourceGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*AlterResourceGroupStmt)
 	for i, vcpu := range n.VCPU {
+		if vcpu == nil {
+			return n, false
+		}
 		node, ok := vcpu.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.VCPU[i] = node.(*ResourceGroupVCPU)
+		nextVCPU, ok := node.(*ResourceGroupVCPU)
+		if !ok || nextVCPU == nil {
+			return n, false
+		}
+		n.VCPU[i] = nextVCPU
 	}
 	return v.Leave(n)
 }
@@ -166,26 +229,39 @@ func (n *AlterResourceGroupStmt) Accept(v Visitor) (Node, bool) {
 type DropResourceGroupStmt struct {
 	ddlNode
 
-	Name  string
+	Name  lex.Ident
 	Force bool
 }
 
 // Restore implements Node interface.
 func (n *DropResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DROP RESOURCE GROUP ")
-	ctx.WriteName(n.Name)
-	if n.Force {
-		ctx.WriteKeyWord(" FORCE")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing resource group name")
+	}
+	ctx.WriteKeyword("DROP RESOURCE GROUP ")
+	ctx.WriteIdent(n.Name)
+	if n.Force {
+		ctx.WriteKeyword(" FORCE")
+	}
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *DropResourceGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*DropResourceGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*DropResourceGroupStmt)
 	return v.Leave(n)
 }

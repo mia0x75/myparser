@@ -209,7 +209,7 @@ func (ft *FieldType) String() string {
 
 // Restore implements Node interface.
 func (ft *FieldType) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord(ft.typeName())
+	ctx.WriteKeyword(ft.typeName())
 
 	switch ft.Tp {
 	case mysql.TypeEnum, mysql.TypeSet:
@@ -240,33 +240,33 @@ func (ft *FieldType) Restore(ctx *format.RestoreCtx) error {
 	}
 
 	if mysql.HasUnsignedFlag(ft.Flag) {
-		ctx.WriteKeyWord(" UNSIGNED")
+		ctx.WriteKeyword(" UNSIGNED")
 	}
 	if mysql.HasZerofillFlag(ft.Flag) {
-		ctx.WriteKeyWord(" ZEROFILL")
+		ctx.WriteKeyword(" ZEROFILL")
 	}
 	if mysql.HasBinaryFlag(ft.Flag) && ft.Charset != charset.CharsetBin {
-		ctx.WriteKeyWord(" BINARY")
+		ctx.WriteKeyword(" BINARY")
 	}
 
 	if IsTypeChar(ft.Tp) || IsTypeBlob(ft.Tp) {
 		if ft.Charset != "" && ft.Charset != charset.CharsetBin {
-			ctx.WriteKeyWord(" CHARACTER SET ")
+			ctx.WriteKeyword(" CHARACTER SET ")
 			ctx.WritePlain(ft.Charset)
 		}
 		if ft.Collate != "" && ft.Collate != charset.CharsetBin {
-			ctx.WriteKeyWord(" COLLATE ")
+			ctx.WriteKeyword(" COLLATE ")
 			ctx.WritePlain(ft.Collate)
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // RestoreAsCastType is used for write AST back to string.
 func (ft *FieldType) RestoreAsCastType(ctx *format.RestoreCtx) {
 	if ft.CastTypeName != "" {
-		ctx.WriteKeyWord(ft.CastTypeName)
+		ctx.WriteKeyword(ft.CastTypeName)
 		if ft.CastPrecision != "" {
 			ctx.WritePlain("(" + ft.CastPrecision + ")")
 		}
@@ -274,51 +274,51 @@ func (ft *FieldType) RestoreAsCastType(ctx *format.RestoreCtx) {
 	}
 	switch ft.Tp {
 	case mysql.TypeVarchar:
-		ctx.WriteKeyWord("VARCHAR")
+		ctx.WriteKeyword("VARCHAR")
 		if ft.Flen != UnspecifiedLength {
 			ctx.WritePlainf("(%d)", ft.Flen)
 		}
 		if ft.Flag&mysql.BinaryFlag != 0 {
-			ctx.WriteKeyWord(" BINARY")
+			ctx.WriteKeyword(" BINARY")
 		}
 		if ft.Charset != charset.CharsetBin && ft.Charset != mysql.DefaultCharset {
-			ctx.WriteKeyWord(" CHARACTER SET ")
+			ctx.WriteKeyword(" CHARACTER SET ")
 			ctx.WritePlain(ft.Charset)
 		}
 	case mysql.TypeVarString:
 		if ft.Charset == charset.CharsetBin && ft.Collate == charset.CollationBin {
-			ctx.WriteKeyWord("BINARY")
+			ctx.WriteKeyword("BINARY")
 		} else {
-			ctx.WriteKeyWord("CHAR")
+			ctx.WriteKeyword("CHAR")
 		}
 		if ft.Flen != UnspecifiedLength {
 			ctx.WritePlainf("(%d)", ft.Flen)
 		}
 		if ft.Flag&mysql.BinaryFlag != 0 {
-			ctx.WriteKeyWord(" BINARY")
+			ctx.WriteKeyword(" BINARY")
 		}
 		if ft.Charset != charset.CharsetBin && ft.Charset != mysql.DefaultCharset {
-			ctx.WriteKeyWord(" CHARACTER SET ")
+			ctx.WriteKeyword(" CHARACTER SET ")
 			ctx.WritePlain(ft.Charset)
 		}
 	case mysql.TypeDate:
-		ctx.WriteKeyWord("DATE")
+		ctx.WriteKeyword("DATE")
 	case mysql.TypeDatetime:
-		ctx.WriteKeyWord("DATETIME")
+		ctx.WriteKeyword("DATETIME")
 		if ft.CastPrecision != "" {
 			ctx.WritePlain("(" + ft.CastPrecision + ")")
 		} else if ft.Decimal > 0 {
 			ctx.WritePlainf("(%d)", ft.Decimal)
 		}
 	case mysql.TypeNewDecimal:
-		ctx.WriteKeyWord("DECIMAL")
+		ctx.WriteKeyword("DECIMAL")
 		if ft.Flen > 0 && ft.Decimal > 0 {
 			ctx.WritePlainf("(%d, %d)", ft.Flen, ft.Decimal)
 		} else if ft.Flen > 0 {
 			ctx.WritePlainf("(%d)", ft.Flen)
 		}
 	case mysql.TypeDuration:
-		ctx.WriteKeyWord("TIME")
+		ctx.WriteKeyword("TIME")
 		if ft.CastPrecision != "" {
 			ctx.WritePlain("(" + ft.CastPrecision + ")")
 		} else if ft.Decimal > 0 {
@@ -326,18 +326,18 @@ func (ft *FieldType) RestoreAsCastType(ctx *format.RestoreCtx) {
 		}
 	case mysql.TypeLonglong:
 		if ft.Flag&mysql.UnsignedFlag != 0 {
-			ctx.WriteKeyWord("UNSIGNED")
+			ctx.WriteKeyword("UNSIGNED")
 		} else {
-			ctx.WriteKeyWord("SIGNED")
+			ctx.WriteKeyword("SIGNED")
 		}
 	case mysql.TypeJSON:
-		ctx.WriteKeyWord("JSON")
+		ctx.WriteKeyword("JSON")
 	case mysql.TypeFloat:
-		ctx.WriteKeyWord("FLOAT")
+		ctx.WriteKeyword("FLOAT")
 	case mysql.TypeDouble:
-		ctx.WriteKeyWord("DOUBLE")
+		ctx.WriteKeyword("DOUBLE")
 	case mysql.TypeYear:
-		ctx.WriteKeyWord("YEAR")
+		ctx.WriteKeyword("YEAR")
 	}
 }
 

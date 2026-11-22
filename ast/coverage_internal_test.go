@@ -1,13 +1,19 @@
 package ast
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+	"github.com/mia0x75/parserkit/loc"
+
+	"github.com/mia0x75/myparser/auth"
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/model"
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/types"
+	"github.com/mia0x75/myparser/opcode"
 )
 
 // nopVisitor keeps the node unchanged, so Accept methods can run without a
@@ -26,10 +32,6 @@ func restoreNode(t *testing.T, n interface {
 		t.Fatalf("restore %T: %v", n, err)
 	}
 	return sb.String()
-}
-
-func ciStr(s string) model.CIStr {
-	return model.NewCIStr(s)
 }
 
 func TestStatementEnumStrings(t *testing.T) {
@@ -57,25 +59,28 @@ func TestStatementEnumStrings(t *testing.T) {
 	}
 }
 
-func TestColumnNameOrigColNameAndIdentString(t *testing.T) {
+// qualName is a test-only helper to build pure name values.
+func qualName(parts ...string) QualifiedName {
+	q := QualifiedName{}
+	for _, p := range parts {
+		q.Parts = append(q.Parts, lex.Ident{Name: p, Raw: p})
+	}
+	return q
+}
+
+func TestColumnNameOriginalQualifiedName(t *testing.T) {
 	cases := []struct {
-		name *ColumnName
+		name QualifiedName
 		want string
 	}{
-		{&ColumnName{Name: ciStr("a")}, "a"},
-		{&ColumnName{Name: ciStr("a"), Table: ciStr("t")}, "t.a"},
-		{&ColumnName{Name: ciStr("a"), Table: ciStr("t"), Schema: ciStr("s")}, "s.t.a"},
+		{qualName("a"), "a"},
+		{qualName("t", "a"), "t.a"},
+		{qualName("s", "t", "a"), "s.t.a"},
 	}
 	for _, tt := range cases {
-		if got := tt.name.OrigColName(); got != tt.want {
-			t.Fatalf("OrigColName() = %q, want %q", got, tt.want)
+		if got := originalQualifiedName(tt.name); got != tt.want {
+			t.Fatalf("originalQualifiedName() = %q, want %q", got, tt.want)
 		}
-	}
-	if got := (Ident{Name: ciStr("t")}).String(); got != "t" {
-		t.Fatalf("Ident.String() = %q, want %q", got, "t")
-	}
-	if got := (Ident{Schema: ciStr("s"), Name: ciStr("t")}).String(); got != "s.t" {
-		t.Fatalf("Ident.String() = %q, want %q", got, "s.t")
 	}
 }
 
@@ -92,7 +97,7 @@ func TestReadOnlyChecker(t *testing.T) {
 	if !IsReadOnly(plain) {
 		t.Fatal("plain select should be read only")
 	}
-	writesVar := &SelectStmt{Where: &VariableExpr{Name: "x", Value: &PositionExpr{N: 1}}}
+	writesVar := &SelectStmt{Where: &VariableExpr{Target: &VariableTarget{Name: QualifiedName{Parts: []lex.Ident{{Name: "x"}}}, Kind: VariableTargetLocal}, Value: &PositionExpr{N: 1}}}
 	if IsReadOnly(writesVar) {
 		t.Fatal("select that assigns a user variable should not be read only")
 	}
@@ -103,17 +108,16 @@ func TestFlagHelpers(t *testing.T) {
 	if HasWindowFlag(e) {
 		t.Fatal("HasWindowFlag() = true, want false")
 	}
-	e.SetFlag(FlagHasWindowFunc)
-	if !HasWindowFlag(e) {
-		t.Fatal("HasWindowFlag() = false, want true")
+	if got := ExprFlag(e); got != FlagHasReference {
+		t.Fatalf("ExprFlag(PositionExpr{}) = %d, want %d", got, FlagHasReference)
 	}
 }
 
 func TestPeriodDefinition(t *testing.T) {
 	def := &PeriodDefinition{
-		Name:  ciStr("p"),
-		Start: &ColumnName{Name: ciStr("s")},
-		End:   &ColumnName{Name: ciStr("e")},
+		Name:  lex.Ident{Name: "p"},
+		Start: qualName("s"),
+		End:   qualName("e"),
 	}
 	want := "PERIOD FOR `p` (`s`,`e`)"
 	if got := restoreNode(t, def); got != want {
@@ -180,21 +184,20 @@ func TestPasswordOrLockOptionRestore(t *testing.T) {
 	}
 }
 
-func TestTableOptimizerHint(t *testing.T) {
-	maxExec := &TableOptimizerHint{HintName: ciStr("max_execution_time"), MaxExecutionTime: 10}
+func TestOptimizerHint(t *testing.T) {
+	maxExec := &OptimizerHint{Kind: OptimizerHintMaxExecutionTime, MaxExecutionTime: 10}
 	if got, want := restoreNode(t, maxExec), "MAX_EXECUTION_TIME(10)"; got != want {
-		t.Fatalf("TableOptimizerHint.Restore() = %q, want %q", got, want)
+		t.Fatalf("OptimizerHint.Restore() = %q, want %q", got, want)
 	}
-	tables := &TableOptimizerHint{HintName: ciStr("bka"), Tables: []model.CIStr{ciStr("t1"), ciStr("t2")}}
-	if got, want := restoreNode(t, tables), "BKA(`t1`, `t2`)"; got != want {
-		t.Fatalf("TableOptimizerHint.Restore() = %q, want %q", got, want)
+	if err := (&OptimizerHint{}).Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, io.Discard)); err == nil {
+		t.Fatal("unknown hint kind accepted")
 	}
-	tables.Accept(nopVisitor{})
+	maxExec.Accept(nopVisitor{})
 }
 
 func TestAnalyzeTableStmtVariants(t *testing.T) {
 	all := &AnalyzeTableStmt{
-		TableNames:    []*TableName{{Name: ciStr("t")}},
+		TableNames:    []*TableName{{BaseTableRef: pkast.BaseTableRef{Name: QualifiedName{Parts: []lex.Ident{{Name: "t"}}}}}},
 		Persistent:    true,
 		PersistentAll: true,
 	}
@@ -202,10 +205,10 @@ func TestAnalyzeTableStmtVariants(t *testing.T) {
 		t.Fatalf("AnalyzeTableStmt.Restore() = %q, want %q", got, want)
 	}
 	named := &AnalyzeTableStmt{
-		TableNames:  []*TableName{{Name: ciStr("t")}},
-		Persistent:  true,
-		ColumnNames: []model.CIStr{ciStr("c")},
-		IndexNames:  nil,
+		TableNames: []*TableName{{BaseTableRef: pkast.BaseTableRef{Name: QualifiedName{Parts: []lex.Ident{{Name: "t"}}}}}},
+		Persistent: true,
+		Columns:    []lex.Ident{{Name: "c"}},
+		IndexNames: nil,
 	}
 	if got, want := restoreNode(t, named), "ANALYZE TABLE `t` PERSISTENT FOR COLUMNS (`c`) INDEXES ALL"; got != want {
 		t.Fatalf("AnalyzeTableStmt.Restore() = %q, want %q", got, want)
@@ -214,7 +217,7 @@ func TestAnalyzeTableStmtVariants(t *testing.T) {
 }
 
 func TestStatsStatementRestore(t *testing.T) {
-	drop := &DropStatsStmt{Table: &TableName{Name: ciStr("t")}}
+	drop := &DropStatsStmt{Table: &TableName{BaseTableRef: pkast.BaseTableRef{Name: QualifiedName{Parts: []lex.Ident{{Name: "t"}}}}}}
 	if got, want := restoreNode(t, drop), "DROP STATS `t`"; got != want {
 		t.Fatalf("DropStatsStmt.Restore() = %q, want %q", got, want)
 	}
@@ -234,79 +237,213 @@ func TestSpLabelSettersAndCondition(t *testing.T) {
 	loop := &LoopStmt{}
 	forStmt := &ForStmt{}
 	for _, s := range []LabeledStmt{begin, while, repeat, loop, forStmt} {
-		s.SetLabel("lbl")
+		s.SetLabel(lex.Ident{Name: "lbl"})
 	}
-	for _, label := range []string{begin.Label, while.Label, repeat.Label, loop.Label, forStmt.Label} {
-		if label != "lbl" {
-			t.Fatalf("SetLabel() = %q, want %q", label, "lbl")
+	for _, label := range []lex.Ident{begin.Label, while.Label, repeat.Label, loop.Label, forStmt.Label} {
+		if label.Name != "lbl" {
+			t.Fatalf("SetLabel() = %q, want %q", label.Name, "lbl")
 		}
 	}
 
 	cond := NewErrnoHandlerCondition(1146)
-	if cond.Type != HandlerConditionErrorCode || cond.Value != "1146" {
+	if cond.Type != HandlerConditionErrorCode || cond.Value.Name != "1146" {
 		t.Fatalf("NewErrnoHandlerCondition() = %+v", cond)
 	}
-	stmt := &DeclareConditionStmt{Name: "c", Condition: cond}
+	stmt := &DeclareConditionStmt{Name: lex.Ident{Name: "c"}, Condition: cond}
 	if got, want := restoreNode(t, stmt), "DECLARE `c` CONDITION FOR 1146"; got != want {
 		t.Fatalf("DeclareConditionStmt.Restore() = %q, want %q", got, want)
 	}
 	stmt.Accept(nopVisitor{})
 }
 
-func TestRestoreStoredProgramName(t *testing.T) {
-	cases := map[string]string{
-		"@var":  "@var",
-		"proc":  "`proc`",
-		"db.fn": "`db`.`fn`",
-	}
-	for name, want := range cases {
-		var sb strings.Builder
-		restoreStoredProgramName(format.NewRestoreCtx(format.DefaultRestoreFlags, &sb), name)
-		if got := sb.String(); got != want {
-			t.Fatalf("restoreStoredProgramName(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
 func TestJSONTableRestoreAndAccept(t *testing.T) {
 	expr := func(n int) ExprNode { return &PositionExpr{N: n} }
 
 	nested := &JSONTableColumn{
-		Nested:  true,
+		Kind:    JSONTableColumnNested,
+		Name:    lex.Ident{Span: loc.InvalidSpan()},
 		Path:    "$.n",
-		Columns: []*JSONTableColumn{{Name: ciStr("x"), Path: "$.x"}},
+		Columns: []*JSONTableColumn{{Name: lex.Ident{Name: "x"}, Kind: JSONTableColumnPath, Type: NewTypeName("INT"), Path: "$.x"}},
 	}
 	table := &JSONTable{
 		Expr: expr(10),
 		Path: "$.a",
 		Columns: []*JSONTableColumn{
-			{Name: ciStr("ord"), Ordinality: true},
-			{Name: ciStr("v"), Tp: types.NewFieldType(mysql.TypeLong), Path: "$.v"},
-			{Name: ciStr("e"), Exists: true, Path: "$.e"},
+			{Name: lex.Ident{Name: "ord"}, Kind: JSONTableColumnOrdinality},
+			{Name: lex.Ident{Name: "v"}, Kind: JSONTableColumnPath, Type: NewTypeName("INT"), Path: "$.v"},
+			{Name: lex.Ident{Name: "e"}, Kind: JSONTableColumnExists, Type: NewTypeName("INT"), Path: "$.e"},
 			nested,
 		},
 	}
-	want := "JSON_TABLE(10, '$.a' COLUMNS (`ord` FOR ORDINALITY, `v` INT PATH '$.v', `e` EXISTS PATH '$.e', NESTED PATH '$.n' COLUMNS (`x` PATH '$.x')))"
+	want := "JSON_TABLE(10, '$.a' COLUMNS (`ord` FOR ORDINALITY, `v` INT PATH '$.v', `e` INT EXISTS PATH '$.e', NESTED '$.n' COLUMNS (`x` INT PATH '$.x')))"
 	if got := restoreNode(t, table); got != want {
 		t.Fatalf("JSONTable.Restore() = %q, want %q", got, want)
 	}
 	table.Accept(nopVisitor{})
 
 	behaviors := []*JSONTableBehavior{
-		NewJSONTableColumnBehavior(JSONTableBehaviorError, true, nil),
-		NewJSONTableColumnBehavior(JSONTableBehaviorDefault, false, expr(1)),
-		NewJSONTableColumnBehavior(JSONTableBehaviorValue, false, nil),
-		NewJSONTableColumnBehavior(JSONTableBehaviorValue, false, expr(2)),
+		{Kind: JSONTableBehaviorError, On: JSONTableBehaviorOnEmpty},
+		{Kind: JSONTableBehaviorDefault, On: JSONTableBehaviorOnError, Value: expr(1)},
+		{Kind: JSONTableBehaviorNull, On: JSONTableBehaviorOnEmpty},
+		{Kind: JSONTableBehaviorNull, On: JSONTableBehaviorOnError},
 	}
-	col := &JSONTableColumn{Name: ciStr("c"), Path: "$.c"}
-	AssignJSONTableBehaviors(col, behaviors)
-	AssignJSONTableBehavior(nil, behaviors[0])
-	AssignJSONTableBehaviors(nil, behaviors)
-	if col.OnEmpty == nil || col.OnError == nil {
-		t.Fatalf("AssignJSONTableBehaviors() did not set both clauses: %+v", col)
+	col := &JSONTableColumn{Name: lex.Ident{Name: "c"}, Kind: JSONTableColumnPath, Type: NewTypeName("INT"), Path: "$.c", Behaviors: behaviors[:2]}
+	if len(col.Behaviors) != 2 {
+		t.Fatalf("behavior clauses were not retained: %+v", col)
 	}
-	if got := restoreNode(t, col); !strings.Contains(got, "ERROR ON EMPTY") {
-		t.Fatalf("JSONTableColumn.Restore() = %q, missing ON EMPTY behavior", got)
+	if got := restoreNode(t, col); !strings.Contains(got, "ERROR ON EMPTY DEFAULT 1 ON ERROR") {
+		t.Fatalf("JSONTableColumn.Restore() = %q, missing ordered behavior clauses", got)
 	}
 	col.Accept(nopVisitor{})
+}
+
+// restoreFailWriter rejects every write, so the restore context carries a
+// pending error: the sentinel error, or a short write when short is set.
+type restoreFailWriter struct {
+	err   error
+	short bool
+}
+
+func (w *restoreFailWriter) Write(p []byte) (int, error) {
+	if w.short {
+		return 0, nil
+	}
+	return 0, w.err
+}
+
+// pendingRestoreCtx returns a restore context whose writer already failed, so
+// that a pending error can be observed by the restore helpers.
+func pendingRestoreCtx(t *testing.T, w io.Writer) *format.RestoreCtx {
+	t.Helper()
+	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, w)
+	ctx.WritePlain("x") // Seed the pending writer error.
+	if ctx.Err() == nil {
+		t.Fatal("expected the restore context to carry a writer error")
+	}
+	return ctx
+}
+
+// TestRestorePropagatesWriterError checks the statements whose restore path
+// used to swallow the writer error, because the helper returned nil although
+// the context already carried a pending error.
+func TestRestorePropagatesWriterError(t *testing.T) {
+	writeErr := errors.New("write failed")
+	statements := []struct {
+		name string
+		node interface {
+			Restore(*format.RestoreCtx) error
+		}
+	}{
+		{name: "create logfile group", node: &CreateLogfileGroupStmt{Name: lex.Ident{Name: "g"}}},
+		{name: "alter logfile group", node: &AlterLogfileGroupStmt{Name: lex.Ident{Name: "g"}}},
+		{name: "drop logfile group", node: &DropLogfileGroupStmt{Name: lex.Ident{Name: "g"}}},
+		{name: "reset master", node: &ResetStmt{Tp: ResetMaster}},
+		{name: "empty row", node: &RowExpr{}},
+	}
+	writers := []struct {
+		name    string
+		short   bool
+		wantErr error
+	}{
+		{name: "writer error", wantErr: writeErr},
+		{name: "short write", short: true, wantErr: io.ErrShortWrite},
+	}
+	for _, w := range writers {
+		for _, s := range statements {
+			t.Run(w.name+"/"+s.name, func(t *testing.T) {
+				ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &restoreFailWriter{err: writeErr, short: w.short})
+				err := s.node.Restore(ctx)
+				if !errors.Is(err, w.wantErr) {
+					t.Fatalf("got error %v, want %v", err, w.wantErr)
+				}
+				if err != ctx.Err() {
+					t.Fatalf("got error %v, want ctx error %v", err, ctx.Err())
+				}
+			})
+		}
+	}
+}
+
+func TestRowRestorePropagatesChildWriterError(t *testing.T) {
+	writeErr := errors.New("write failed")
+	for _, tc := range []struct {
+		name  string
+		short bool
+		want  error
+	}{
+		{"writer error", false, writeErr},
+		{"short write", true, io.ErrShortWrite},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := &RowExpr{}
+			row.Items = []ExprNode{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}}}
+			ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &restoreFailWriter{err: writeErr, short: tc.short})
+			if err := row.Restore(ctx); !errors.Is(err, tc.want) {
+				t.Fatalf("restore error = %v, want %v", err, tc.want)
+			}
+			if !errors.Is(ctx.Err(), tc.want) {
+				t.Fatalf("context error = %v, want %v", ctx.Err(), tc.want)
+			}
+		})
+	}
+}
+
+// TestRestoreHelpersPropagatePendingError checks that the restore helpers
+// forward the pending context error instead of reporting success.
+func TestRestoreHelpersPropagatePendingError(t *testing.T) {
+	writeErr := errors.New("write failed")
+	helpers := []struct {
+		name    string
+		restore func(ctx *format.RestoreCtx) error
+	}{
+		{name: "logfile group options", restore: func(ctx *format.RestoreCtx) error {
+			return restoreLogfileGroupOptions(ctx, nil)
+		}},
+		{name: "reset option", restore: func(ctx *format.RestoreCtx) error {
+			return (&ResetStmt{Tp: ResetMaster}).restoreOption(ctx)
+		}},
+		{name: "user identity current user", restore: func(ctx *format.RestoreCtx) error {
+			return restoreUserIdentity(ctx, &auth.UserIdentity{CurrentUser: true})
+		}},
+		{name: "user identity", restore: func(ctx *format.RestoreCtx) error {
+			return restoreUserIdentity(ctx, &auth.UserIdentity{Username: "u", Hostname: "h"})
+		}},
+		{name: "expr nodes", restore: func(ctx *format.RestoreCtx) error {
+			return restoreExprNodes(ctx, nil)
+		}},
+		{name: "json table behaviors", restore: func(ctx *format.RestoreCtx) error {
+			return (&JSONTableBehavior{Kind: JSONTableBehaviorNull, On: JSONTableBehaviorOnEmpty}).Restore(ctx)
+		}},
+		{name: "json table columns", restore: func(ctx *format.RestoreCtx) error {
+			return restoreJSONTableColumns(ctx, nil)
+		}},
+		{name: "vcpu list", restore: func(ctx *format.RestoreCtx) error {
+			return restoreVCPUList(ctx, nil)
+		}},
+		{name: "func params", restore: func(ctx *format.RestoreCtx) error {
+			return restoreFuncParams(ctx, nil)
+		}},
+		{name: "stmt list", restore: func(ctx *format.RestoreCtx) error {
+			return restoreStmtList(ctx, nil)
+		}},
+		{name: "priority no priority", restore: func(ctx *format.RestoreCtx) error {
+			priority := mysql.NoPriority
+			return priority.Restore(ctx)
+		}},
+		{name: "opcode", restore: func(ctx *format.RestoreCtx) error {
+			return opcode.EQ.Restore(ctx)
+		}},
+	}
+	for _, h := range helpers {
+		t.Run(h.name, func(t *testing.T) {
+			ctx := pendingRestoreCtx(t, &restoreFailWriter{err: writeErr})
+			err := h.restore(ctx)
+			if !errors.Is(err, writeErr) {
+				t.Fatalf("got error %v, want %v", err, writeErr)
+			}
+			if err != ctx.Err() {
+				t.Fatalf("got error %v, want ctx error %v", err, ctx.Err())
+			}
+		})
+	}
 }

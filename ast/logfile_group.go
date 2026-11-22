@@ -3,6 +3,7 @@ package ast
 import (
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 var (
@@ -31,47 +32,82 @@ const (
 type LogfileGroupOption struct {
 	node
 
-	Tp  LogfileGroupOptionType
-	Str string
-	Val uint64
+	Tp     LogfileGroupOptionType
+	Str    string
+	Engine lex.Ident
+	Val    uint64
 }
 
 // Restore implements Node interface.
 func (n *LogfileGroupOption) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil {
+		return errors.New("ast: missing logfile group option")
+	}
+	if n.Tp == LogfileGroupOptionEngine {
+		if !n.Engine.Present() || n.Str != "" || n.Val != 0 {
+			return errors.New("ast: invalid logfile group engine")
+		}
+	} else if n.Engine.Present() {
+		return errors.New("ast: unexpected logfile group engine")
+	}
+	switch n.Tp {
+	case LogfileGroupOptionComment:
+		if n.Val != 0 {
+			return errors.New("ast: unexpected numeric logfile group payload")
+		}
+	case LogfileGroupOptionWait:
+		if n.Str != "" || n.Val != 0 {
+			return errors.New("ast: unexpected logfile group flag payload")
+		}
+	default:
+		if n.Str != "" {
+			return errors.New("ast: unexpected logfile group string payload")
+		}
+	}
 	switch n.Tp {
 	case LogfileGroupOptionInitialSize:
-		ctx.WriteKeyWord("INITIAL_SIZE = ")
+		ctx.WriteKeyword("INITIAL_SIZE = ")
 		ctx.WritePlainf("%d", n.Val)
 	case LogfileGroupOptionUndoBufferSize:
-		ctx.WriteKeyWord("UNDO_BUFFER_SIZE = ")
+		ctx.WriteKeyword("UNDO_BUFFER_SIZE = ")
 		ctx.WritePlainf("%d", n.Val)
 	case LogfileGroupOptionRedoBufferSize:
-		ctx.WriteKeyWord("REDO_BUFFER_SIZE = ")
+		ctx.WriteKeyword("REDO_BUFFER_SIZE = ")
 		ctx.WritePlainf("%d", n.Val)
 	case LogfileGroupOptionNodegroup:
-		ctx.WriteKeyWord("NODEGROUP = ")
+		ctx.WriteKeyword("NODEGROUP = ")
 		ctx.WritePlainf("%d", n.Val)
 	case LogfileGroupOptionWait:
-		ctx.WriteKeyWord("WAIT")
+		ctx.WriteKeyword("WAIT")
 	case LogfileGroupOptionComment:
-		ctx.WriteKeyWord("COMMENT = ")
+		ctx.WriteKeyword("COMMENT = ")
 		ctx.WriteString(n.Str)
 	case LogfileGroupOptionEngine:
-		ctx.WriteKeyWord("ENGINE = ")
-		ctx.WritePlain(n.Str)
+		ctx.WriteKeyword("ENGINE = ")
+		ctx.WriteIdent(n.Engine)
 	default:
 		return errors.New("An error occurred while splicing LogfileGroupOption")
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *LogfileGroupOption) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*LogfileGroupOption)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*LogfileGroupOption)
 	return v.Leave(n)
 }
 
@@ -82,7 +118,7 @@ func restoreLogfileGroupOptions(ctx *format.RestoreCtx, options []*LogfileGroupO
 			return errors.Annotate(err, "An error occurred while splicing LogfileGroupOptions")
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // CreateLogfileGroupStmt is a statement to create a logfile group.
@@ -90,33 +126,53 @@ func restoreLogfileGroupOptions(ctx *format.RestoreCtx, options []*LogfileGroupO
 type CreateLogfileGroupStmt struct {
 	ddlNode
 
-	Name     string
+	Name     lex.Ident
 	UndoFile string
 	Options  []*LogfileGroupOption
 }
 
 // Restore implements Node interface.
 func (n *CreateLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CREATE LOGFILE GROUP ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" ADD UNDOFILE ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing logfile group name")
+	}
+	ctx.WriteKeyword("CREATE LOGFILE GROUP ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" ADD UNDOFILE ")
 	ctx.WriteString(n.UndoFile)
 	return restoreLogfileGroupOptions(ctx, n.Options)
 }
 
 // Accept implements Node Accept interface.
 func (n *CreateLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*CreateLogfileGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*CreateLogfileGroupStmt)
 	for i, opt := range n.Options {
+		if opt == nil {
+			return n, false
+		}
 		node, ok := opt.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*LogfileGroupOption)
+		nextOption, ok := node.(*LogfileGroupOption)
+		if !ok || nextOption == nil {
+			return n, false
+		}
+		n.Options[i] = nextOption
 	}
 	return v.Leave(n)
 }
@@ -126,33 +182,53 @@ func (n *CreateLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
 type AlterLogfileGroupStmt struct {
 	ddlNode
 
-	Name     string
+	Name     lex.Ident
 	UndoFile string
 	Options  []*LogfileGroupOption
 }
 
 // Restore implements Node interface.
 func (n *AlterLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("ALTER LOGFILE GROUP ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" ADD UNDOFILE ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing logfile group name")
+	}
+	ctx.WriteKeyword("ALTER LOGFILE GROUP ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" ADD UNDOFILE ")
 	ctx.WriteString(n.UndoFile)
 	return restoreLogfileGroupOptions(ctx, n.Options)
 }
 
 // Accept implements Node Accept interface.
 func (n *AlterLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*AlterLogfileGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*AlterLogfileGroupStmt)
 	for i, opt := range n.Options {
+		if opt == nil {
+			return n, false
+		}
 		node, ok := opt.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*LogfileGroupOption)
+		nextOption, ok := node.(*LogfileGroupOption)
+		if !ok || nextOption == nil {
+			return n, false
+		}
+		n.Options[i] = nextOption
 	}
 	return v.Leave(n)
 }
@@ -162,30 +238,50 @@ func (n *AlterLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
 type DropLogfileGroupStmt struct {
 	ddlNode
 
-	Name    string
+	Name    lex.Ident
 	Options []*LogfileGroupOption
 }
 
 // Restore implements Node interface.
 func (n *DropLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DROP LOGFILE GROUP ")
-	ctx.WriteName(n.Name)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing logfile group name")
+	}
+	ctx.WriteKeyword("DROP LOGFILE GROUP ")
+	ctx.WriteIdent(n.Name)
 	return restoreLogfileGroupOptions(ctx, n.Options)
 }
 
 // Accept implements Node Accept interface.
 func (n *DropLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*DropLogfileGroupStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*DropLogfileGroupStmt)
 	for i, opt := range n.Options {
+		if opt == nil {
+			return n, false
+		}
 		node, ok := opt.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*LogfileGroupOption)
+		nextOption, ok := node.(*LogfileGroupOption)
+		if !ok || nextOption == nil {
+			return n, false
+		}
+		n.Options[i] = nextOption
 	}
 	return v.Leave(n)
 }

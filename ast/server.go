@@ -1,8 +1,11 @@
 package ast
 
 import (
+	"strings"
+
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 var (
@@ -16,25 +19,42 @@ var (
 type ServerOption struct {
 	node
 
-	Name  string
+	Name  lex.Ident
 	Value string
 }
 
 // Restore implements Node interface.
 func (n *ServerOption) Restore(ctx *format.RestoreCtx) error {
-	ctx.WritePlain(n.Name)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing server option name")
+	}
+	if n.Name.Quote == lex.QuoteUnquoted && strings.EqualFold(n.Name.Name, "DATABASE") {
+		ctx.WriteKeyword("DATABASE")
+	} else {
+		ctx.WriteIdent(n.Name)
+	}
 	ctx.WritePlain(" ")
 	ctx.WriteString(n.Value)
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *ServerOption) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*ServerOption)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*ServerOption)
 	return v.Leave(n)
 }
 
@@ -43,19 +63,25 @@ func (n *ServerOption) Accept(v Visitor) (Node, bool) {
 type CreateServerStmt struct {
 	ddlNode
 
-	Name    string
+	Name    lex.Ident
 	Wrapper string
 	Options []*ServerOption
 }
 
 // Restore implements Node interface.
 func (n *CreateServerStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CREATE SERVER ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" FOREIGN DATA WRAPPER ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing server name")
+	}
+	ctx.WriteKeyword("CREATE SERVER ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" FOREIGN DATA WRAPPER ")
 	ctx.WriteString(n.Wrapper)
 	if len(n.Options) > 0 {
-		ctx.WriteKeyWord(" OPTIONS(")
+		ctx.WriteKeyword(" OPTIONS(")
 		for i, opt := range n.Options {
 			if i > 0 {
 				ctx.WritePlain(", ")
@@ -66,22 +92,36 @@ func (n *CreateServerStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 		ctx.WritePlain(")")
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *CreateServerStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*CreateServerStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*CreateServerStmt)
 	for i, opt := range n.Options {
+		if opt == nil {
+			return n, false
+		}
 		node, ok := opt.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*ServerOption)
+		nextOption, ok := node.(*ServerOption)
+		if !ok || nextOption == nil {
+			return n, false
+		}
+		n.Options[i] = nextOption
 	}
 	return v.Leave(n)
 }
@@ -91,16 +131,22 @@ func (n *CreateServerStmt) Accept(v Visitor) (Node, bool) {
 type AlterServerStmt struct {
 	ddlNode
 
-	Name    string
+	Name    lex.Ident
 	Options []*ServerOption
 }
 
 // Restore implements Node interface.
 func (n *AlterServerStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("ALTER SERVER ")
-	ctx.WriteName(n.Name)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing server name")
+	}
+	ctx.WriteKeyword("ALTER SERVER ")
+	ctx.WriteIdent(n.Name)
 	if len(n.Options) > 0 {
-		ctx.WriteKeyWord(" OPTIONS(")
+		ctx.WriteKeyword(" OPTIONS(")
 		for i, opt := range n.Options {
 			if i > 0 {
 				ctx.WritePlain(", ")
@@ -111,22 +157,36 @@ func (n *AlterServerStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 		ctx.WritePlain(")")
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *AlterServerStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*AlterServerStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*AlterServerStmt)
 	for i, opt := range n.Options {
+		if opt == nil {
+			return n, false
+		}
 		node, ok := opt.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*ServerOption)
+		nextOption, ok := node.(*ServerOption)
+		if !ok || nextOption == nil {
+			return n, false
+		}
+		n.Options[i] = nextOption
 	}
 	return v.Leave(n)
 }
@@ -137,25 +197,38 @@ type DropServerStmt struct {
 	ddlNode
 
 	IfExists bool
-	Name     string
+	Name     lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *DropServerStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DROP SERVER ")
-	if n.IfExists {
-		ctx.WriteKeyWord("IF EXISTS ")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	ctx.WriteName(n.Name)
-	return nil
+	if n == nil || !n.Name.Present() {
+		return errors.New("ast: missing server name")
+	}
+	ctx.WriteKeyword("DROP SERVER ")
+	if n.IfExists {
+		ctx.WriteKeyword("IF EXISTS ")
+	}
+	ctx.WriteIdent(n.Name)
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *DropServerStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	next, ok := newNode.(*DropServerStmt)
+	if !ok || next == nil {
+		return n, false
+	}
+	n = next
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*DropServerStmt)
 	return v.Leave(n)
 }

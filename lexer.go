@@ -8,6 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/mia0x75/parserkit/loc"
+
 	"github.com/mia0x75/myparser/mysql"
 )
 
@@ -44,6 +46,7 @@ type Scanner struct {
 	// lastScanOffset indicates last offset returned by scan().
 	// It's used to substring sql in syntax error message.
 	lastScanOffset int
+	lastScanSpan   loc.Span
 
 	// lastTok is the token kind returned by the previous scan() call.
 	// The scanner uses it to tell whether a NULL treatment keyword follows a
@@ -72,7 +75,7 @@ type Scanner struct {
 
 type specialCommentScanner interface {
 	stmtTexter
-	scan() (tok int, pos Pos, lit string)
+	scan() (tok int, pos Pos, lit string, span loc.Span)
 }
 
 type mysqlSpecificCodeScanner struct {
@@ -80,8 +83,13 @@ type mysqlSpecificCodeScanner struct {
 	Pos
 }
 
-func (s *mysqlSpecificCodeScanner) scan() (tok int, pos Pos, lit string) {
+func (s *mysqlSpecificCodeScanner) scan() (tok int, pos Pos, lit string, span loc.Span) {
 	tok, pos, lit = s.Scanner.scan()
+	span = s.lastScanSpan
+	if span.Valid() {
+		span.Start += loc.ByteOffset(s.Offset)
+		span.End += loc.ByteOffset(s.Offset)
+	}
 	pos.Line += s.Line
 	pos.Col += s.Col
 	pos.Offset += s.Offset
@@ -94,8 +102,9 @@ type optimizerHintScanner struct {
 	end bool
 }
 
-func (s *optimizerHintScanner) scan() (tok int, pos Pos, lit string) {
+func (s *optimizerHintScanner) scan() (tok int, pos Pos, lit string, span loc.Span) {
 	tok, pos, lit = s.Scanner.scan()
+	span = s.lastScanSpan
 	pos.Line += s.Line
 	pos.Col += s.Col
 	pos.Offset += s.Offset
@@ -104,6 +113,7 @@ func (s *optimizerHintScanner) scan() (tok int, pos Pos, lit string) {
 		if !s.end {
 			tok = hintEnd
 			s.end = true
+			span = loc.Span{Start: loc.ByteOffset(len(s.r.s)), End: loc.ByteOffset(len(s.r.s) + 2)}
 		}
 	case invalid:
 		// an optimizer hint is allowed to contain invalid characters, the
@@ -111,6 +121,11 @@ func (s *optimizerHintScanner) scan() (tok int, pos Pos, lit string) {
 		// force advance the lexer even when encountering an invalid character
 		// to prevent infinite parser loop. (see issue #336)
 		s.r.inc()
+		span.End = loc.ByteOffset(s.r.p.Offset)
+	}
+	if span.Valid() {
+		span.Start += loc.ByteOffset(s.Offset)
+		span.End += loc.ByteOffset(s.Offset)
 	}
 	return
 }
@@ -124,6 +139,8 @@ func (s *Scanner) Errors() (warns []error, errs []error) {
 func (s *Scanner) reset(sql string) {
 	s.r = reader{s: sql, p: Pos{Line: 1}}
 	s.buf.Reset()
+	clear(s.errs)
+	clear(s.warns)
 	s.errs = s.errs[:0]
 	s.warns = s.warns[:0]
 	s.stmtStartPos = 0
@@ -134,6 +151,7 @@ func (s *Scanner) reset(sql string) {
 	s.replicationHeartbeat = false
 	s.lastTok = 0
 	s.lastScanOffset = 0
+	s.lastScanSpan = loc.InvalidSpan()
 }
 
 // consumeDelimiterCommand consumes a client-side `DELIMITER <value>` command
@@ -258,10 +276,15 @@ func (s *Scanner) lex(v *yySymType) int {
 		tok = handleIdent(v)
 	}
 	if tok == identifier {
+		end := s.r.p.Offset
 		if tok1 := s.isTokenIdentifier(lit, pos.Offset); tok1 != 0 {
 			tok = tok1
 		}
+		if s.r.p.Offset != end {
+			s.lastScanSpan.End = loc.ByteOffset(s.r.p.Offset)
+		}
 	}
+	v.span = s.lastScanSpan
 	if s.sqlMode.HasANSIQuotesMode() &&
 		tok == stringLit &&
 		s.r.s[v.offset] == '"' {
@@ -353,11 +376,21 @@ func (s *Scanner) skipWhitespace() rune {
 }
 
 func (s *Scanner) scan() (tok int, pos Pos, lit string) {
+	s.lastScanSpan = loc.InvalidSpan()
+	tok, pos, lit = s.scanToken()
+	// Recursive comment scans keep the inner token's range, not the outer cursor.
+	if !s.lastScanSpan.Valid() && (tok != 0 || pos.Offset < s.r.p.Offset) {
+		s.lastScanSpan = loc.Span{Start: loc.ByteOffset(pos.Offset), End: loc.ByteOffset(s.r.p.Offset)}
+	}
+	return
+}
+
+func (s *Scanner) scanToken() (tok int, pos Pos, lit string) {
 	if s.specialComment != nil {
 		// Enter specialComment scan mode.
 		// for scanning such kind of comment: /*! MySQL-specific code */
 		specialComment := s.specialComment
-		tok, pos, lit = specialComment.scan()
+		tok, pos, lit, s.lastScanSpan = specialComment.scan()
 		if tok != 0 {
 			// return the specialComment scan result as the result
 			return
@@ -374,7 +407,9 @@ func (s *Scanner) scan() (tok int, pos Pos, lit string) {
 	// A custom statement delimiter (set by a DELIMITER command) is
 	// translated into the regular ";" token so the grammar is unchanged.
 	if s.atDelimiter() {
+		start := s.r.p.Offset
 		s.r.skipBytes(len(s.delimiter))
+		s.lastScanSpan = loc.Span{Start: loc.ByteOffset(start), End: loc.ByteOffset(s.r.p.Offset)}
 		return int(';'), s.r.pos(), ""
 	}
 
@@ -571,6 +606,7 @@ func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
 			}
 
 			tok = hintBegin
+			s.lastScanSpan = loc.Span{Start: loc.ByteOffset(pos.Offset), End: loc.ByteOffset(pos.Offset + begin)}
 			return
 		}
 

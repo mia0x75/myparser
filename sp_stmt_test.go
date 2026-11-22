@@ -144,6 +144,8 @@ func TestSpStmtRestore(t *testing.T) {
 		rb := nodeBody(reparsed)
 		CleanNodeText(ob)
 		CleanNodeText(rb)
+		normalizeTestSyntaxMetadata(ob)
+		normalizeTestSyntaxMetadata(rb)
 		if !reflect.DeepEqual(ob, rb) {
 			t.Fatalf("restore mismatch for %q:\n restored: %s", c.sql, restored)
 		}

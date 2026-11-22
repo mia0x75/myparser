@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -151,5 +153,94 @@ func TestIdentityRestore(t *testing.T) {
 		if got := sb.String(); got != tc.want {
 			t.Fatalf("%s: got %#v, want %#v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// failingWriter rejects every write to exercise the restore error path.
+// A short write reports no bytes and no error, which the restore writer
+// must turn into io.ErrShortWrite.
+type failingWriter struct {
+	err   error
+	short bool
+	calls int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.calls++
+	if w.short {
+		return 0, nil
+	}
+	return 0, w.err
+}
+
+func TestIdentityRestoreError(t *testing.T) {
+	writeErr := errors.New("write failed")
+	testCases := []struct {
+		name    string
+		restore func(ctx *format.RestoreCtx) error
+		short   bool
+		wantErr error
+	}{
+		{
+			name: "UserIdentity current user",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&UserIdentity{CurrentUser: true}).Restore(ctx)
+			},
+			wantErr: writeErr,
+		},
+		{
+			name: "UserIdentity current user short write",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&UserIdentity{CurrentUser: true}).Restore(ctx)
+			},
+			short:   true,
+			wantErr: io.ErrShortWrite,
+		},
+		{
+			name: "UserIdentity user",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&UserIdentity{Username: "u"}).Restore(ctx)
+			},
+			wantErr: writeErr,
+		},
+		{
+			name: "UserIdentity user short write",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&UserIdentity{Username: "u"}).Restore(ctx)
+			},
+			short:   true,
+			wantErr: io.ErrShortWrite,
+		},
+		{
+			name: "RoleIdentity with hostname",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&RoleIdentity{Username: "r", Hostname: "h"}).Restore(ctx)
+			},
+			wantErr: writeErr,
+		},
+		{
+			name: "RoleIdentity with hostname short write",
+			restore: func(ctx *format.RestoreCtx) error {
+				return (&RoleIdentity{Username: "r", Hostname: "h"}).Restore(ctx)
+			},
+			short:   true,
+			wantErr: io.ErrShortWrite,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &failingWriter{err: writeErr, short: tc.short}
+			ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, w)
+			err := tc.restore(ctx)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got error %v, want %v", err, tc.wantErr)
+			}
+			if err != ctx.Err() {
+				t.Fatalf("got error %v, want ctx error %v", err, ctx.Err())
+			}
+			if w.calls != 1 {
+				t.Fatalf("got %d writer calls, want 1", w.calls)
+			}
+		})
 	}
 }

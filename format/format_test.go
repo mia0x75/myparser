@@ -65,7 +65,7 @@ func TestRestoreCtx(t *testing.T) {
 	for _, testCase := range testCases {
 		sb.Reset()
 		ctx := NewRestoreCtx(testCase.flag, &sb)
-		ctx.WriteKeyWord("key`.'\"Word\\")
+		ctx.WriteKeyword("key`.'\"Word\\")
 		ctx.WritePlain(" ")
 		ctx.WriteString("str`.'\"ing\\")
 		ctx.WritePlain(" ")

@@ -14,12 +14,18 @@ type CallStmt struct {
 
 // Restore implements Node interface.
 func (n *CallStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CALL ")
+	if n == nil || !nodePresent(n.Name) {
+		return errors.New("restore CallStmt: missing name")
+	}
+	ctx.WriteKeyword("CALL ")
 	if err := n.Name.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore CallStmt.Name")
 	}
 	ctx.WritePlain("(")
 	for i, arg := range n.Args {
+		if !nodePresent(arg) {
+			return errors.Errorf("restore CallStmt.Args[%d]: nil expression", i)
+		}
 		if i > 0 {
 			ctx.WritePlain(", ")
 		}
@@ -28,27 +34,48 @@ func (n *CallStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	ctx.WritePlain(")")
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node interface.
 func (n *CallStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return nil, false
 	}
-	n = newNode.(*CallStmt)
+	newNode, skipChildren := v.Enter(n)
+	updated, ok := newNode.(*CallStmt)
+	if !ok || updated == nil {
+		return newNode, false
+	}
+	if skipChildren {
+		return v.Leave(updated)
+	}
+	n = updated
+	if !nodePresent(n.Name) {
+		return n, false
+	}
 	name, ok := n.Name.Accept(v)
 	if !ok {
 		return n, false
 	}
-	n.Name = name.(*TableName)
+	updatedName, ok := name.(*TableName)
+	if !ok || updatedName == nil {
+		return n, false
+	}
+	n.Name = updatedName
 	for i, arg := range n.Args {
+		if !nodePresent(arg) {
+			return n, false
+		}
 		node, ok := arg.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Args[i] = node.(ExprNode)
+		updatedArg, ok := node.(ExprNode)
+		if !ok || !nodePresent(updatedArg) {
+			return n, false
+		}
+		n.Args[i] = updatedArg
 	}
 	return v.Leave(n)
 }

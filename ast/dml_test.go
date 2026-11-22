@@ -1,46 +1,60 @@
 package ast_test
 
 import (
+	"bytes"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
+	dformat "github.com/mia0x75/myparser/format"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 func TestDMLVisitorCover(t *testing.T) {
 	ce := &checkExpr{}
 
-	tableRefsClause := &TableRefsClause{TableRefs: &Join{Left: &TableSource{Source: &TableName{}}, On: &OnCondition{Expr: ce}}}
+	joinWithOn := &JoinExpr{BaseJoinExpr: pkast.BaseJoinExpr{
+		Left:  &TableSource{BaseTableSource: pkast.BaseTableSource{Source: &TableName{}}},
+		Right: &TableName{}, Type: pkast.JoinTypeInner, On: ce,
+	}}
+	tableRefsClause := &TableRefsClause{BaseFromClause: pkast.BaseFromClause{Table: joinWithOn}}
 
 	stmts := []struct {
 		node             Node
 		expectedEnterCnt int
 		expectedLeaveCnt int
 	}{
-		{&DeleteStmt{TableRefs: tableRefsClause, Tables: &DeleteTableList{}, Where: ce,
-			Order: &OrderByClause{}, Limit: &Limit{Count: ce, Offset: ce}}, 4, 4},
-		{&ShowStmt{Table: &TableName{}, Column: &ColumnName{}, Pattern: &PatternLikeExpr{Expr: ce, Pattern: ce}, Where: ce}, 3, 3},
-		{&LoadDataStmt{Table: &TableName{}, Columns: []*ColumnName{{}}, FieldsInfo: &FieldsClause{}, LinesInfo: &LinesClause{}}, 0, 0},
-		{&Assignment{Column: &ColumnName{}, Expr: ce}, 1, 1},
-		{&ByItem{Expr: ce}, 1, 1},
-		{&GroupByClause{Items: []*ByItem{{Expr: ce}, {Expr: ce}}}, 2, 2},
-		{&HavingClause{Expr: ce}, 1, 1},
-		{&Join{Left: &TableSource{Source: &TableName{}}}, 0, 0},
-		{&Limit{Count: ce, Offset: ce}, 2, 2},
-		{&OnCondition{Expr: ce}, 1, 1},
-		{&OrderByClause{Items: []*ByItem{{Expr: ce}, {Expr: ce}}}, 2, 2},
-		{&SelectField{Expr: ce, WildCard: &WildCardField{}}, 1, 1},
+		{&DeleteStmt{BaseDeleteStmt: pkast.BaseDeleteStmt{Table: tableRefsClause.Table, Where: ce,
+			OrderBy: &OrderByClause{}, Limit: &Limit{BaseLimit: pkast.BaseLimit{Count: ce, Offset: ce}}}}, 4, 4},
+		{&ShowStmt{Table: &TableName{}, Column: &QualifiedName{}, Pattern: &PatternLikeExpr{Expr: ce, Pattern: ce}, Where: ce}, 3, 3},
+		{&LoadDataStmt{Table: &TableName{}, Columns: []QualifiedName{}, FieldsInfo: &FieldsClause{}, LinesInfo: &LinesClause{}}, 0, 0},
+		{&Assignment{Target: ce, Expr: ce}, 2, 2},
+		{&OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: ce}}, 1, 1},
+		{&GroupItem{BaseGroupItem: pkast.BaseGroupItem{Expr: ce}}, 1, 1},
+		{&PartitionItem{Expr: ce}, 1, 1},
+		{&GroupByClause{Items: []GroupItemNode{&GroupItem{BaseGroupItem: pkast.BaseGroupItem{Expr: ce}}, &GroupItem{BaseGroupItem: pkast.BaseGroupItem{Expr: ce}}}}, 2, 2},
+		{&SelectStmt{BaseSelectStmt: pkast.BaseSelectStmt{Having: ce}}, 1, 1},
+		{&JoinExpr{BaseJoinExpr: pkast.BaseJoinExpr{Left: &TableSource{BaseTableSource: pkast.BaseTableSource{Source: &TableName{}}}}}, 0, 0},
+		{&Limit{BaseLimit: pkast.BaseLimit{Count: ce, Offset: ce}}, 2, 2},
+		{joinWithOn, 1, 1},
+		{&OrderByClause{BaseOrderByClause: pkast.BaseOrderByClause{Items: []OrderItemNode{&OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: ce}}, &OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: ce}}}}}, 2, 2},
+		{&SelectItem{Expr: ce}, 1, 1},
+		{&WildcardExpr{}, 0, 0},
 		{&TableName{}, 0, 0},
 		{tableRefsClause, 1, 1},
-		{&TableSource{Source: &TableName{}}, 0, 0},
-		{&WildCardField{}, 0, 0},
+		{&TableSource{BaseTableSource: pkast.BaseTableSource{Source: &TableName{}}}, 0, 0},
 
-		// TODO: cover childrens
-		{&InsertStmt{Table: tableRefsClause}, 1, 1},
+		{&InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{
+			Table: &TableName{}, Columns: []ExprNode{ce}, Values: [][]ExprNode{{ce}},
+		}}, 2, 2},
 		{&SetOprStmt{}, 0, 0},
-		{&UpdateStmt{TableRefs: tableRefsClause}, 1, 1},
+		{&UpdateStmt{BaseUpdateStmt: pkast.BaseUpdateStmt{Table: tableRefsClause.Table}}, 1, 1},
 		{&SelectStmt{}, 0, 0},
 		{&FieldList{}, 0, 0},
-		{&SetOprSelectList{}, 0, 0},
 		{&WindowSpec{}, 0, 0},
 		{&PartitionByClause{}, 0, 0},
 		{&FrameClause{}, 0, 0},
@@ -60,6 +74,69 @@ func TestDMLVisitorCover(t *testing.T) {
 	}
 }
 
+func TestSelectStmtVisitsSharedClauses(t *testing.T) {
+	expr := &checkExpr{}
+	stmt := &SelectStmt{BaseSelectStmt: pkast.BaseSelectStmt{
+		Fields: &FieldList{Items: []*SelectItem{{Expr: expr}}},
+		From: &TableRefsClause{BaseFromClause: pkast.BaseFromClause{Table: &JoinExpr{
+			BaseJoinExpr: pkast.BaseJoinExpr{Left: &TableName{}, On: expr},
+		}}},
+		Where: expr,
+		GroupBy: &GroupByClause{BaseGroupByClause: pkast.BaseGroupByClause{
+			Items: []pkast.GroupItemNode{&GroupItem{BaseGroupItem: pkast.BaseGroupItem{Expr: expr}}},
+		}},
+		Having:      expr,
+		WindowSpecs: []pkast.WindowSpecNode{&WindowSpec{}},
+		OrderBy: &OrderByClause{BaseOrderByClause: pkast.BaseOrderByClause{
+			Items: []OrderItemNode{&OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: expr}}},
+		}},
+		Limit: &Limit{BaseLimit: pkast.BaseLimit{Count: expr}},
+		With:  &WithClause{},
+	}}
+
+	got, ok := stmt.Accept(checkVisitor{})
+	if !ok || got != stmt {
+		t.Fatalf("Accept() = (%T, %v), want the same SELECT node", got, ok)
+	}
+	if expr.enterCnt != 7 || expr.leaveCnt != 7 {
+		t.Fatalf("expression visits = (%d, %d), want (7, 7)", expr.enterCnt, expr.leaveCnt)
+	}
+}
+
+func TestQueryLeafInvalidChildren(t *testing.T) {
+	values := &ValuesStmt{BaseValuesStmt: pkast.BaseValuesStmt{Rows: []pkast.RowNode{nil}}}
+	var valuesOut bytes.Buffer
+	if err := values.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &valuesOut)); err == nil {
+		t.Fatal("VALUES restored a nil row")
+	}
+	if _, ok := values.Accept(checkVisitor{}); ok {
+		t.Fatal("VALUES visited a nil row")
+	}
+	values.Rows = []pkast.RowNode{(*RowExpr)(nil)}
+	if err := values.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &valuesOut)); err == nil {
+		t.Fatal("VALUES restored a typed nil row")
+	}
+	if _, ok := values.Accept(checkVisitor{}); ok {
+		t.Fatal("VALUES visited a typed nil row")
+	}
+
+	table := &TableStmt{}
+	var tableOut bytes.Buffer
+	if err := table.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &tableOut)); err == nil {
+		t.Fatal("TABLE restored a nil reference")
+	}
+	if _, ok := table.Accept(checkVisitor{}); ok {
+		t.Fatal("TABLE visited a nil reference")
+	}
+	table.Table = (*TableName)(nil)
+	if err := table.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &tableOut)); err == nil {
+		t.Fatal("TABLE restored a typed nil reference")
+	}
+	if _, ok := table.Accept(checkVisitor{}); ok {
+		t.Fatal("TABLE visited a typed nil reference")
+	}
+}
+
 func TestTableNameRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"dbb.`tbb1`", "`dbb`.`tbb1`"},
@@ -75,7 +152,7 @@ func TestTableNameRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE %s (id VARCHAR(128) NOT NULL);", extractNodeFunc)
 }
 
-func TestTableNameIndexHintsRestore(t *testing.T) {
+func TestTableSourceIndexHintsRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"t use index (hello)", "`t` USE INDEX (`hello`)"},
 		{"t use index (hello, world)", "`t` USE INDEX (`hello`, `world`)"},
@@ -109,7 +186,7 @@ func TestTableNameIndexHintsRestore(t *testing.T) {
 		{"t use index for order by (`foo``bar`) ignore key for group by (`baz``1`, `xyz`)", "`t` USE INDEX FOR ORDER BY (`foo``bar`) IGNORE INDEX FOR GROUP BY (`baz``1`, `xyz`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).From.TableRefs.Left.(*TableSource).Source.(*TableName)
+		return node.(*SelectStmt).From.FromClauseCore().Table.(*JoinExpr).Left.(*TableSource)
 	}
 	RunNodeRestoreTest(t, testCases, "SELECT * FROM %s", extractNodeFunc)
 }
@@ -126,28 +203,154 @@ func TestLimitRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "SELECT 1 %s", extractNodeFunc)
 }
 
-func TestWildCardFieldRestore(t *testing.T) {
+func TestLimitEnterReplacement(t *testing.T) {
+	original := &Limit{BaseLimit: pkast.BaseLimit{Count: sharedIntLiteral("1"), Offset: sharedIntLiteral("2")}}
+	originalCount, originalOffset := original.Count, original.Offset
+	count, offset := sharedIntLiteral("3"), sharedIntLiteral("4")
+	replacement := &Limit{BaseLimit: pkast.BaseLimit{Count: count, Offset: offset}}
+	updatedCount := sharedIntLiteral("5")
+	var entered, left []Node
+	got, ok := original.Accept(operatorVisitor{
+		enter: func(n Node) (Node, bool) {
+			entered = append(entered, n)
+			if n == original {
+				return replacement, false
+			}
+			return n, false
+		},
+		leave: func(n Node) (Node, bool) {
+			left = append(left, n)
+			if n == count {
+				return updatedCount, true
+			}
+			return n, true
+		},
+	})
+	if !ok || got != replacement || replacement.Count != updatedCount || replacement.Offset != offset {
+		t.Fatal("Enter replacement must receive its visited children")
+	}
+	if !reflect.DeepEqual(entered, []Node{original, count, offset}) || !reflect.DeepEqual(left, []Node{count, offset, replacement}) {
+		t.Fatalf("wrong traversal: entered=%v, left=%v", entered, left)
+	}
+	if original.Count != originalCount || original.Offset != originalOffset {
+		t.Fatal("replacement traversal changed the old LIMIT")
+	}
+	t.Run("skip replacement", func(t *testing.T) {
+		var visited []Node
+		got, ok := original.Accept(operatorVisitor{
+			enter: func(n Node) (Node, bool) {
+				visited = append(visited, n)
+				return replacement, true
+			},
+			leave: func(n Node) (Node, bool) { return n, true },
+		})
+		if !ok || got != replacement || !reflect.DeepEqual(visited, []Node{original}) {
+			t.Fatal("skipping must leave the replacement without visiting its expressions")
+		}
+	})
+	t.Run("stop replacement child", func(t *testing.T) {
+		var visited, left []Node
+		_, ok := original.Accept(operatorVisitor{
+			enter: func(n Node) (Node, bool) {
+				visited = append(visited, n)
+				if n == original {
+					return replacement, false
+				}
+				return n, false
+			},
+			leave: func(n Node) (Node, bool) {
+				left = append(left, n)
+				return n, false
+			},
+		})
+		if ok || !reflect.DeepEqual(visited, []Node{original, updatedCount}) || !reflect.DeepEqual(left, []Node{updatedCount}) {
+			t.Fatal("stopping the count must skip the offset and the outer Leave")
+		}
+	})
+}
+
+func TestLimitRejectsInvalidReplacement(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		for _, wrong := range []struct {
+			name string
+			node Node
+		}{{"wrong type", &TableName{}}, {"nil", nil}, {"typed nil", (*Limit)(nil)}} {
+			t.Run(fmt.Sprintf("%s/skip=%t", wrong.name, skip), func(t *testing.T) {
+				limit := &Limit{}
+				_, ok := limit.Accept(operatorVisitor{
+					enter: func(n Node) (Node, bool) { return wrong.node, skip },
+					leave: func(n Node) (Node, bool) { t.Fatal("invalid outer reached Leave"); return n, true },
+				})
+				if ok {
+					t.Fatal("invalid outer replacement accepted")
+				}
+			})
+		}
+	}
+	for _, slot := range []string{"count", "offset"} {
+		t.Run(slot, func(t *testing.T) {
+			count, offset := sharedIntLiteral("1"), sharedIntLiteral("2")
+			limit := &Limit{BaseLimit: pkast.BaseLimit{Count: count, Offset: offset}}
+			target := count
+			if slot == "offset" {
+				target = offset
+			}
+			_, ok := limit.Accept(operatorVisitor{
+				enter: func(n Node) (Node, bool) { return n, false },
+				leave: func(n Node) (Node, bool) {
+					if n == target {
+						return &TableName{}, true
+					}
+					return n, true
+				},
+			})
+			if ok || limit.Count != count || limit.Offset != offset {
+				t.Fatal("invalid child replacement must stop without changing expressions")
+			}
+		})
+	}
+}
+
+func TestLimitRestoreRequiresCount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		node *Limit
+	}{{"nil receiver", nil}, {"empty", &Limit{}}, {"offset only", &Limit{BaseLimit: pkast.BaseLimit{Offset: sharedIntLiteral("1")}}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			if err := tc.node.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil || out.Len() != 0 {
+				t.Fatalf("incomplete LIMIT must fail before writing: err=%v, output=%q", err, out.String())
+			}
+		})
+	}
+}
+
+func TestWildcardExprRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"*", "*"},
 		{"t.*", "`t`.*"},
 		{"testdb.t.*", "`testdb`.`t`.*"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].WildCard
+		return node.(*SelectStmt).Fields.Items[0].Expr.(*WildcardExpr)
 	}
 	RunNodeRestoreTest(t, testCases, "SELECT %s", extractNodeFunc)
 }
 
-func TestSelectFieldRestore(t *testing.T) {
+func TestSelectItemRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"*", "*"},
 		{"t.*", "`t`.*"},
 		{"testdb.t.*", "`testdb`.`t`.*"},
 		{"col as a", "`col` AS `a`"},
 		{"col + 1 a", "`col`+1 AS `a`"},
+		{"1 AS ''", "1 AS ``"},
+		{`1 AS ""`, "1 AS ``"},
+		{"1 AS '列''别'", "1 AS `列'别`"},
+		{"`db.dot`.`t``.dot`.*", "`db.dot`.`t``.dot`.*"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0]
+		return node.(*SelectStmt).Fields.Items[0]
 	}
 	RunNodeRestoreTest(t, testCases, "SELECT %s", extractNodeFunc)
 }
@@ -174,7 +377,7 @@ func TestTableSourceRestore(t *testing.T) {
 		{"(select * from a union select * from b) as t", "(SELECT * FROM `a` UNION SELECT * FROM `b`) AS `t`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).From.TableRefs.Left
+		return node.(*SelectStmt).From.FromClauseCore().Table.(*JoinExpr).Left
 	}
 	RunNodeRestoreTest(t, testCases, "select * from %s", extractNodeFunc)
 }
@@ -184,10 +387,28 @@ func TestOnConditionRestore(t *testing.T) {
 		{"on t1.a=t2.a", "ON `t1`.`a`=`t2`.`a`"},
 		{"on t1.a=t2.a and t1.b=t2.b", "ON `t1`.`a`=`t2`.`a` AND `t1`.`b`=`t2`.`b`"},
 	}
-	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).From.TableRefs.On
+	for _, tc := range testCases {
+		t.Run(tc.sourceSQL, func(t *testing.T) {
+			stmt, err := myparser.New().ParseOneStmt(fmt.Sprintf("select * from t1 join t2 %s", tc.sourceSQL), "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			join := stmt.(*SelectStmt).From.FromClauseCore().Table.(*JoinExpr)
+			var buf strings.Builder
+			want := "`t1` JOIN `t2` " + tc.expectSQL
+			if err := join.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &buf)); err != nil || buf.String() != want {
+				t.Fatalf("join restored %q, want %q; err=%v", buf.String(), want, err)
+			}
+			if join.On == nil {
+				t.Fatal("missing direct ON expression")
+			}
+			buf.Reset()
+			want = strings.TrimPrefix(tc.expectSQL, "ON ")
+			if err := join.On.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &buf)); err != nil || buf.String() != want {
+				t.Fatalf("ON expression restored %q, want %q; err=%v", buf.String(), want, err)
+			}
+		})
 	}
-	RunNodeRestoreTest(t, testCases, "select * from t1 join t2 %s", extractNodeFunc)
 }
 
 func TestJoinRestore(t *testing.T) {
@@ -214,7 +435,7 @@ func TestJoinRestore(t *testing.T) {
 		{"t1, t2, t3", "((`t1`) JOIN `t2`) JOIN `t3`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).From.TableRefs
+		return node.(*SelectStmt).From.FromClauseCore().Table.(*JoinExpr)
 	}
 	RunNodeRestoreTest(t, testCases, "select * from %s", extractNodeFunc)
 }
@@ -235,21 +456,65 @@ func TestDeleteTableListRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"t1,t2", "`t1`,`t2`"},
 	}
-	extractNodeFunc := func(node Node) Node {
-		return node.(*DeleteStmt).Tables
+	for _, tc := range testCases {
+		for _, form := range []struct{ template, canonical string }{
+			{"DELETE %s FROM t1, t2;", "DELETE `t1`,`t2` FROM (`t1`) JOIN `t2`"},
+			{"DELETE FROM %s USING t1, t2;", "DELETE FROM `t1`,`t2` USING (`t1`) JOIN `t2`"},
+		} {
+			t.Run(form.template+tc.sourceSQL, func(t *testing.T) {
+				p := myparser.New()
+				sourceSQL := fmt.Sprintf(form.template, tc.sourceSQL)
+				stmt, err := p.ParseOneStmt(sourceSQL, "", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				del := stmt.(*DeleteStmt)
+				if del.Table != nil || del.Using == nil || !del.IsMultiTable || len(del.Targets) != 2 {
+					t.Fatalf("targets shape lost: %+v", del)
+				}
+				var list strings.Builder
+				for i, target := range del.Targets {
+					if target == nil || len(target.Name.Parts) != 1 || target.Name.Parts[0].Name != fmt.Sprintf("t%d", i+1) {
+						t.Fatalf("target %d or its order lost", i)
+					}
+					if i != 0 {
+						list.WriteString(",")
+					}
+					if err := target.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &list)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if list.String() != tc.expectSQL {
+					t.Fatalf("restored targets = %q, want %q", list.String(), tc.expectSQL)
+				}
+				var full strings.Builder
+				if err := del.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &full)); err != nil || full.String() != form.canonical {
+					t.Fatalf("full restore = %q, want %q, err=%v", full.String(), form.canonical, err)
+				}
+				stmt2, err := p.ParseOneStmt(full.String(), "", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				CleanNodeText(stmt)
+				normalizeSyntaxMetadata(stmt)
+				CleanNodeText(stmt2)
+				normalizeSyntaxMetadata(stmt2)
+				if !reflect.DeepEqual(stmt2, stmt) {
+					t.Fatalf("canonical round trip: got %#v, want %#v", stmt2, stmt)
+				}
+			})
+		}
 	}
-	RunNodeRestoreTest(t, testCases, "DELETE %s FROM t1, t2;", extractNodeFunc)
-	RunNodeRestoreTest(t, testCases, "DELETE FROM %s USING t1, t2;", extractNodeFunc)
 }
 
-func TestByItemRestore(t *testing.T) {
+func TestOrderItemRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"a", "`a`"},
 		{"a desc", "`a` DESC"},
 		{"NULL", "NULL"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).OrderBy.Items[0]
+		return node.(*SelectStmt).OrderBy.OrderByClauseCore().Items[0]
 	}
 	RunNodeRestoreTest(t, testCases, "select * from t order by %s", extractNodeFunc)
 }
@@ -276,7 +541,7 @@ func TestOrderByClauseRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "SELECT 1 FROM t1 %s", extractNodeFunc)
 
 	extractNodeFromSetOprStmtFunc := func(node Node) Node {
-		return node.(*SetOprStmt).OrderBy
+		return node.(*SetOprStmt).Tail.OrderBy
 	}
 	RunNodeRestoreTest(t, testCases, "SELECT 1 FROM t1 UNION SELECT 2 FROM t2 %s", extractNodeFromSetOprStmtFunc)
 }
@@ -287,21 +552,33 @@ func TestAssignmentRestore(t *testing.T) {
 		{"b=1+2", "`b`=1+2"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*UpdateStmt).List[0]
+		return node.(*UpdateStmt).Assignments[0]
 	}
 	RunNodeRestoreTest(t, testCases, "UPDATE t1 SET %s", extractNodeFunc)
 }
 
 func TestHavingClauseRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
-		{"HAVING a", "HAVING `a`"},
-		{"HAVING NULL", "HAVING NULL"},
-		{"HAVING a>b", "HAVING `a`>`b`"},
+		{"a", "`a`"},
+		{"NULL", "NULL"},
+		{"a>b", "`a`>`b`"},
 	}
 	extractNodeFunc := func(node Node) Node {
 		return node.(*SelectStmt).Having
 	}
-	RunNodeRestoreTest(t, testCases, "select 1 from t1 group by 1 %s", extractNodeFunc)
+	RunNodeRestoreTest(t, testCases, "select 1 from t1 group by 1 HAVING %s", extractNodeFunc)
+	for _, tc := range testCases {
+		sql := "select 1 from t1 group by 1 HAVING " + tc.sourceSQL
+		stmt, err := myparser.New().ParseOneStmt(sql, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf strings.Builder
+		want := "SELECT 1 FROM `t1` GROUP BY 1 HAVING " + tc.expectSQL
+		if err := stmt.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &buf)); err != nil || buf.String() != want {
+			t.Fatalf("SELECT restored %q, want %q; err=%v", buf.String(), want, err)
+		}
+	}
 }
 
 func TestFrameBoundRestore(t *testing.T) {
@@ -319,9 +596,16 @@ func TestFrameBoundRestore(t *testing.T) {
 		{"INTERVAL '2:30' MINUTE_SECOND FOLLOWING", "INTERVAL '2:30' MINUTE_SECOND FOLLOWING"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return &node.(*SelectStmt).Fields.Fields[0].Expr.(*WindowFuncExpr).Spec.Frame.Extent.Start
+		return node.(*SelectStmt).Fields.Items[0].Expr.(*WindowFuncExpr).Spec.Frame.(*FrameClause).Extent.Start
 	}
 	RunNodeRestoreTest(t, testCases, "select avg(val) over (rows between %s and current row) from t", extractNodeFunc)
+}
+
+func TestFrameBoundRestoreRejectsInvalidUnit(t *testing.T) {
+	frame := &FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: Preceding, Expr: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}}, Unit: lex.Ident{Name: "INVALID"}}}
+	if err := frame.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &bytes.Buffer{})); err == nil {
+		t.Fatal("Restore() succeeded with an invalid frame unit")
+	}
 }
 
 func TestFrameClauseRestore(t *testing.T) {
@@ -338,7 +622,7 @@ func TestFrameClauseRestore(t *testing.T) {
 		{"RANGE BETWEEN INTERVAL 5 DAY PRECEDING AND INTERVAL '2:30' MINUTE_SECOND FOLLOWING", "RANGE BETWEEN INTERVAL 5 DAY PRECEDING AND INTERVAL '2:30' MINUTE_SECOND FOLLOWING"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr.(*WindowFuncExpr).Spec.Frame
+		return node.(*SelectStmt).Fields.Items[0].Expr.(*WindowFuncExpr).Spec.Frame
 	}
 	RunNodeRestoreTest(t, testCases, "select avg(val) over (%s) from t", extractNodeFunc)
 }
@@ -350,7 +634,7 @@ func TestPartitionByClauseRestore(t *testing.T) {
 		{"PARTITION BY a, b", "PARTITION BY `a`, `b`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr.(*WindowFuncExpr).Spec.PartitionBy
+		return node.(*SelectStmt).Fields.Items[0].Expr.(*WindowFuncExpr).Spec.PartitionBy
 	}
 	RunNodeRestoreTest(t, testCases, "select avg(val) over (%s rows current row) from t", extractNodeFunc)
 }
@@ -363,7 +647,7 @@ func TestWindowSpecRestore(t *testing.T) {
 		{"w as (partition by a order by b rows current row)", "`w` AS (PARTITION BY `a` ORDER BY `b` ROWS BETWEEN CURRENT ROW AND CURRENT ROW)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return &node.(*SelectStmt).WindowSpecs[0]
+		return node.(*SelectStmt).WindowSpecs[0]
 	}
 	RunNodeRestoreTest(t, testCases, "select rank() over w from t window %s", extractNodeFunc)
 
@@ -375,7 +659,55 @@ func TestWindowSpecRestore(t *testing.T) {
 		{"(PARTITION BY a ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)", "(PARTITION BY `a` ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)"},
 	}
 	extractNodeFunc = func(node Node) Node {
-		return &node.(*SelectStmt).Fields.Fields[0].Expr.(*WindowFuncExpr).Spec
+		return &node.(*SelectStmt).Fields.Items[0].Expr.(*WindowFuncExpr).Spec
 	}
 	RunNodeRestoreTest(t, testCases, "select rank() over %s from t window w as (order by a)", extractNodeFunc)
+}
+
+// TestSelectIntoStatementRestore pins the charset and filename spelling of the
+// INTO OUTFILE option: the charset stays a plain string (not a QualifiedName)
+// and is dropped when absent.
+func TestSelectIntoStatementRestore(t *testing.T) {
+	p := myparser.New()
+	for _, sql := range []string{
+		"select * from t into outfile 'f'",
+		"select * from t into outfile 'f' character set utf8mb4",
+		"select * from t into dumpfile 'f'",
+		"select a from t into @x, @y",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			stmt, err := p.ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out strings.Builder
+			if err := stmt.(*SelectStmt).Into.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err != nil {
+				t.Fatal(err)
+			}
+			restored := sql[:strings.LastIndex(sql, "into")] + out.String()
+			stmt2, err := p.ParseOneStmt(restored, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var a, b strings.Builder
+			if err := stmt.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &a)); err != nil {
+				t.Fatal(err)
+			}
+			if err := stmt2.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &b)); err != nil {
+				t.Fatal(err)
+			}
+			if a.String() != b.String() {
+				t.Fatalf("into-clause restore lost meaning: %q vs %q", a.String(), b.String())
+			}
+		})
+	}
+
+	// The zero value type is not a valid option type; Restore must reject it.
+	for _, node := range []*SelectIntoStatement{{}} {
+		var out strings.Builder
+		err := node.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out))
+		if err == nil || out.Len() != 0 {
+			t.Fatalf("SelectIntoStatement.Restore(%+v) wrote %q, err=%v; want no output and an error", node, out.String(), err)
+		}
+	}
 }

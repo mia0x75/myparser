@@ -9,7 +9,8 @@ import (
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/auth"
 	restoreformat "github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/model"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 // https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html
@@ -315,11 +316,11 @@ func TestReplicationASTPresence(t *testing.T) {
 		t.Fatalf("empty channel or explicit empty ID list was lost: %#v", change)
 	}
 	control := mustParseOne(t, "start replica sql_thread for channel '' until master_gtid_pos='0-1-4'").(*ast.ReplicaControlStmt)
-	if !control.Start || !control.Replica || !control.HasChannel || !control.ChannelBeforeUntil || len(control.UntilOptions) != 1 || control.UntilOptions[0].Column.Name.O != "MASTER_GTID_POS" {
+	if !control.Start || !control.Replica || !control.HasChannel || !control.ChannelBeforeUntil || len(control.UntilOptions) != 1 || replicationOptionName(control.UntilOptions[0]) != "MASTER_GTID_POS" {
 		t.Fatalf("MariaDB channel/UNTIL ordering was lost: %#v", control)
 	}
 	control = mustParseOne(t, "start replica until sql_after_mts_gaps user='u'").(*ast.ReplicaControlStmt)
-	if !control.UntilAfterGaps || control.UntilOptions != nil || len(control.ConnectionOptions) != 1 || control.ConnectionOptions[0].Column.Name.O != "USER" {
+	if !control.UntilAfterGaps || control.UntilOptions != nil || len(control.ConnectionOptions) != 1 || replicationOptionName(control.ConnectionOptions[0]) != "USER" {
 		t.Fatalf("bare stopping condition or connection options were lost: %#v", control)
 	}
 	control = mustParseOne(t, "stop all replicas").(*ast.ReplicaControlStmt)
@@ -334,13 +335,13 @@ func TestReplicationVisitors(t *testing.T) {
 		want map[string]int
 	}{
 		{"change replication source to ignore_server_ids=(1,2), require_table_primary_key_check=on, privilege_checks_user='u'@'h'",
-			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.Assignment": 3, "*ast.ColumnName": 3, "*ast.ReplicationOptionValue": 3, "*driver.ValueExpr": 2}},
+			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.ReplicationOption": 3, "*ast.ReplicationOptionValue": 3, "*ast.LiteralExpr": 2}},
 		{"start replica until source_log_file='bin.1', source_log_pos=4 user='u' password='p' default_auth='a' plugin_dir='d'",
-			map[string]int{"*ast.ReplicaControlStmt": 1, "*ast.Assignment": 6, "*ast.ColumnName": 6, "*driver.ValueExpr": 6}},
+			map[string]int{"*ast.ReplicaControlStmt": 1, "*ast.ReplicationOption": 6, "*ast.LiteralExpr": 6}},
 		{"change master to master_use_gtid=default, master_ssl_ca=default",
-			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.Assignment": 2, "*ast.ColumnName": 2, "*ast.DefaultExpr": 2}},
+			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.ReplicationOption": 2, "*ast.DefaultExpr": 2}},
 		{"change master 'c' to master_port=+3306, do_domain_ids=(+1)",
-			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.Assignment": 2, "*ast.ColumnName": 2, "*ast.UnaryOperationExpr": 2, "*ast.ReplicationOptionValue": 1, "*driver.ValueExpr": 2}},
+			map[string]int{"*ast.ChangeMasterStmt": 1, "*ast.ReplicationOption": 2, "*ast.UnaryOperationExpr": 2, "*ast.ReplicationOptionValue": 1, "*ast.LiteralExpr": 2}},
 		{"start replica until sql_after_mts_gaps", map[string]int{"*ast.ReplicaControlStmt": 1}},
 	}
 	for _, tc := range cases {
@@ -390,8 +391,8 @@ func TestReplicationVisitors(t *testing.T) {
 				copy.User = &auth.UserIdentity{Username: "v", Hostname: "%"}
 			}
 			return &copy, false
-		case ast.ValueExpr:
-			return ast.NewValueExpr(int64(9)), false
+		case *ast.LiteralExpr:
+			return replaceLiteral(n, "9"), false
 		}
 		return n, false
 	}})
@@ -405,10 +406,10 @@ func TestReplicationVisitors(t *testing.T) {
 	}
 	start := mustParseOne(t, "start replica until source_log_file='bin.1', source_log_pos=4 user='u'")
 	_, ok = start.Accept(extensionVisitor{enter: func(n ast.Node) (ast.Node, bool) {
-		if n, match := n.(*ast.Assignment); match && n.Column.Name.O == "USER" {
+		if n, match := n.(*ast.ReplicationOption); match && replicationOptionName(n) == "USER" {
 			copy := *n
-			copy.Column = &ast.ColumnName{Name: model.NewCIStr("PASSWORD")}
-			copy.Expr = ast.NewValueExpr("replacement")
+			copy.Name = lex.Ident{Name: "PASSWORD"}
+			copy.Expr = &ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "replacement"}}
 			return &copy, false
 		}
 		return n, false
@@ -418,7 +419,7 @@ func TestReplicationVisitors(t *testing.T) {
 	}
 	values := 0
 	_, ok = mustParseOne(t, cases[0].src).Accept(extensionVisitor{enter: func(n ast.Node) (ast.Node, bool) {
-		if _, match := n.(ast.ValueExpr); match {
+		if _, match := n.(*ast.LiteralExpr); match {
 			values++
 		}
 		_, skip := n.(*ast.ReplicationOptionValue)
@@ -436,7 +437,10 @@ func TestReplicationValueFormatting(t *testing.T) {
 	}{
 		{&ast.ReplicationOptionValue{Keyword: "ON"}, "ON"},
 		{&ast.ReplicationOptionValue{Values: []ast.ExprNode{}}, "()"},
-		{&ast.ReplicationOptionValue{Values: []ast.ExprNode{ast.NewValueExpr(int64(1)), ast.NewValueExpr(uint64(18446744073709551615))}}, "(1, 18446744073709551615)"},
+		{&ast.ReplicationOptionValue{Values: []ast.ExprNode{
+			&ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}},
+			&ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "18446744073709551615"}},
+		}}, "(1, 18446744073709551615)"},
 		{&ast.ReplicationOptionValue{User: &auth.UserIdentity{Username: "u'v", Hostname: ""}}, "'u''v'@''"},
 	}
 	for _, tc := range cases {
@@ -457,10 +461,10 @@ func TestReplicationValueFormatting(t *testing.T) {
 		t.Fatal("empty replication value should fail Restore")
 	}
 	for _, stmt := range []ast.StmtNode{
-		&ast.ChangeMasterStmt{Options: []*ast.Assignment{nil}},
-		&ast.ChangeMasterStmt{Options: []*ast.Assignment{{Expr: ast.NewValueExpr(int64(1))}}},
-		&ast.ReplicaControlStmt{Start: true, UntilOptions: []*ast.Assignment{{Column: &ast.ColumnName{Name: model.NewCIStr("SOURCE_LOG_POS")}}}},
-		&ast.ReplicaControlStmt{Start: true, ConnectionOptions: []*ast.Assignment{nil}},
+		&ast.ChangeMasterStmt{Options: []*ast.ReplicationOption{nil}},
+		&ast.ChangeMasterStmt{Options: []*ast.ReplicationOption{{Expr: &ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}}}}},
+		&ast.ReplicaControlStmt{Start: true, UntilOptions: []*ast.ReplicationOption{{Name: lex.Ident{Name: "SOURCE_LOG_POS"}}}},
+		&ast.ReplicaControlStmt{Start: true, ConnectionOptions: []*ast.ReplicationOption{nil}},
 	} {
 		t.Run(fmt.Sprintf("%#v", stmt), func(t *testing.T) {
 			out.Reset()

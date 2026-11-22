@@ -8,6 +8,7 @@ import (
 	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
 	. "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/types"
 )
 
 // statementCorpus is a broad set of statements that the parser accepts. Each
@@ -399,16 +400,38 @@ var statementCorpus = []string{
 }
 
 // exerciseVisitor drives every method that is reachable from a parsed node:
-// Text, Accept, and for expressions Format, SetType/GetType and
-// SetFlag/GetFlag. The restore path is exercised separately.
-type exerciseVisitor struct{}
+// Text, Accept, and for expressions Format and the derived flag view.
+// The restore path is exercised separately.
+type exerciseVisitor struct {
+	t *testing.T
+}
 
 func (v *exerciseVisitor) Enter(in Node) (Node, bool) {
 	_ = in.Text()
 	if e, ok := in.(ExprNode); ok {
-		e.Format(io.Discard)
-		e.SetType(e.GetType())
-		e.SetFlag(e.GetFlag())
+		FormatExpr(e, io.Discard)
+		switch e.(type) {
+		// Migrated nodes carry only syntax through the shared Node contract.
+		case *BinaryOperationExpr, *UnaryOperationExpr, *RowExpr, *ColumnRef, *LiteralExpr,
+			*DefaultExpr, *MaxValueExpr, *IsNullExpr, *IsTruthExpr, *ParenthesesExpr,
+			*PositionExpr, *MemberOfExpr, *IsJSONExpr, *ValuesExpr, *MatchAgainst,
+			*SoundsLikeExpr, *VariableExpr, *ReplicationOptionValue, *BetweenExpr,
+			*CaseExpr, *SubqueryExpr, *CollateExpr, *CompareSubqueryExpr,
+			*ExistsSubqueryExpr, *PatternInExpr, *PatternLikeExpr, *PatternRegexpExpr,
+			*FuncCallExpr, *FuncCastExpr, *WeightStringExpr, *AggregateFuncExpr, *WindowFuncExpr,
+			*ParamMarkerExpr:
+			_ = ExprFlag(e)
+			return in, false
+		}
+		// The syntax AST no longer carries execution-layer type or flag caches.
+		if _, ok := e.(interface {
+			GetType() *types.FieldType
+			SetType(*types.FieldType)
+			GetFlag() uint64
+			SetFlag(uint64)
+		}); ok {
+			v.t.Fatalf("expression node %T still exposes execution-layer metadata", e)
+		}
 	}
 	return in, false
 }
@@ -436,10 +459,9 @@ func TestStatementCorpusRestoreVisit(t *testing.T) {
 			if s, ok := stmt.(SensitiveStmtNode); ok {
 				_ = s.SecureText()
 			}
-			stmt.Accept(&exerciseVisitor{})
+			stmt.Accept(&exerciseVisitor{t: t})
 			// A skipping visitor covers the early-return branch of Accept.
 			stmt.Accept(visitor1{})
-			SetFlag(stmt)
 			stmt.SetText(stmt.Text())
 
 			if restored := sb.String(); restored != "" {

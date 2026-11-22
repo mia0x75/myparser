@@ -214,54 +214,57 @@ func TestSelectLockAST(t *testing.T) {
 	if sel.LockWaitPolicy != ast.SelectLockWaitSkipLocked {
 		t.Fatalf("LockWaitPolicy = %v, want SelectLockWaitSkipLocked", sel.LockWaitPolicy)
 	}
-	if len(sel.LockedTables) != 1 || sel.LockedTables[0].Name.O != "t" {
+	if len(sel.LockedTables) != 1 || tableNameBareName(sel.LockedTables[0]) != "t" {
 		t.Fatalf("LockedTables = %+v, want [t]", sel.LockedTables)
 	}
 }
 
 func TestSavepointAST(t *testing.T) {
 	sp := mustParseOne(t, "savepoint sp1").(*ast.SavepointStmt)
-	if sp.Name != "sp1" {
-		t.Fatalf("SavepointStmt.Name = %q, want sp1", sp.Name)
+	if sp.Name.Name != "sp1" {
+		t.Fatalf("SavepointStmt.Name = %q, want sp1", sp.Name.Name)
 	}
 	rb := mustParseOne(t, "rollback to savepoint sp1").(*ast.RollbackStmt)
-	if rb.SavepointName != "sp1" {
-		t.Fatalf("RollbackStmt.SavepointName = %q, want sp1", rb.SavepointName)
+	if !rb.SavepointName.Present() || rb.SavepointName.Name != "sp1" {
+		t.Fatalf("RollbackStmt.SavepointName = %+v, want present sp1", rb.SavepointName)
 	}
 	rs := mustParseOne(t, "release savepoint sp1").(*ast.ReleaseSavepointStmt)
-	if rs.Name != "sp1" {
-		t.Fatalf("ReleaseSavepointStmt.Name = %q, want sp1", rs.Name)
+	if rs.Name.Name != "sp1" {
+		t.Fatalf("ReleaseSavepointStmt.Name = %q, want sp1", rs.Name.Name)
 	}
 }
 
 func TestCheckConstraintRetained(t *testing.T) {
 	stmt := mustParseOne(t, "create table t (a int check (a > 0), constraint c1 check (a < 10))").(*ast.CreateTableStmt)
-	if len(stmt.Cols) != 1 || len(stmt.Cols[0].Options) != 1 || stmt.Cols[0].Options[0].Tp != ast.ColumnOptionCheck {
-		t.Fatalf("column CHECK option not retained: %+v", stmt.Cols)
+	if len(stmt.Columns) != 1 {
+		t.Fatalf("column count = %d, want 1", len(stmt.Columns))
 	}
-	if len(stmt.Constraints) != 1 || stmt.Constraints[0].Tp != ast.ConstraintCheck || stmt.Constraints[0].Name != "c1" {
+	if opts := stmt.Columns[0].(*ast.ColumnDef).Options; len(opts) != 1 || opts[0].Tp != ast.ColumnOptionCheck {
+		t.Fatalf("column CHECK option not retained: %+v", opts)
+	}
+	if len(stmt.Constraints) != 1 || stmt.Constraints[0].(*ast.Constraint).Tp != ast.ConstraintCheck || stmt.Constraints[0].(*ast.Constraint).Name.Name != "c1" {
 		t.Fatalf("table CHECK constraint not retained: %+v", stmt.Constraints)
 	}
 }
 
 func TestReturningAST(t *testing.T) {
 	ins := mustParseOne(t, "insert into t (a) values (1) returning a, b").(*ast.InsertStmt)
-	if ins.Returning == nil || len(ins.Returning.Fields) != 2 {
+	if ins.Returning == nil || len(ins.Returning.Items) != 2 {
 		t.Fatalf("InsertStmt.Returning = %+v, want 2 fields", ins.Returning)
 	}
 	del := mustParseOne(t, "delete from t where a = 1 returning a").(*ast.DeleteStmt)
-	if del.Returning == nil || len(del.Returning.Fields) != 1 {
+	if del.Returning == nil || len(del.Returning.Items) != 1 {
 		t.Fatalf("DeleteStmt.Returning = %+v, want 1 field", del.Returning)
 	}
 	upd := mustParseOne(t, "update t set a = 1 where b = 2 returning a").(*ast.UpdateStmt)
-	if upd.Returning == nil || len(upd.Returning.Fields) != 1 {
+	if upd.Returning == nil || len(upd.Returning.Items) != 1 {
 		t.Fatalf("UpdateStmt.Returning = %+v, want 1 field", upd.Returning)
 	}
 }
 
 func TestSequenceAST(t *testing.T) {
 	stmt := mustParseOne(t, "create or replace sequence if not exists s increment by 2 minvalue 1").(*ast.CreateSequenceStmt)
-	if !stmt.OrReplace || !stmt.IfNotExists || stmt.Name.Name.O != "s" {
+	if !stmt.OrReplace || !stmt.IfNotExists || tableNameBareName(stmt.Name) != "s" {
 		t.Fatalf("unexpected CreateSequenceStmt: %+v", stmt)
 	}
 	if len(stmt.Options) != 2 {
@@ -282,11 +285,12 @@ func TestUDFAST(t *testing.T) {
 
 func TestCTEAST(t *testing.T) {
 	stmt := mustParseOne(t, "with recursive cte (n) as (select 1 union all select n + 1 from cte where n < 5) select * from cte").(*ast.SelectStmt)
-	if stmt.With == nil || !stmt.With.IsRecursive || len(stmt.With.CTEs) != 1 {
+	with := stmt.With.(*ast.WithClause)
+	if !with.IsRecursive || len(with.CTEs) != 1 {
 		t.Fatalf("unexpected WithClause: %+v", stmt.With)
 	}
-	if stmt.With.CTEs[0].Name.O != "cte" || len(stmt.With.CTEs[0].ColNames) != 1 {
-		t.Fatalf("unexpected CTE: %+v", stmt.With.CTEs[0])
+	if with.CTEs[0].Name.Name != "cte" || len(with.CTEs[0].Columns) != 1 {
+		t.Fatalf("unexpected CTE: %+v", with.CTEs[0])
 	}
 }
 
@@ -299,42 +303,42 @@ func TestXAStmtAST(t *testing.T) {
 
 func TestTablespaceAST(t *testing.T) {
 	stmt := mustParseOne(t, "create undo tablespace ts add datafile 'ts.ibd' engine innodb").(*ast.CreateTablespaceStmt)
-	if !stmt.Undo || stmt.Name != "ts" || len(stmt.Options) != 2 {
+	if !stmt.Undo || stmt.Name.Name != "ts" || len(stmt.Options) != 2 {
 		t.Fatalf("unexpected CreateTablespaceStmt: %+v", stmt)
 	}
 	if stmt.Options[0].Tp != ast.TablespaceOptionDataFile || stmt.Options[0].Str != "ts.ibd" {
 		t.Fatalf("unexpected datafile option: %+v", stmt.Options[0])
 	}
-	if stmt.Options[1].Tp != ast.TablespaceOptionEngine || stmt.Options[1].Str != "innodb" {
+	if stmt.Options[1].Tp != ast.TablespaceOptionEngine || stmt.Options[1].Engine.Name != "innodb" {
 		t.Fatalf("unexpected engine option: %+v", stmt.Options[1])
 	}
 	alt := mustParseOne(t, "alter tablespace ts rename to ts2").(*ast.AlterTablespaceStmt)
-	if alt.Name != "ts" || alt.RenameTo != "ts2" {
+	if alt.Name.Name != "ts" || alt.RenameTo.Name != "ts2" {
 		t.Fatalf("unexpected AlterTablespaceStmt: %+v", alt)
 	}
 	drop := mustParseOne(t, "drop tablespace ts engine innodb").(*ast.DropTablespaceStmt)
-	if drop.Name != "ts" || drop.Option == nil || drop.Option.Str != "innodb" {
+	if drop.Name.Name != "ts" || drop.Option == nil || drop.Option.Engine.Name != "innodb" {
 		t.Fatalf("unexpected DropTablespaceStmt: %+v", drop)
 	}
 }
 
 func TestServerAST(t *testing.T) {
 	stmt := mustParseOne(t, "create server srv foreign data wrapper 'mysql' options(host 'h', user 'u')").(*ast.CreateServerStmt)
-	if stmt.Name != "srv" || stmt.Wrapper != "mysql" || len(stmt.Options) != 2 {
+	if stmt.Name.Name != "srv" || stmt.Wrapper != "mysql" || len(stmt.Options) != 2 {
 		t.Fatalf("unexpected CreateServerStmt: %+v", stmt)
 	}
-	if stmt.Options[0].Name != "host" || stmt.Options[0].Value != "h" {
+	if stmt.Options[0].Name.Name != "host" || stmt.Options[0].Value != "h" {
 		t.Fatalf("unexpected server option: %+v", stmt.Options[0])
 	}
 	drop := mustParseOne(t, "drop server if exists srv").(*ast.DropServerStmt)
-	if !drop.IfExists || drop.Name != "srv" {
+	if !drop.IfExists || drop.Name.Name != "srv" {
 		t.Fatalf("unexpected DropServerStmt: %+v", drop)
 	}
 }
 
 func TestResourceGroupAST(t *testing.T) {
 	stmt := mustParseOne(t, "create resource group rg type = system vcpu = 0-3, 5 thread_priority 10 enable").(*ast.CreateResourceGroupStmt)
-	if stmt.Name != "rg" || !stmt.IsSystem || stmt.State != ast.ResourceGroupStateEnable {
+	if stmt.Name.Name != "rg" || !strings.EqualFold(stmt.Type.Name, "system") || stmt.State != ast.ResourceGroupStateEnable {
 		t.Fatalf("unexpected CreateResourceGroupStmt: %+v", stmt)
 	}
 	if len(stmt.VCPU) != 2 || stmt.VCPU[0].From != 0 || stmt.VCPU[0].To != 3 || stmt.VCPU[1].From != 5 || stmt.VCPU[1].To != 5 {
@@ -344,14 +348,14 @@ func TestResourceGroupAST(t *testing.T) {
 		t.Fatalf("unexpected ThreadPriority: %v", stmt.ThreadPriority)
 	}
 	drop := mustParseOne(t, "drop resource group rg force").(*ast.DropResourceGroupStmt)
-	if drop.Name != "rg" || !drop.Force {
+	if drop.Name.Name != "rg" || !drop.Force {
 		t.Fatalf("unexpected DropResourceGroupStmt: %+v", drop)
 	}
 }
 
 func TestLogfileGroupAST(t *testing.T) {
 	stmt := mustParseOne(t, "create logfile group lg add undofile 'undo.dat' initial_size 1048576 undo_buffer_size 8388608").(*ast.CreateLogfileGroupStmt)
-	if stmt.Name != "lg" || stmt.UndoFile != "undo.dat" || len(stmt.Options) != 2 {
+	if stmt.Name.Name != "lg" || stmt.UndoFile != "undo.dat" || len(stmt.Options) != 2 {
 		t.Fatalf("unexpected CreateLogfileGroupStmt: %+v", stmt)
 	}
 	if stmt.Options[0].Tp != ast.LogfileGroupOptionInitialSize || stmt.Options[0].Val != 1048576 {
@@ -365,10 +369,10 @@ func TestLogfileGroupAST(t *testing.T) {
 func TestAlterTablePartitionAST(t *testing.T) {
 	stmt := mustParseOne(t, "alter table t exchange partition p0 with table t2 without validation").(*ast.AlterTableStmt)
 	spec := stmt.Specs[0]
-	if spec.Tp != ast.AlterTableExchangePartition || spec.Name != "p0" {
+	if spec.Tp != ast.AlterTableExchangePartition || spec.Name.Name != "p0" {
 		t.Fatalf("unexpected exchange spec: %+v", spec)
 	}
-	if spec.NewTable == nil || spec.NewTable.Name.O != "t2" || !spec.WithoutValidation {
+	if spec.NewTable == nil || tableNameBareName(spec.NewTable) != "t2" || !spec.WithoutValidation {
 		t.Fatalf("unexpected exchange spec: %+v", spec)
 	}
 	reorg := mustParseOne(t, "alter table t reorganize partition p0, p1 into (partition p0 values less than (10))").(*ast.AlterTableStmt).Specs[0]
@@ -402,14 +406,14 @@ func TestSelectIntoAST(t *testing.T) {
 		t.Fatalf("unexpected dump Into: %+v", dump.Into)
 	}
 	trailing := mustParseOne(t, "select a from t into @x, y").(*ast.SelectStmt)
-	if len(trailing.IntoVars) != 2 || trailing.IntoVars[0] != "@x" || trailing.IntoVars[1] != "y" {
-		t.Fatalf("unexpected trailing IntoVars: %+v", trailing.IntoVars)
+	if trailing.Into == nil || len(trailing.Into.Targets) != 2 || trailing.Into.Targets[0].Kind != ast.VariableTargetUser || trailing.Into.Targets[1].Kind != ast.VariableTargetLocal {
+		t.Fatalf("unexpected trailing INTO targets: %+v", trailing.Into)
 	}
 }
 
 func TestTableMaintenanceAST(t *testing.T) {
 	chk := mustParseOne(t, "check table t1, t2 quick").(*ast.TableMaintenanceStmt)
-	if chk.Tp != ast.TableMaintenanceCheck || len(chk.Tables) != 2 || chk.Tables[0].Name.L != "t1" || len(chk.Options) != 1 || chk.Options[0] != "QUICK" {
+	if chk.Tp != ast.TableMaintenanceCheck || len(chk.Tables) != 2 || strings.ToLower(tableNameBareName(chk.Tables[0])) != "t1" || len(chk.Options) != 1 || chk.Options[0] != "QUICK" {
 		t.Fatalf("unexpected check stmt: %+v", chk)
 	}
 	opt := mustParseOne(t, "optimize local table t").(*ast.TableMaintenanceStmt)
@@ -428,12 +432,13 @@ func TestTableMaintenanceAST(t *testing.T) {
 
 func TestColumnVisibilityAST(t *testing.T) {
 	ct := mustParseOne(t, "create table t (a int invisible)").(*ast.CreateTableStmt)
-	opts := ct.Cols[0].Options
+	opts := ct.Columns[0].(*ast.ColumnDef).Options
 	if len(opts) != 1 || opts[0].Tp != ast.ColumnOptionInvisible {
 		t.Fatalf("unexpected options: %+v", opts)
 	}
 	ctv := mustParseOne(t, "create table t (a int visible)").(*ast.CreateTableStmt)
-	if got := ctv.Cols[0].Options[len(ctv.Cols[0].Options)-1].Tp; got != ast.ColumnOptionVisible {
+	visibleOpts := ctv.Columns[0].(*ast.ColumnDef).Options
+	if got := visibleOpts[len(visibleOpts)-1].Tp; got != ast.ColumnOptionVisible {
 		t.Fatalf("unexpected visible option: %v", got)
 	}
 }
@@ -455,102 +460,70 @@ func TestExplainFormatAST(t *testing.T) {
 
 func TestGroupByCheckOptionAST(t *testing.T) {
 	local := mustParseOne(t, "select a from t group by a with local check option").(*ast.SelectStmt)
-	if local.GroupBy == nil || !local.GroupBy.HasCheckOption || local.GroupBy.CheckOption != model.CheckOptionLocal {
+	localGroup := local.GroupBy.(*ast.GroupByClause)
+	if !localGroup.HasCheckOption || localGroup.CheckOption != model.CheckOptionLocal {
 		t.Fatalf("unexpected group by: %+v", local.GroupBy)
 	}
 	cascaded := mustParseOne(t, "select a from t group by a with cascaded check option").(*ast.SelectStmt)
-	if cascaded.GroupBy == nil || !cascaded.GroupBy.HasCheckOption || cascaded.GroupBy.CheckOption != model.CheckOptionCascaded {
+	cascadedGroup := cascaded.GroupBy.(*ast.GroupByClause)
+	if !cascadedGroup.HasCheckOption || cascadedGroup.CheckOption != model.CheckOptionCascaded {
 		t.Fatalf("unexpected group by: %+v", cascaded.GroupBy)
 	}
 	rollup := mustParseOne(t, "select a from t group by a with rollup").(*ast.SelectStmt)
-	if rollup.GroupBy == nil || !rollup.GroupBy.WithRollup || rollup.GroupBy.HasCheckOption {
+	rollupGroup := rollup.GroupBy.(*ast.GroupByClause)
+	if !rollupGroup.WithRollup || rollupGroup.HasCheckOption {
 		t.Fatalf("unexpected group by: %+v", rollup.GroupBy)
 	}
 }
 
 func TestSetOprAST(t *testing.T) {
 	stmt := mustParseOne(t, "select 1 union all select 2 except select 3 intersect select 4").(*ast.SetOprStmt)
-	if len(stmt.SelectList.Selects) != 3 {
-		t.Fatalf("Selects len = %d, want 3", len(stmt.SelectList.Selects))
+	if stmt.Operator != ast.Except || stmt.Left.(*ast.SetOprStmt).Operator != ast.UnionAll {
+		t.Fatalf("set operation tree = %s / %s, want EXCEPT over UNION ALL", stmt.Operator, stmt.Left.(*ast.SetOprStmt).Operator)
 	}
-	if op := stmt.SelectList.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.UnionAll {
-		t.Fatalf("Selects[1].AfterSetOperator = %v, want UnionAll", op)
-	}
-	intersect, ok := stmt.SelectList.Selects[2].(*ast.SetOprSelectList)
-	if !ok {
-		t.Fatalf("Selects[2] = %T, want *ast.SetOprSelectList", stmt.SelectList.Selects[2])
-	}
-	if intersect.AfterSetOperator == nil || *intersect.AfterSetOperator != ast.Except {
-		t.Fatalf("intersect.AfterSetOperator = %v, want Except", intersect.AfterSetOperator)
-	}
-	if len(intersect.Selects) != 2 {
-		t.Fatalf("intersect.Selects len = %d, want 2", len(intersect.Selects))
-	}
-	if op := intersect.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.Intersect {
-		t.Fatalf("intersect.Selects[1].AfterSetOperator = %v, want Intersect", op)
-	}
-	if stmt.SelectList.Selects[0].(*ast.SelectStmt).AfterSetOperator != nil {
-		t.Fatalf("first select should not have a set operator")
+	intersect, ok := stmt.Right.(*ast.SetOprStmt)
+	if !ok || intersect.Operator != ast.Intersect {
+		t.Fatalf("right operand = %T, want INTERSECT set operation", stmt.Right)
 	}
 
 	distinct := mustParseOne(t, "select 1 except select 2").(*ast.SetOprStmt)
-	if op := distinct.SelectList.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.Except {
-		t.Fatalf("EXCEPT = %v, want Except", op)
+	if distinct.Operator != ast.Except {
+		t.Fatalf("EXCEPT = %v, want Except", distinct.Operator)
 	}
 	all := mustParseOne(t, "select 1 intersect all select 2").(*ast.SetOprStmt)
-	if op := all.SelectList.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.IntersectAll {
-		t.Fatalf("INTERSECT ALL = %v, want IntersectAll", op)
+	if all.Operator != ast.IntersectAll {
+		t.Fatalf("INTERSECT ALL = %v, want IntersectAll", all.Operator)
 	}
 
 	grouped := mustParseOne(t, "select 1 union (select 2 intersect select 3)").(*ast.SetOprStmt)
-	group, ok := grouped.SelectList.Selects[1].(*ast.SetOprSelectList)
-	if !ok {
-		t.Fatalf("Selects[1] = %T, want *ast.SetOprSelectList", grouped.SelectList.Selects[1])
-	}
-	if group.AfterSetOperator == nil || *group.AfterSetOperator != ast.Union {
-		t.Fatalf("group.AfterSetOperator = %v, want Union", group.AfterSetOperator)
+	group, ok := grouped.Right.(*ast.QueryTailStmt)
+	if !ok || !group.Parenthesized {
+		t.Fatalf("right operand = %#v, want explicit parenthesized query wrapper", grouped.Right)
 	}
 
 	unionIntersect := mustParseOne(t, "select 1 union select 2 intersect select 3").(*ast.SetOprStmt)
-	if len(unionIntersect.SelectList.Selects) != 2 {
-		t.Fatalf("UNION/INTERSECT Selects len = %d, want 2", len(unionIntersect.SelectList.Selects))
-	}
-	unionGroup, ok := unionIntersect.SelectList.Selects[1].(*ast.SetOprSelectList)
-	if !ok || unionGroup.AfterSetOperator == nil || *unionGroup.AfterSetOperator != ast.Union {
-		t.Fatalf("UNION/INTERSECT group = %#v, want Union group", unionIntersect.SelectList.Selects[1])
-	}
-	if len(unionGroup.Selects) != 2 {
-		t.Fatalf("UNION/INTERSECT group len = %d, want 2", len(unionGroup.Selects))
-	}
-	if unionGroup.Selects[0].(*ast.SelectStmt).AfterSetOperator != nil {
-		t.Fatalf("UNION/INTERSECT group first select should not have a set operator")
-	}
-	if op := unionGroup.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.Intersect {
-		t.Fatalf("UNION/INTERSECT group child op = %v, want Intersect", op)
+	if unionIntersect.Operator != ast.Union || unionIntersect.Right.(*ast.SetOprStmt).Operator != ast.Intersect {
+		t.Fatalf("UNION/INTERSECT tree = %#v", unionIntersect)
 	}
 
 	intersectUnion := mustParseOne(t, "select 1 intersect select 2 union select 3").(*ast.SetOprStmt)
-	intersectGroup, ok := intersectUnion.SelectList.Selects[0].(*ast.SetOprSelectList)
-	if !ok || intersectGroup.AfterSetOperator != nil {
-		t.Fatalf("INTERSECT/UNION first group = %#v, want unqualified group", intersectUnion.SelectList.Selects[0])
-	}
-	if op := intersectUnion.SelectList.Selects[1].(*ast.SelectStmt).AfterSetOperator; op == nil || *op != ast.Union {
-		t.Fatalf("INTERSECT/UNION child op = %v, want Union", op)
+	if intersectUnion.Operator != ast.Union || intersectUnion.Left.(*ast.SetOprStmt).Operator != ast.Intersect {
+		t.Fatalf("INTERSECT/UNION tree = %#v", intersectUnion)
 	}
 
 	intersectChain := mustParseOne(t, "select 1 intersect select 2 intersect select 3").(*ast.SetOprStmt)
-	if len(intersectChain.SelectList.Selects) != 3 {
-		t.Fatalf("INTERSECT chain len = %d, want 3", len(intersectChain.SelectList.Selects))
+	if intersectChain.Operator != ast.Intersect || intersectChain.Left.(*ast.SetOprStmt).Operator != ast.Intersect {
+		t.Fatalf("INTERSECT chain tree = %#v", intersectChain)
 	}
 
 	restoreCases := []struct {
 		src     string
 		restore string
 	}{
-		{"select 1 union select 2 intersect select 3", "SELECT 1 UNION (SELECT 2 INTERSECT SELECT 3)"},
-		{"select 1 intersect select 2 union select 3", "(SELECT 1 INTERSECT SELECT 2) UNION SELECT 3"},
+		{"select 1 union select 2 intersect select 3", "SELECT 1 UNION SELECT 2 INTERSECT SELECT 3"},
+		{"select 1 intersect select 2 union select 3", "SELECT 1 INTERSECT SELECT 2 UNION SELECT 3"},
 		{"select 1 intersect select 2 intersect select 3", "SELECT 1 INTERSECT SELECT 2 INTERSECT SELECT 3"},
-		{"select 1 union all select 2 except select 3 intersect select 4", "SELECT 1 UNION ALL SELECT 2 EXCEPT (SELECT 3 INTERSECT SELECT 4)"},
+		{"select 1 union all select 2 except select 3 intersect select 4", "SELECT 1 UNION ALL SELECT 2 EXCEPT SELECT 3 INTERSECT SELECT 4"},
 	}
 	for _, c := range restoreCases {
 		RunRestoreTest(t, c.src, c.restore, false)
@@ -730,7 +703,7 @@ func TestPersistVariables(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *ast.SetStmt")
 	}
-	if len(setStmt.Variables) != 1 || !setStmt.Variables[0].IsPersist || setStmt.Variables[0].IsPersistOnly {
+	if len(setStmt.Variables) != 1 || setStmt.Variables[0].Target == nil || setStmt.Variables[0].Target.Scope != ast.VariableScopePersist {
 		t.Fatalf("unexpected persist flag: %#v", setStmt.Variables)
 	}
 
@@ -738,7 +711,7 @@ func TestPersistVariables(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *ast.SetStmt")
 	}
-	if len(setStmt.Variables) != 1 || setStmt.Variables[0].IsPersist || !setStmt.Variables[0].IsPersistOnly {
+	if len(setStmt.Variables) != 1 || setStmt.Variables[0].Target == nil || setStmt.Variables[0].Target.Scope != ast.VariableScopePersistOnly {
 		t.Fatalf("unexpected persist_only flag: %#v", setStmt.Variables)
 	}
 }
@@ -818,7 +791,7 @@ func TestGetDiagnostics(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *ast.GetDiagnosticsStmt")
 	}
-	if !stmt.Stacked || stmt.Condition == nil || len(stmt.Items) != 1 || stmt.Items[0].Name != "MESSAGE_TEXT" {
+	if !stmt.Stacked || stmt.Condition == nil || len(stmt.Items) != 1 || stmt.Items[0].Name != ast.DiagnosticsItemMessageText {
 		t.Fatalf("unexpected GET DIAGNOSTICS statement: %#v", stmt)
 	}
 

@@ -6,9 +6,48 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/mysql"
 )
+
+// tableNameBareName returns the decoded name of the last TableName part.
+// Empty and nil-safe: returns "" when no valid part exists.
+func tableNameBareName(table *ast.TableName) string {
+	if table == nil {
+		return ""
+	}
+	parts := table.Name.Parts
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1].Name
+}
+
+// tableNameSchema returns the decoded name of the first TableName part.
+// Empty and nil-safe: returns "" when fewer than two valid parts exist.
+func tableNameSchema(table *ast.TableName) string {
+	if table == nil || len(table.Name.Parts) < 2 {
+		return ""
+	}
+	return table.Name.Parts[0].Name
+}
+
+// tableNameStartOffset returns the byte offset of the first TableName part.
+// Returns -1 when no valid span is available.
+func tableNameStartOffset(table *ast.TableName) int {
+	if table == nil {
+		return -1
+	}
+	for _, part := range table.Name.Parts {
+		if part.Span.Valid() {
+			return int(part.Span.Start)
+		}
+	}
+	return -1
+}
 
 // Dialect identifies the SQL grammar against which a parsed AST is checked.
 // DialectUnion is the parser's default, permissive MySQL/MariaDB surface.
@@ -50,7 +89,6 @@ const (
 	IssueMySQLLogArgumentCount         DialectIssueCode = "mysql.log-argument-count"
 	IssueMySQLLeadingDotSetValue       DialectIssueCode = "mysql.leading-dot-set-value"
 	IssueMySQLBareSetScope             DialectIssueCode = "mysql.bare-set-scope"
-	IssueMySQLODBCEscapeMarker         DialectIssueCode = "mysql.odbc-escape-marker"
 	IssueMySQLDuplicateCollate         DialectIssueCode = "mysql.duplicate-collate"
 	IssueMySQLScalarLastValue          DialectIssueCode = "mysql.scalar-last-value"
 	IssueMySQLGroupConcatLimit         DialectIssueCode = "mysql.group-concat-limit"
@@ -200,24 +238,24 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 		v.checkBuiltinTableName(x)
 	case *ast.PeriodDefinition:
 		if v.Target == DialectMySQL {
-			if token, ok := v.tokenAtOffset(x.Offset); ok {
+			if token, ok := v.tokenAtOffset(int(x.Span().Start)); x.Span().Valid() && ok {
 				v.addIssue(token, IssueMySQLPeriod, "PERIOD FOR declarations are MariaDB-only")
 			}
 		}
 	case *ast.PartitionDefinition:
 		if v.Target == DialectMySQL && x.OmitPartitionKeyword {
-			if token, ok := v.tokenAtOffset(x.NameOffset); ok {
+			if token, ok := v.tokenAtOffset(int(x.Name.Span.Start)); x.Name.Span.Valid() && ok {
 				v.addIssue(token, IssueMySQLPartitionKeyword, "MySQL partition definitions require PARTITION before the name")
 			}
 		}
-	case *ast.IndexColName:
+	case *ast.IndexKeyPart:
 		if v.Target == DialectMariaDB && x.Expr != nil {
-			if token, ok := v.tokenAtOffset(x.ExprOffset); ok {
+			if token, ok := v.tokenAtOffset(int(x.Span().Start)); ok {
 				v.addIssue(token, IssueMariaDBExpressionIndex, "expression index key parts are MySQL-only")
 			}
 		}
 	case *ast.DeleteStmt:
-		if v.Target == DialectMySQL && x.IsMultiTable && (x.Order != nil || x.Limit != nil) {
+		if v.Target == DialectMySQL && x.IsMultiTable && (x.OrderBy != nil || x.Limit != nil) {
 			v.checkMultiDeleteTail(x)
 		}
 	case *ast.CreateViewStmt, *ast.AlterViewStmt:
@@ -233,29 +271,29 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 				}
 			}
 		}
-		if token, ok := v.tokenAtOffset(x.ExclusionOffset); ok && x.Exclusion != "" && token.isWord("exclude") {
+		if token, ok := v.tokenAtOffset(x.ExclusionOffset); ok && x.Exclusion != pkast.WindowFrameExcludeNone && token.isWord("exclude") {
 			switch v.Target {
 			case DialectMySQL:
 				v.addIssue(token, IssueMySQLWindowExclusion, "MySQL recognizes EXCLUDE but does not support it")
 			case DialectMariaDB:
-				if x.Exclusion != "NO OTHERS" {
+				if x.Exclusion != pkast.WindowFrameExcludeNoOthers {
 					v.addIssue(token, IssueMariaDBWindowExclusion, "MariaDB supports only EXCLUDE NO OTHERS")
 				}
 			}
 		}
 	case *ast.FrameBound:
-		if v.Target == DialectMySQL && x.Unit == nil {
+		if v.Target == DialectMySQL && !x.Unit.Present() {
 			if token, ok := v.tokenAtOffset(x.ExprOffset); ok && token.kind == stringLit {
 				v.addIssue(token, IssueMySQLWindowStringOffset, "string window frame offsets are MariaDB-only")
 			}
 		}
 	case *ast.FuncCastExpr:
-		if v.Target == DialectMariaDB && x.FunctionType == ast.CastFunction && x.Tp != nil && x.Tp.Tp == mysql.TypeJSON {
+		if v.Target == DialectMariaDB && x.FunctionType == ast.CastFunction && x.Type != nil && x.Type.Keyword() == "JSON" {
 			if token, ok := v.nextCastJSONCandidate(); ok {
 				v.addIssue(token, IssueMariaDBCastJSON, "CAST(... AS JSON) is MySQL-only")
 			}
 		}
-		if v.Target == DialectMySQL && x.FunctionType != ast.CastBinaryOperator && x.Tp != nil && x.Tp.Tp == mysql.TypeVarchar {
+		if v.Target == DialectMySQL && x.FunctionType != ast.CastBinaryOperator && x.Type != nil && x.Type.Keyword() == "VARCHAR" {
 			if token, ok := v.nextCastVarcharCandidate(); ok {
 				v.addIssue(token, IssueMySQLCastVarchar, "VARCHAR(n) is a MariaDB-only CAST/CONVERT target")
 			}
@@ -264,30 +302,34 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 		if len(x.Rows) == 0 {
 			break
 		}
-		if v.Target == DialectMySQL && x.Rows[0].OmitRowKeyword {
+		row, ok := x.Rows[0].(*ast.RowExpr)
+		if !ok || row == nil {
+			break
+		}
+		if v.Target == DialectMySQL && row.OmitRowKeyword {
 			if token, ok := v.valuesRowSyntaxToken(x.ValuesKeywordOffset, "("); ok {
 				v.addIssue(token, IssueMySQLValuesRowSyntax, "MySQL table value constructors require ROW before each row")
 			}
 		}
-		if v.Target == DialectMariaDB && !x.Rows[0].OmitRowKeyword {
+		if v.Target == DialectMariaDB && !row.OmitRowKeyword {
 			if token, ok := v.valuesRowSyntaxToken(x.ValuesKeywordOffset, "row"); ok {
 				v.addIssue(token, IssueMariaDBValuesRowSyntax, "MariaDB table value constructors do not accept ROW")
 			}
 		}
 	case *ast.InsertStmt:
 		if v.Target == DialectMariaDB && x.RowAlias != nil {
-			if token, ok := v.tokenAtOffset(x.RowAlias.Offset); ok {
+			if token, ok := v.tokenAtOffset(int(x.RowAlias.Span.Start)); ok {
 				v.addIssue(token, IssueMariaDBInsertRowAlias, "the INSERT row alias is MySQL-only")
 			}
 		}
 	case *ast.FuncCallExpr:
-		if v.Target == DialectMySQL && x.FnName.L == "log" {
+		if v.Target == DialectMySQL && strings.EqualFold(x.Name.Name, "log") {
 			candidate, ok := v.nextLogCandidate()
 			if ok && candidate.builtin && len(x.Args) != 1 && len(x.Args) != 2 {
 				v.addIssue(candidate.token, IssueMySQLLogArgumentCount, "MySQL LOG accepts one or two arguments")
 			}
 		}
-		if x.FnName.L == "last_value" {
+		if strings.EqualFold(x.Name.Name, "last_value") {
 			candidate, ok := v.nextLastValueCandidate()
 			if ok && candidate.builtin {
 				switch v.Target {
@@ -301,14 +343,14 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			}
 		}
 	case *ast.AggregateFuncExpr:
-		switch strings.ToLower(x.F) {
+		switch strings.ToLower(x.Name.Name) {
 		case "group_concat":
-			candidate, ok := v.nextFunctionCandidate(x.F)
+			candidate, ok := v.nextFunctionCandidate(x.Name.Name)
 			if ok && v.Target == DialectMySQL && x.Limit != nil {
 				v.addIssue(candidate.token, IssueMySQLGroupConcatLimit, "GROUP_CONCAT LIMIT is MariaDB-only")
 			}
 		case "json_arrayagg":
-			candidate, ok := v.nextFunctionCandidate(x.F)
+			candidate, ok := v.nextFunctionCandidate(x.Name.Name)
 			if !ok {
 				break
 			}
@@ -318,11 +360,11 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			v.checkJSONArrayAggAll(candidate)
 		}
 	case *ast.WindowFuncExpr:
-		if strings.EqualFold(x.F, "last_value") {
+		if strings.EqualFold(x.Name.Name, "last_value") {
 			v.nextLastValueCandidate()
 		}
-		if strings.EqualFold(x.F, "json_arrayagg") {
-			if candidate, ok := v.nextFunctionCandidate(x.F); ok && candidate.builtin {
+		if strings.EqualFold(x.Name.Name, "json_arrayagg") {
+			if candidate, ok := v.nextFunctionCandidate(x.Name.Name); ok && candidate.builtin {
 				if v.Target == DialectMariaDB {
 					v.addIssue(candidate.token, IssueMariaDBJSONArrayAggWindow, "MariaDB JSON_ARRAYAGG cannot be used as a window function")
 				}
@@ -356,21 +398,28 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 func (v *DialectCompatibilityVisitor) checkBuiltinTableName(table *ast.TableName) {
 	// The parser rejects an unqualified SYSDATE before '(' for both dialects,
 	// so only MariaDB's qualified table names still need a compatibility issue.
-	if v.Target != DialectMariaDB || table.Schema.L == "" {
+	if v.Target != DialectMariaDB || len(table.Name.Parts) < 2 {
+		return
+	}
+	schema, name := table.Name.Parts[len(table.Name.Parts)-2], table.Name.Parts[len(table.Name.Parts)-1]
+	if schema.Name == "" || name.Quote != lex.QuoteUnquoted {
 		return
 	}
 	code := IssueMariaDBBuiltinTableName
 	message := "MariaDB requires quoting or a gap before '(' for this qualified table name"
-	switch table.Name.L {
+	switch strings.ToLower(name.Name) {
 	case "substr", "substring", "trim":
 	default:
 		return
 	}
+	if !name.Span.Valid() {
+		return
+	}
 	for i, token := range v.tokens {
-		if token.pos.Offset != table.NameOffset {
+		if token.pos.Offset != int(name.Span.Start) {
 			continue
 		}
-		if !token.isWord(table.Name.O) || i+1 >= len(v.tokens) {
+		if !token.isWord(name.Name) || i+1 >= len(v.tokens) {
 			return
 		}
 		next := v.tokens[i+1]
@@ -448,10 +497,13 @@ func (v *DialectCompatibilityVisitor) tokenAtOffset(offset int) (dialectSourceTo
 }
 
 func (v *DialectCompatibilityVisitor) checkMultiDeleteTail(stmt *ast.DeleteStmt) {
-	if stmt.Tables == nil || len(stmt.Tables.Tables) == 0 {
+	if len(stmt.Targets) == 0 {
 		return
 	}
-	start := stmt.Tables.Tables[0].NameOffset
+	start := tableNameStartOffset(stmt.Targets[0])
+	if start < 0 {
+		return
+	}
 	depth := 0
 	for i, token := range v.tokens {
 		if token.pos.Offset < start {
@@ -472,7 +524,7 @@ func (v *DialectCompatibilityVisitor) checkMultiDeleteTail(stmt *ast.DeleteStmt)
 			break
 		}
 		if depth == 0 && ((stmt.Limit != nil && token.isWord("limit")) ||
-			(stmt.Order != nil && token.isWord("order") && i+1 < len(v.tokens) && v.tokens[i+1].isWord("by"))) {
+			(stmt.OrderBy != nil && token.isWord("order") && i+1 < len(v.tokens) && v.tokens[i+1].isWord("by"))) {
 			v.addIssue(token, IssueMySQLMultiDeleteTail, "ORDER BY and LIMIT on a multi-table DELETE are MariaDB-only")
 		}
 	}
@@ -657,9 +709,6 @@ func (v *DialectCompatibilityVisitor) analyzeSource() {
 		}
 		for _, finding := range findMySQLSetIssues(v.tokens) {
 			v.addIssue(finding.token, finding.code, finding.message)
-		}
-		for _, token := range findInvalidMySQLODBCMarkers(v.tokens) {
-			v.addIssue(token, IssueMySQLODBCEscapeMarker, "MySQL ODBC join escapes require the unquoted OJ marker")
 		}
 	}
 }
@@ -1000,60 +1049,6 @@ func findMySQLSetIssues(tokens []dialectSourceToken) []dialectSourceFinding {
 		i = end
 	}
 	return findings
-}
-
-func findInvalidMySQLODBCMarkers(tokens []dialectSourceToken) []dialectSourceToken {
-	var markers []dialectSourceToken
-	for i := 0; i+1 < len(tokens); i++ {
-		if !tokens[i].isRaw("{") {
-			continue
-		}
-		close := matchingBrace(tokens, i)
-		if close < 0 || !containsTopLevelJoin(tokens, i+2, close) {
-			continue
-		}
-		marker := tokens[i+1]
-		if marker.kind != identifier || !strings.EqualFold(marker.text, "oj") {
-			markers = append(markers, marker)
-		}
-		i = close
-	}
-	return markers
-}
-
-func matchingBrace(tokens []dialectSourceToken, open int) int {
-	depth := 0
-	for i := open; i < len(tokens); i++ {
-		switch tokens[i].raw {
-		case "{":
-			depth++
-		case "}":
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func containsTopLevelJoin(tokens []dialectSourceToken, start, end int) bool {
-	parentheses := 0
-	for i := start; i < end; i++ {
-		switch tokens[i].raw {
-		case "(":
-			parentheses++
-		case ")":
-			if parentheses > 0 {
-				parentheses--
-			}
-		default:
-			if parentheses == 0 && tokens[i].isWord("join") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func findDuplicateColumnCollates(tokens []dialectSourceToken) []dialectSourceToken {

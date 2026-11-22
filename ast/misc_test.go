@@ -4,9 +4,16 @@ import (
 	"testing"
 
 	"github.com/mia0x75/myparser"
-	. "github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/auth"
+	pkast "github.com/mia0x75/parserkit/ast"
+
+	. "github.com/mia0x75/myparser/ast"
 )
+
+// pureLiteral is a syntax-only integer leaf for visitor coverage tests.
+func pureLiteral(value string) ExprNode {
+	return &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: value}}
+}
 
 type visitor struct{}
 
@@ -27,7 +34,7 @@ func (visitor1) Enter(in Node) (Node, bool) {
 }
 
 func TestMiscVisitorCover(t *testing.T) {
-	valueExpr := NewValueExpr(42)
+	valueExpr := pureLiteral("42")
 	stmts := []Node{
 		&AlterUserStmt{},
 		&BeginStmt{},
@@ -67,16 +74,16 @@ func TestMiscVisitorCover(t *testing.T) {
 }
 
 func TestSpStmtVisitorCover(t *testing.T) {
-	valueExpr := NewValueExpr(42)
+	valueExpr := pureLiteral("42")
 	noop := &SetStmt{Variables: []*VariableAssignment{{Value: valueExpr}}}
 	stmts := []Node{
 		&BeginEndStmt{List: []StmtNode{noop}},
 		&DeclareStmt{Default: valueExpr},
 		&DeclareConditionStmt{Condition: &HandlerCondition{}},
-		&DeclareCursorStmt{Select: noop},
+		&DeclareCursorStmt{Select: &SelectStmt{}},
 		&DeclareHandlerStmt{Stmt: noop},
 		&IfStmt{Conditions: []*IfClause{{Condition: valueExpr, List: []StmtNode{noop}}}, ElseList: []StmtNode{noop}},
-		&CaseStmt{Value: valueExpr, Whens: []*CaseWhenStmt{{Expr: valueExpr, List: []StmtNode{noop}}}, ElseList: []StmtNode{noop}},
+		&CaseStmt{Value: valueExpr, Whens: []*CaseWhenClause{{Expr: valueExpr, List: []StmtNode{noop}}}, ElseList: []StmtNode{noop}},
 		&WhileStmt{Condition: valueExpr, List: []StmtNode{noop}},
 		&RepeatStmt{Condition: valueExpr, List: []StmtNode{noop}},
 		&LoopStmt{List: []StmtNode{noop}},

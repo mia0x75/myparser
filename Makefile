@@ -1,7 +1,7 @@
 .PHONY: all build parser generate-check fmt test race vet lint verify clean help
 .DEFAULT_GOAL := help
 
-GOYACC:=go run golang.org/x/tools/cmd/goyacc@v0.38.0
+GOYACC:=go run golang.org/x/tools/cmd/goyacc@v0.52.0
 GOLANGCI_LINT_VERSION := v2.15.0
 
 all: verify
@@ -29,17 +29,25 @@ parser.go: parser.y
 parser: ## Regenerate the parser and reject grammar conflicts
 	@set -eu; \
 	output=$$(mktemp); \
-	trap 'rm -f "$$output" y.output' EXIT HUP INT TERM; \
-	if ! $(GOYACC) -l -o parser.go parser.y >"$$output" 2>&1; then \
+	report=$$(mktemp); \
+	trap 'rm -f "$$output" "$$report"' EXIT HUP INT TERM; \
+	if ! $(GOYACC) -l -o parser.go -v "$$report" parser.y >"$$output" 2>&1; then \
 		cat "$$output"; exit 1; \
 	fi; \
 	cat "$$output"; \
 	if grep -Eq '(shift|reduce)/reduce' "$$output"; then \
 		echo 'Grammar conflicts found in parser.y'; exit 1; \
 	fi
+	go run github.com/mia0x75/parserkit/cmd/yaccspan parser.go
 
 generate-check: parser ## Verify the committed generated parser is up to date
-	git diff --exit-code -- parser.go
+	@set -eu; \
+	dir=$$(mktemp -d); \
+	trap 'rm -f "$$dir/committed" "$$dir/expected" "$$dir/actual"; rmdir "$$dir"' EXIT HUP INT TERM; \
+	git show HEAD:parser.go >"$$dir/committed"; \
+	sed '1d' "$$dir/committed" >"$$dir/expected"; \
+	sed '1d' parser.go >"$$dir/actual"; \
+	cmp "$$dir/expected" "$$dir/actual"
 
 fmt: ## Format Go source files
 	@echo "gofmt (simplify)"

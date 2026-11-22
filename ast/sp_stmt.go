@@ -2,37 +2,52 @@ package ast
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/types"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 // LabeledStmt is implemented by compound statements that may carry a label.
 type LabeledStmt interface {
 	StmtNode
 	// SetLabel sets the label of the statement.
-	SetLabel(label string)
+	SetLabel(label lex.Ident)
 }
 
 func restoreStmtList(ctx *format.RestoreCtx, list []StmtNode) error {
-	for _, s := range list {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for i, s := range list {
+		if !nodePresent(s) {
+			return errors.Errorf("restore statement list item %d: nil statement", i)
+		}
 		if err := s.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore statement list")
 		}
 		ctx.WritePlain(";")
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func acceptStmtList(v Visitor, list []StmtNode) ([]StmtNode, bool) {
 	for i, s := range list {
+		if !nodePresent(s) {
+			return list, false
+		}
 		node, ok := s.Accept(v)
 		if !ok {
 			return list, false
 		}
-		list[i] = node.(StmtNode)
+		stmt, ok := node.(StmtNode)
+		if !ok || !nodePresent(stmt) {
+			return list, false
+		}
+		list[i] = stmt
 	}
 	return list, true
 }
@@ -42,27 +57,36 @@ func acceptStmtList(v Visitor, list []StmtNode) ([]StmtNode, bool) {
 type BeginEndStmt struct {
 	stmtNode
 
-	Label     string
+	Label     lex.Ident
 	NotAtomic bool
 	List      []StmtNode
 }
 
 // SetLabel implements LabeledStmt interface.
-func (n *BeginEndStmt) SetLabel(label string) { n.Label = label }
+func (n *BeginEndStmt) SetLabel(label lex.Ident) { n.Label = label }
 
 // Restore implements Node interface.
 func (n *BeginEndStmt) Restore(ctx *format.RestoreCtx) error {
-	if n.Label != "" {
-		ctx.WriteName(n.Label)
+	if n == nil {
+		return errors.New("restore BeginEndStmt: nil statement")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n.Label.Present() {
+		restoreStoredIdent(ctx, n.Label)
 		ctx.WritePlain(": ")
 	}
-	ctx.WriteKeyWord("BEGIN")
+	ctx.WriteKeyword("BEGIN")
 	if n.NotAtomic {
-		ctx.WriteKeyWord(" NOT ATOMIC")
+		ctx.WriteKeyword(" NOT ATOMIC")
 	}
 	if len(n.List) > 0 {
 		ctx.WritePlain("\n")
 		for _, s := range n.List {
+			if !nodePresent(s) {
+				return errors.New("restore begin-end statement: nil statement in list")
+			}
 			ctx.WritePlain("  ")
 			if err := s.Restore(ctx); err != nil {
 				return errors.Annotate(err, "An error occurred while restore BeginEndStmt.List")
@@ -73,21 +97,25 @@ func (n *BeginEndStmt) Restore(ctx *format.RestoreCtx) error {
 	} else {
 		ctx.WritePlain(" ")
 	}
-	ctx.WriteKeyWord("END")
-	if n.Label != "" {
+	ctx.WriteKeyword("END")
+	if n.Label.Present() {
 		ctx.WritePlain(" ")
-		ctx.WriteName(n.Label)
+		ctx.WriteIdent(n.Label)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *BeginEndStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*BeginEndStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*BeginEndStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	list, ok := acceptStmtList(v, n.List)
 	if !ok {
 		return n, false
@@ -101,37 +129,43 @@ func (n *BeginEndStmt) Accept(v Visitor) (Node, bool) {
 type DeclareStmt struct {
 	stmtNode
 
-	Names   []string
-	Type    *types.FieldType
+	Names   []lex.Ident
+	Type    *TypeName
 	RowType []*ColumnDef
 	// TypeRef is the reference in a MariaDB TYPE OF or ROW TYPE OF declaration.
-	TypeRef    *ColumnName
+	TypeRef    *QualifiedName
 	RowTypeRef bool
 	Default    ExprNode
 }
 
 // Restore implements Node interface.
 func (n *DeclareStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DECLARE ")
+	if n == nil {
+		return errors.New("restore DeclareStmt: nil statement")
+	}
+	ctx.WriteKeyword("DECLARE ")
 	for i, name := range n.Names {
 		if i > 0 {
 			ctx.WritePlain(", ")
 		}
-		ctx.WriteName(name)
+		ctx.WriteIdent(name)
 	}
 	ctx.WritePlain(" ")
 	if n.TypeRef != nil {
 		if n.RowTypeRef {
-			ctx.WriteKeyWord("ROW ")
+			ctx.WriteKeyword("ROW ")
 		}
-		ctx.WriteKeyWord("TYPE OF ")
-		if err := n.TypeRef.Restore(ctx); err != nil {
+		ctx.WriteKeyword("TYPE OF ")
+		if err := restoreQualifiedName(ctx, *n.TypeRef); err != nil {
 			return errors.Annotate(err, "An error occurred while restore DeclareStmt.TypeRef")
 		}
 	} else if len(n.RowType) > 0 {
-		ctx.WriteKeyWord("ROW")
+		ctx.WriteKeyword("ROW")
 		ctx.WritePlain("(")
 		for i, field := range n.RowType {
+			if field == nil {
+				return errors.Errorf("restore DeclareStmt.RowType[%d]: missing field", i)
+			}
 			if i > 0 {
 				ctx.WritePlain(", ")
 			}
@@ -146,41 +180,51 @@ func (n *DeclareStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	if n.Default != nil {
-		ctx.WriteKeyWord(" DEFAULT ")
+		if !nodePresent(n.Default) {
+			return errors.New("restore DeclareStmt: nil default")
+		}
+		ctx.WriteKeyword(" DEFAULT ")
 		if err := n.Default.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore DeclareStmt.Default")
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *DeclareStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*DeclareStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*DeclareStmt)
-	if n.TypeRef != nil {
-		node, ok := n.TypeRef.Accept(v)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
+	if n.Type != nil {
+		updated, ok := acceptNode[*TypeName](v, n.Type)
 		if !ok {
 			return n, false
 		}
-		n.TypeRef = node.(*ColumnName)
+		n.Type = updated
 	}
 	for i, field := range n.RowType {
-		node, ok := field.Accept(v)
+		if !nodePresent(field) {
+			return n, false
+		}
+		updated, ok := acceptNode[*ColumnDef](v, field)
 		if !ok {
 			return n, false
 		}
-		n.RowType[i] = node.(*ColumnDef)
+		n.RowType[i] = updated
 	}
 	if n.Default != nil {
-		node, ok := n.Default.Accept(v)
+		updated, ok := acceptNode[ExprNode](v, n.Default)
 		if !ok {
 			return n, false
 		}
-		n.Default = node.(ExprNode)
+		n.Default = updated
 	}
 	return v.Leave(n)
 }
@@ -200,33 +244,39 @@ const (
 
 // HandlerCondition is a condition value used by a handler, SIGNAL or RESIGNAL.
 type HandlerCondition struct {
-	Type  HandlerConditionType
-	Value string
+	Type HandlerConditionType
+	// Value is the condition value, either an errno or a condition name.
+	Value lex.Ident
+	// SQLState is the `SQLSTATE VALUE '...'` value.
+	SQLState string
 }
 
 // Restore implements Node interface.
 func (c *HandlerCondition) Restore(ctx *format.RestoreCtx) error {
+	if c == nil {
+		return errors.New("restore HandlerCondition: nil condition")
+	}
 	switch c.Type {
 	case HandlerConditionSQLState:
-		ctx.WriteKeyWord("SQLSTATE VALUE ")
-		ctx.WriteString(c.Value)
+		ctx.WriteKeyword("SQLSTATE VALUE ")
+		ctx.WriteString(c.SQLState)
 	case HandlerConditionErrorCode:
-		ctx.WritePlain(c.Value)
+		ctx.WritePlain(c.Value.Name)
 	case HandlerConditionName:
-		ctx.WriteName(c.Value)
+		ctx.WriteIdent(c.Value)
 	case HandlerConditionSQLWarning:
-		ctx.WriteKeyWord("SQLWARNING")
+		ctx.WriteKeyword("SQLWARNING")
 	case HandlerConditionNotFound:
-		ctx.WriteKeyWord("NOT FOUND")
+		ctx.WriteKeyword("NOT FOUND")
 	case HandlerConditionSQLException:
-		ctx.WriteKeyWord("SQLEXCEPTION")
+		ctx.WriteKeyword("SQLEXCEPTION")
 	}
-	return nil
+	return ctx.Err()
 }
 
 // NewErrnoHandlerCondition builds a handler condition from a MySQL error code.
 func NewErrnoHandlerCondition(v any) *HandlerCondition {
-	return &HandlerCondition{Type: HandlerConditionErrorCode, Value: fmt.Sprintf("%v", v)}
+	return &HandlerCondition{Type: HandlerConditionErrorCode, Value: lex.Ident{Name: fmt.Sprintf("%v", v)}}
 }
 
 // DeclareConditionStmt is a condition declaration:
@@ -234,56 +284,77 @@ func NewErrnoHandlerCondition(v any) *HandlerCondition {
 type DeclareConditionStmt struct {
 	stmtNode
 
-	Name      string
+	Name      lex.Ident
 	Condition *HandlerCondition
 }
 
 // Restore implements Node interface.
 func (n *DeclareConditionStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DECLARE ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" CONDITION FOR ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || n.Condition == nil {
+		return errors.New("restore declare condition statement: missing condition")
+	}
+	ctx.WriteKeyword("DECLARE ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" CONDITION FOR ")
 	return n.Condition.Restore(ctx)
 }
 
 // Accept implements Node Accept interface.
 func (n *DeclareConditionStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*DeclareConditionStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*DeclareConditionStmt)
-	return v.Leave(n)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	return v.Leave(stmt)
 }
 
 // DeclareCursorStmt is a cursor declaration: `DECLARE name CURSOR FOR select`.
 type DeclareCursorStmt struct {
 	stmtNode
 
-	Name   string
-	Select StmtNode
+	Name   lex.Ident
+	Select QueryNode
 }
 
 // Restore implements Node interface.
 func (n *DeclareCursorStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DECLARE ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" CURSOR FOR ")
+	if n == nil || !nodePresent(n.Select) {
+		return errors.New("restore DeclareCursorStmt: missing query")
+	}
+	ctx.WriteKeyword("DECLARE ")
+	ctx.WriteIdent(n.Name)
+	ctx.WriteKeyword(" CURSOR FOR ")
+	if n.Select == nil {
+		return errors.New("An error occurred while restore DeclareCursorStmt.Select: nil query")
+	}
 	return n.Select.Restore(ctx)
 }
 
 // Accept implements Node Accept interface.
 func (n *DeclareCursorStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
-	}
-	n = newNode.(*DeclareCursorStmt)
-	node, ok := n.Select.Accept(v)
+	stmt, ok := nodeAs[*DeclareCursorStmt](newNode)
 	if !ok {
-		return n, false
+		return newNode, false
 	}
-	n.Select = node.(StmtNode)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
+	if n.Select != nil {
+		updated, ok := acceptNode[QueryNode](v, n.Select)
+		if !ok {
+			return n, false
+		}
+		n.Select = updated
+	}
 	return v.Leave(n)
 }
 
@@ -321,12 +392,24 @@ type DeclareHandlerStmt struct {
 
 // Restore implements Node interface.
 func (n *DeclareHandlerStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DECLARE ")
-	ctx.WriteKeyWord(HandlerTypeString(n.Action))
-	ctx.WriteKeyWord(" HANDLER FOR ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || len(n.Conditions) == 0 {
+		return errors.New("restore declare handler statement: missing conditions")
+	}
+	if !nodePresent(n.Stmt) {
+		return errors.New("restore declare handler statement: missing statement")
+	}
+	ctx.WriteKeyword("DECLARE ")
+	ctx.WriteKeyword(HandlerTypeString(n.Action))
+	ctx.WriteKeyword(" HANDLER FOR ")
 	for i, c := range n.Conditions {
 		if i > 0 {
 			ctx.WritePlain(", ")
+		}
+		if c == nil {
+			return errors.Errorf("restore declare handler statement: nil condition %d", i)
 		}
 		if err := c.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore DeclareHandlerStmt.Conditions")
@@ -339,22 +422,88 @@ func (n *DeclareHandlerStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DeclareHandlerStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*DeclareHandlerStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*DeclareHandlerStmt)
-	node, ok := n.Stmt.Accept(v)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
+	if !nodePresent(n.Stmt) {
+		return n, false
+	}
+	updated, ok := acceptNode[StmtNode](v, n.Stmt)
 	if !ok {
 		return n, false
 	}
-	n.Stmt = node.(StmtNode)
+	n.Stmt = updated
 	return v.Leave(n)
 }
 
 // IfClause is a single branch of an IfStmt.
 type IfClause struct {
+	node
 	Condition ExprNode
 	List      []StmtNode
+	ElseIf    bool
+}
+
+var _ Node = (*IfClause)(nil)
+
+func (n *IfClause) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !nodePresent(n.Condition) {
+		return errors.New("restore if clause: missing condition")
+	}
+	if n.ElseIf {
+		ctx.WriteKeyword("ELSEIF ")
+	} else {
+		ctx.WriteKeyword("IF ")
+	}
+	if err := n.Condition.Restore(ctx); err != nil {
+		return errors.Annotate(err, "restore if clause condition")
+	}
+	ctx.WriteKeyword(" THEN ")
+	if err := restoreStmtList(ctx, n.List); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (n *IfClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
+	newNode, skipChildren := v.Enter(n)
+	clause, ok := newNode.(*IfClause)
+	if !ok || clause == nil {
+		return newNode, false
+	}
+	n = clause
+	if skipChildren {
+		return v.Leave(n)
+	}
+	if !nodePresent(n.Condition) {
+		return n, false
+	}
+	child, ok := n.Condition.Accept(v)
+	if !ok {
+		return n, false
+	}
+	expr, ok := child.(ExprNode)
+	if !ok || !nodePresent(expr) {
+		return n, false
+	}
+	n.Condition = expr
+	list, ok := acceptStmtList(v, n.List)
+	if !ok {
+		return n, false
+	}
+	n.List = list
+	return v.Leave(n)
 }
 
 // IfStmt is an `IF ... THEN ... [ELSEIF ...] [ELSE ...] END IF` statement.
@@ -368,48 +517,66 @@ type IfStmt struct {
 
 // Restore implements Node interface.
 func (n *IfStmt) Restore(ctx *format.RestoreCtx) error {
-	for i, c := range n.Conditions {
-		if i == 0 {
-			ctx.WriteKeyWord("IF ")
-		} else {
-			ctx.WriteKeyWord(" ELSEIF ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || len(n.Conditions) == 0 {
+		return errors.New("restore if statement: missing branches")
+	}
+	if n.Conditions[0] == nil || !nodePresent(n.Conditions[0].Condition) {
+		return errors.New("restore if statement: missing first condition")
+	}
+	for i, clause := range n.Conditions {
+		if clause == nil {
+			return errors.New("restore if statement: nil branch")
 		}
-		if err := c.Condition.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore IfStmt.Conditions")
+		if i > 0 {
+			ctx.WritePlain(" ")
 		}
-		ctx.WriteKeyWord(" THEN ")
-		if err := restoreStmtList(ctx, c.List); err != nil {
-			return err
+		if err := clause.Restore(ctx); err != nil {
+			return errors.Annotate(err, "restore if statement branch")
 		}
 	}
 	if n.ElseList != nil {
-		ctx.WriteKeyWord(" ELSE ")
+		ctx.WriteKeyword(" ELSE ")
 		if err := restoreStmtList(ctx, n.ElseList); err != nil {
 			return err
 		}
 	}
-	ctx.WriteKeyWord(" END IF")
-	return nil
+	ctx.WriteKeyword(" END IF")
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *IfStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return nil, false
 	}
-	n = newNode.(*IfStmt)
-	for _, c := range n.Conditions {
-		node, ok := c.Condition.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	stmt, ok := newNode.(*IfStmt)
+	if !ok || stmt == nil {
+		return newNode, false
+	}
+	n = stmt
+	if skipChildren {
+		return v.Leave(n)
+	}
+	if len(n.Conditions) == 0 {
+		return n, false
+	}
+	for i, c := range n.Conditions {
+		if c == nil {
+			return n, false
+		}
+		node, ok := c.Accept(v)
 		if !ok {
 			return n, false
 		}
-		c.Condition = node.(ExprNode)
-		list, ok := acceptStmtList(v, c.List)
-		if !ok {
+		clause, ok := node.(*IfClause)
+		if !ok || clause == nil {
 			return n, false
 		}
-		c.List = list
+		n.Conditions[i] = clause
 	}
 	if n.ElseList != nil {
 		list, ok := acceptStmtList(v, n.ElseList)
@@ -421,10 +588,60 @@ func (n *IfStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// CaseWhenStmt is a single WHEN branch of a CaseStmt.
-type CaseWhenStmt struct {
+type CaseWhenClause struct {
+	node
 	Expr ExprNode
 	List []StmtNode
+}
+
+var _ Node = (*CaseWhenClause)(nil)
+
+func (n *CaseWhenClause) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !nodePresent(n.Expr) {
+		return errors.New("restore case when clause: missing expression")
+	}
+	ctx.WriteKeyword("WHEN ")
+	if err := n.Expr.Restore(ctx); err != nil {
+		return errors.Annotate(err, "restore case when clause expression")
+	}
+	ctx.WriteKeyword(" THEN ")
+	return restoreStmtList(ctx, n.List)
+}
+
+func (n *CaseWhenClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
+	newNode, skipChildren := v.Enter(n)
+	clause, ok := newNode.(*CaseWhenClause)
+	if !ok || clause == nil {
+		return newNode, false
+	}
+	n = clause
+	if skipChildren {
+		return v.Leave(n)
+	}
+	if !nodePresent(n.Expr) {
+		return n, false
+	}
+	child, ok := n.Expr.Accept(v)
+	if !ok {
+		return n, false
+	}
+	expr, ok := child.(ExprNode)
+	if !ok || !nodePresent(expr) {
+		return n, false
+	}
+	n.Expr = expr
+	list, ok := acceptStmtList(v, n.List)
+	if !ok {
+		return n, false
+	}
+	n.List = list
+	return v.Leave(n)
 }
 
 // CaseStmt is a `CASE ... WHEN ... THEN ... [ELSE ...] END CASE` statement.
@@ -433,64 +650,91 @@ type CaseStmt struct {
 	stmtNode
 
 	Value    ExprNode
-	Whens    []*CaseWhenStmt
+	Whens    []*CaseWhenClause
 	ElseList []StmtNode
 }
 
 // Restore implements Node interface.
 func (n *CaseStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CASE")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || len(n.Whens) == 0 {
+		return errors.New("restore case statement: missing branches")
+	}
+	ctx.WriteKeyword("CASE")
 	if n.Value != nil {
+		if !nodePresent(n.Value) {
+			return errors.New("restore case statement: nil value")
+		}
 		ctx.WritePlain(" ")
 		if err := n.Value.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore CaseStmt.Value")
 		}
 	}
 	for _, w := range n.Whens {
-		ctx.WriteKeyWord(" WHEN ")
-		if err := w.Expr.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore CaseStmt.Whens")
+		if w == nil {
+			return errors.New("restore case statement: nil branch")
 		}
-		ctx.WriteKeyWord(" THEN ")
-		if err := restoreStmtList(ctx, w.List); err != nil {
-			return err
+		ctx.WritePlain(" ")
+		if err := w.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore CaseStmt.Whens")
 		}
 	}
 	if n.ElseList != nil {
-		ctx.WriteKeyWord(" ELSE ")
+		ctx.WriteKeyword(" ELSE ")
 		if err := restoreStmtList(ctx, n.ElseList); err != nil {
 			return err
 		}
 	}
-	ctx.WriteKeyWord(" END CASE")
-	return nil
+	ctx.WriteKeyword(" END CASE")
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *CaseStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return nil, false
 	}
-	n = newNode.(*CaseStmt)
+	newNode, skipChildren := v.Enter(n)
+	stmt, ok := newNode.(*CaseStmt)
+	if !ok || stmt == nil {
+		return newNode, false
+	}
+	n = stmt
+	if skipChildren {
+		return v.Leave(n)
+	}
+	if len(n.Whens) == 0 {
+		return n, false
+	}
 	if n.Value != nil {
+		if !nodePresent(n.Value) {
+			return n, false
+		}
 		node, ok := n.Value.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Value = node.(ExprNode)
+		expr, ok := node.(ExprNode)
+		if !ok || !nodePresent(expr) {
+			return n, false
+		}
+		n.Value = expr
 	}
-	for _, w := range n.Whens {
-		node, ok := w.Expr.Accept(v)
+	for i, w := range n.Whens {
+		if w == nil {
+			return n, false
+		}
+		node, ok := w.Accept(v)
 		if !ok {
 			return n, false
 		}
-		w.Expr = node.(ExprNode)
-		list, ok := acceptStmtList(v, w.List)
-		if !ok {
+		clause, ok := node.(*CaseWhenClause)
+		if !ok || clause == nil {
 			return n, false
 		}
-		w.List = list
+		n.Whens[i] = clause
 	}
 	if n.ElseList != nil {
 		list, ok := acceptStmtList(v, n.ElseList)
@@ -507,48 +751,61 @@ func (n *CaseStmt) Accept(v Visitor) (Node, bool) {
 type WhileStmt struct {
 	stmtNode
 
-	Label     string
+	Label     lex.Ident
 	Condition ExprNode
 	List      []StmtNode
 }
 
 // SetLabel implements LabeledStmt interface.
-func (n *WhileStmt) SetLabel(label string) { n.Label = label }
+func (n *WhileStmt) SetLabel(label lex.Ident) { n.Label = label }
 
 // Restore implements Node interface.
 func (n *WhileStmt) Restore(ctx *format.RestoreCtx) error {
-	if n.Label != "" {
-		ctx.WriteName(n.Label)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !nodePresent(n.Condition) {
+		return errors.New("restore while statement: missing condition")
+	}
+	if n.Label.Present() {
+		restoreStoredIdent(ctx, n.Label)
 		ctx.WritePlain(": ")
 	}
-	ctx.WriteKeyWord("WHILE ")
+	ctx.WriteKeyword("WHILE ")
 	if err := n.Condition.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore WhileStmt.Condition")
 	}
-	ctx.WriteKeyWord(" DO ")
+	ctx.WriteKeyword(" DO ")
 	if err := restoreStmtList(ctx, n.List); err != nil {
 		return err
 	}
-	ctx.WriteKeyWord(" END WHILE")
-	if n.Label != "" {
+	ctx.WriteKeyword(" END WHILE")
+	if n.Label.Present() {
 		ctx.WritePlain(" ")
-		ctx.WriteName(n.Label)
+		restoreStoredIdent(ctx, n.Label)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *WhileStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*WhileStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*WhileStmt)
-	node, ok := n.Condition.Accept(v)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
+	if !nodePresent(n.Condition) {
+		return n, false
+	}
+	updated, ok := acceptNode[ExprNode](v, n.Condition)
 	if !ok {
 		return n, false
 	}
-	n.Condition = node.(ExprNode)
+	n.Condition = updated
 	list, ok := acceptStmtList(v, n.List)
 	if !ok {
 		return n, false
@@ -562,53 +819,63 @@ func (n *WhileStmt) Accept(v Visitor) (Node, bool) {
 type RepeatStmt struct {
 	stmtNode
 
-	Label     string
+	Label     lex.Ident
 	Condition ExprNode
 	List      []StmtNode
 }
 
 // SetLabel implements LabeledStmt interface.
-func (n *RepeatStmt) SetLabel(label string) { n.Label = label }
+func (n *RepeatStmt) SetLabel(label lex.Ident) { n.Label = label }
 
 // Restore implements Node interface.
 func (n *RepeatStmt) Restore(ctx *format.RestoreCtx) error {
-	if n.Label != "" {
-		ctx.WriteName(n.Label)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || !nodePresent(n.Condition) {
+		return errors.New("restore repeat statement: missing condition")
+	}
+	if n.Label.Present() {
+		restoreStoredIdent(ctx, n.Label)
 		ctx.WritePlain(": ")
 	}
-	ctx.WriteKeyWord("REPEAT ")
+	ctx.WriteKeyword("REPEAT ")
 	if err := restoreStmtList(ctx, n.List); err != nil {
 		return err
 	}
-	ctx.WriteKeyWord(" UNTIL ")
+	ctx.WriteKeyword(" UNTIL ")
 	if err := n.Condition.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore RepeatStmt.Condition")
 	}
-	ctx.WriteKeyWord(" END REPEAT")
-	if n.Label != "" {
+	ctx.WriteKeyword(" END REPEAT")
+	if n.Label.Present() {
 		ctx.WritePlain(" ")
-		ctx.WriteName(n.Label)
+		ctx.WriteIdent(n.Label)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *RepeatStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*RepeatStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*RepeatStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	list, ok := acceptStmtList(v, n.List)
 	if !ok {
 		return n, false
 	}
 	n.List = list
-	node, ok := n.Condition.Accept(v)
+	updated, ok := acceptNode[ExprNode](v, n.Condition)
 	if !ok {
 		return n, false
 	}
-	n.Condition = node.(ExprNode)
+	n.Condition = updated
 	return v.Leave(n)
 }
 
@@ -617,38 +884,48 @@ func (n *RepeatStmt) Accept(v Visitor) (Node, bool) {
 type LoopStmt struct {
 	stmtNode
 
-	Label string
+	Label lex.Ident
 	List  []StmtNode
 }
 
 // SetLabel implements LabeledStmt interface.
-func (n *LoopStmt) SetLabel(label string) { n.Label = label }
+func (n *LoopStmt) SetLabel(label lex.Ident) { n.Label = label }
 
 // Restore implements Node interface.
 func (n *LoopStmt) Restore(ctx *format.RestoreCtx) error {
-	if n.Label != "" {
-		ctx.WriteName(n.Label)
+	if n == nil {
+		return errors.New("restore LoopStmt: nil statement")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n.Label.Present() {
+		ctx.WriteIdent(n.Label)
 		ctx.WritePlain(": ")
 	}
-	ctx.WriteKeyWord("LOOP ")
+	ctx.WriteKeyword("LOOP ")
 	if err := restoreStmtList(ctx, n.List); err != nil {
 		return err
 	}
-	ctx.WriteKeyWord(" END LOOP")
-	if n.Label != "" {
+	ctx.WriteKeyword(" END LOOP")
+	if n.Label.Present() {
 		ctx.WritePlain(" ")
-		ctx.WriteName(n.Label)
+		ctx.WriteIdent(n.Label)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *LoopStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*LoopStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*LoopStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	list, ok := acceptStmtList(v, n.List)
 	if !ok {
 		return n, false
@@ -663,27 +940,40 @@ func (n *LoopStmt) Accept(v Visitor) (Node, bool) {
 type ForStmt struct {
 	stmtNode
 
-	Label      string
-	Variable   string
+	Label      lex.Ident
+	Variable   lex.Ident
 	LowerBound ExprNode
 	UpperBound ExprNode
-	Query      StmtNode
+	Query      QueryNode
 	List       []StmtNode
 }
 
 // SetLabel implements LabeledStmt interface.
-func (n *ForStmt) SetLabel(label string) { n.Label = label }
+func (n *ForStmt) SetLabel(label lex.Ident) { n.Label = label }
 
 // Restore implements Node interface.
 func (n *ForStmt) Restore(ctx *format.RestoreCtx) error {
-	if n.Label != "" {
-		ctx.WriteName(n.Label)
+	if n == nil {
+		return errors.New("restore ForStmt: nil statement")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n.Query == nil &&
+		(!nodePresent(n.LowerBound) || !nodePresent(n.UpperBound)) {
+		return errors.New("restore for statement: missing range bounds")
+	}
+	if n.Label.Present() {
+		ctx.WriteIdent(n.Label)
 		ctx.WritePlain(": ")
 	}
-	ctx.WriteKeyWord("FOR ")
-	ctx.WriteName(n.Variable)
-	ctx.WriteKeyWord(" IN ")
+	ctx.WriteKeyword("FOR ")
+	ctx.WriteIdent(n.Variable)
+	ctx.WriteKeyword(" IN ")
 	if n.Query != nil {
+		if !nodePresent(n.Query) {
+			return errors.New("restore ForStmt: nil query")
+		}
 		ctx.WritePlain("(")
 		if err := n.Query.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore ForStmt.Query")
@@ -698,42 +988,46 @@ func (n *ForStmt) Restore(ctx *format.RestoreCtx) error {
 			return errors.Annotate(err, "An error occurred while restore ForStmt.UpperBound")
 		}
 	}
-	ctx.WriteKeyWord(" DO ")
+	ctx.WriteKeyword(" DO ")
 	if err := restoreStmtList(ctx, n.List); err != nil {
 		return err
 	}
-	ctx.WriteKeyWord(" END FOR")
-	if n.Label != "" {
+	ctx.WriteKeyword(" END FOR")
+	if n.Label.Present() {
 		ctx.WritePlain(" ")
-		ctx.WriteName(n.Label)
+		ctx.WriteIdent(n.Label)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *ForStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*ForStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*ForStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	if n.Query != nil {
-		node, ok := n.Query.Accept(v)
+		updated, ok := acceptNode[QueryNode](v, n.Query)
 		if !ok {
 			return n, false
 		}
-		n.Query = node.(StmtNode)
+		n.Query = updated
 	} else {
-		node, ok := n.LowerBound.Accept(v)
-		if !ok {
-			return n, false
+		for _, bound := range []*ExprNode{&n.LowerBound, &n.UpperBound} {
+			if *bound == nil {
+				continue
+			}
+			updated, ok := acceptNode[ExprNode](v, *bound)
+			if !ok {
+				return n, false
+			}
+			*bound = updated
 		}
-		n.LowerBound = node.(ExprNode)
-		node, ok = n.UpperBound.Accept(v)
-		if !ok {
-			return n, false
-		}
-		n.UpperBound = node.(ExprNode)
 	}
 	list, ok := acceptStmtList(v, n.List)
 	if !ok {
@@ -748,23 +1042,32 @@ func (n *ForStmt) Accept(v Visitor) (Node, bool) {
 type LeaveStmt struct {
 	stmtNode
 
-	Label string
+	Label lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *LeaveStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("LEAVE ")
-	ctx.WriteName(n.Label)
-	return nil
+	if n == nil {
+		return errors.New("restore LeaveStmt: nil statement")
+	}
+	ctx.WriteKeyword("LEAVE ")
+	if n.Label.Present() {
+		restoreStoredIdent(ctx, n.Label)
+	}
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *LeaveStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*LeaveStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	return v.Leave(newNode)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	return v.Leave(stmt)
 }
 
 // IterateStmt is an `ITERATE label` statement.
@@ -772,23 +1075,32 @@ func (n *LeaveStmt) Accept(v Visitor) (Node, bool) {
 type IterateStmt struct {
 	stmtNode
 
-	Label string
+	Label lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *IterateStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("ITERATE ")
-	ctx.WriteName(n.Label)
-	return nil
+	if n == nil {
+		return errors.New("restore IterateStmt: nil statement")
+	}
+	ctx.WriteKeyword("ITERATE ")
+	if n.Label.Present() {
+		restoreStoredIdent(ctx, n.Label)
+	}
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *IterateStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*IterateStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	return v.Leave(newNode)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	return v.Leave(stmt)
 }
 
 // OpenStmt is an `OPEN cursor_name` statement.
@@ -796,23 +1108,30 @@ func (n *IterateStmt) Accept(v Visitor) (Node, bool) {
 type OpenStmt struct {
 	stmtNode
 
-	Name string
+	Name lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *OpenStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("OPEN ")
-	ctx.WriteName(n.Name)
-	return nil
+	if n == nil {
+		return errors.New("restore OpenStmt: nil statement")
+	}
+	ctx.WriteKeyword("OPEN ")
+	ctx.WriteIdent(n.Name)
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *OpenStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*OpenStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	return v.Leave(newNode)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	return v.Leave(stmt)
 }
 
 // CloseStmt is a `CLOSE cursor_name` statement.
@@ -820,101 +1139,103 @@ func (n *OpenStmt) Accept(v Visitor) (Node, bool) {
 type CloseStmt struct {
 	stmtNode
 
-	Name string
+	Name lex.Ident
 }
 
 // Restore implements Node interface.
 func (n *CloseStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CLOSE ")
-	ctx.WriteName(n.Name)
-	return nil
+	if n == nil {
+		return errors.New("restore CloseStmt: nil statement")
+	}
+	ctx.WriteKeyword("CLOSE ")
+	ctx.WriteIdent(n.Name)
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *CloseStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*CloseStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	return v.Leave(newNode)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	return v.Leave(stmt)
 }
 
-// FetchStmt is a `FETCH cursor_name INTO var [, var]...` statement.
-// See https://dev.mysql.com/doc/refman/8.0/en/fetch.html
+// FetchStmt is a `FETCH [NEXT] [FROM] cursor_name INTO var [, var]...`
+// statement. See https://dev.mysql.com/doc/refman/8.0/en/fetch.html
 type FetchStmt struct {
 	stmtNode
 
-	Name string
-	// Vars is the legacy string-only view of the targets.
-	Vars []string
-	// Targets preserves identifier boundaries and is preferred by Restore.
+	Name    lex.Ident
 	Targets []*VariableTarget
+	// HasNext/HasFrom mark the optional FETCH NEXT FROM prefixes; both are
+	// absent on a plain `FETCH cursor INTO ...`.
+	HasNext bool
+	HasFrom bool
 }
 
 // Restore implements Node interface.
 func (n *FetchStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("FETCH ")
-	ctx.WriteName(n.Name)
-	ctx.WriteKeyWord(" INTO ")
-	if n.Targets != nil {
-		for i, target := range n.Targets {
-			if i > 0 {
-				ctx.WritePlain(", ")
-			}
-			if err := target.Restore(ctx); err != nil {
-				return errors.Annotatef(err, "An error occurred while restore FetchStmt.Targets[%d]", i)
-			}
-		}
-	} else {
-		for i, name := range n.Vars {
-			if i > 0 {
-				ctx.WritePlain(", ")
-			}
-			restoreStoredProgramName(ctx, name)
-		}
+	if n == nil {
+		return errors.New("restore FetchStmt: nil statement")
 	}
-	return nil
-}
-
-func restoreStoredProgramName(ctx *format.RestoreCtx, name string) {
-	if strings.HasPrefix(name, "@") {
-		ctx.WritePlain(name)
-		return
+	ctx.WriteKeyword("FETCH ")
+	if n.HasNext {
+		ctx.WriteKeyword("NEXT ")
 	}
-	for i, part := range strings.Split(name, ".") {
+	if n.HasFrom {
+		ctx.WriteKeyword("FROM ")
+	}
+	ctx.WriteIdent(n.Name)
+	if len(n.Targets) == 0 {
+		return errors.New("An error occurred while restore FetchStmt.Targets: no targets")
+	}
+	ctx.WriteKeyword(" INTO ")
+	for i, target := range n.Targets {
 		if i > 0 {
-			ctx.WritePlain(".")
+			ctx.WritePlain(", ")
 		}
-		ctx.WriteName(part)
+		if target == nil {
+			return errors.New("An error occurred while restore FetchStmt.Targets: nil target")
+		}
+		if err := target.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore FetchStmt.Targets[%d]", i)
+		}
 	}
+	return ctx.Err()
 }
 
-// Accept implements Node Accept interface.
+// Accept implements Node interface.
 func (n *FetchStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*FetchStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*FetchStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	for i, target := range n.Targets {
-		node, ok := target.Accept(v)
+		if !nodePresent(target) {
+			return n, false
+		}
+		updated, ok := acceptNode[*VariableTarget](v, target)
 		if !ok {
 			return n, false
 		}
-		n.Targets[i] = node.(*VariableTarget)
-	}
-	if n.Targets != nil {
-		n.Vars = make([]string, len(n.Targets))
-		for i, target := range n.Targets {
-			n.Vars[i] = target.LegacyName()
-		}
+		n.Targets[i] = updated
 	}
 	return v.Leave(n)
 }
 
 // SignalInfoItem is a `name = expr` item of a SIGNAL or RESIGNAL statement.
 type SignalInfoItem struct {
-	Name  string
+	Name  lex.Ident
 	Value ExprNode
 }
 
@@ -929,39 +1250,55 @@ type SignalStmt struct {
 
 // Restore implements Node interface.
 func (n *SignalStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("SIGNAL ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil || n.Condition == nil {
+		return errors.New("restore signal statement: missing condition")
+	}
+	ctx.WriteKeyword("SIGNAL ")
 	if err := n.Condition.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore SignalStmt.Condition")
 	}
 	if len(n.InfoItems) > 0 {
-		ctx.WriteKeyWord(" SET ")
+		ctx.WriteKeyword(" SET ")
 		for i, item := range n.InfoItems {
+			if item == nil || !nodePresent(item.Value) {
+				return errors.Errorf("restore SignalStmt.InfoItems[%d]: missing value", i)
+			}
 			if i > 0 {
 				ctx.WritePlain(", ")
 			}
-			ctx.WriteName(item.Name)
+			ctx.WriteIdent(item.Name)
 			ctx.WritePlain(" = ")
 			if err := item.Value.Restore(ctx); err != nil {
 				return errors.Annotate(err, "An error occurred while restore SignalStmt.InfoItems")
 			}
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *SignalStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*SignalStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*SignalStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	for _, item := range n.InfoItems {
-		node, ok := item.Value.Accept(v)
+		if item == nil {
+			return n, false
+		}
+		updated, ok := acceptNode[ExprNode](v, item.Value)
 		if !ok {
 			return n, false
 		}
-		item.Value = node.(ExprNode)
+		item.Value = updated
 	}
 	return v.Leave(n)
 }
@@ -977,7 +1314,13 @@ type ResignalStmt struct {
 
 // Restore implements Node interface.
 func (n *ResignalStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("RESIGNAL")
+	if n == nil {
+		return errors.New("restore ResignalStmt: nil statement")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ctx.WriteKeyword("RESIGNAL")
 	if n.Condition != nil {
 		ctx.WritePlain(" ")
 		if err := n.Condition.Restore(ctx); err != nil {
@@ -985,34 +1328,44 @@ func (n *ResignalStmt) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	if len(n.InfoItems) > 0 {
-		ctx.WriteKeyWord(" SET ")
+		ctx.WriteKeyword(" SET ")
 		for i, item := range n.InfoItems {
+			if item == nil || !nodePresent(item.Value) {
+				return errors.Errorf("restore ResignalStmt.InfoItems[%d]: missing value", i)
+			}
 			if i > 0 {
 				ctx.WritePlain(", ")
 			}
-			ctx.WriteName(item.Name)
+			ctx.WriteIdent(item.Name)
 			ctx.WritePlain(" = ")
 			if err := item.Value.Restore(ctx); err != nil {
 				return errors.Annotate(err, "An error occurred while restore ResignalStmt.InfoItems")
 			}
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *ResignalStmt) Accept(v Visitor) (Node, bool) {
 	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	stmt, ok := nodeAs[*ResignalStmt](newNode)
+	if !ok {
+		return newNode, false
 	}
-	n = newNode.(*ResignalStmt)
+	if skipChildren {
+		return v.Leave(stmt)
+	}
+	n = stmt
 	for _, item := range n.InfoItems {
-		node, ok := item.Value.Accept(v)
+		if item == nil {
+			return n, false
+		}
+		updated, ok := acceptNode[ExprNode](v, item.Value)
 		if !ok {
 			return n, false
 		}
-		item.Value = node.(ExprNode)
+		item.Value = updated
 	}
 	return v.Leave(n)
 }

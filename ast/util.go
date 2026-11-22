@@ -34,7 +34,7 @@ func (checker *readOnlyChecker) Enter(in Node) (out Node, skipChildren bool) {
 	switch node := in.(type) {
 	case *VariableExpr:
 		// like func rewriteVariable(), this stands for SetVar.
-		if !node.IsSystem && node.Value != nil {
+		if node.Target != nil && node.Target.Kind != VariableTargetSystem && node.Value != nil {
 			checker.readOnly = false
 			return in, true
 		}

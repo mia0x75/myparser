@@ -3,28 +3,63 @@ package ast
 import (
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/model"
-	"github.com/mia0x75/myparser/types"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+)
+
+// JSON_TABLE column roles keep mutually exclusive syntax separate.
+type JSONTableColumnKind int
+
+const (
+	JSONTableColumnUnknown JSONTableColumnKind = iota
+	JSONTableColumnOrdinality
+	JSONTableColumnPath
+	JSONTableColumnExists
+	JSONTableColumnNested
 )
 
 // JSON_TABLE behavior kinds for missing values and conversion errors.
+type JSONTableBehaviorKind int
+
 const (
-	JSONTableBehaviorValue = iota
-	JSONTableBehaviorDefault
+	JSONTableBehaviorUnknown JSONTableBehaviorKind = iota
+	JSONTableBehaviorNull
 	JSONTableBehaviorError
+	JSONTableBehaviorDefault
+)
+
+// JSON_TABLE behavior targets.
+type JSONTableBehaviorTarget int
+
+const (
+	JSONTableBehaviorOnUnknown JSONTableBehaviorTarget = iota
+	JSONTableBehaviorOnEmpty
+	JSONTableBehaviorOnError
 )
 
 // JSONTable converts a JSON expression to a table using column path definitions.
 type JSONTable struct {
-	node
+	resultSetNode
 
 	Expr    ExprNode
 	Path    string
 	Columns []*JSONTableColumn
 }
 
+// JSONTable is a result-set source.
+var _ ResultSetNode = (*JSONTable)(nil)
+
 func (n *JSONTable) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("JSON_TABLE")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if n == nil {
+		return errors.New("restore JSONTable: nil node")
+	}
+	if !nodePresent(n.Expr) || len(n.Columns) == 0 {
+		return errors.New("restore JSONTable: missing expression")
+	}
+	ctx.WriteKeyword("JSON_TABLE")
 	ctx.WritePlain("(")
 	if err := n.Expr.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore JSONTable.Expr")
@@ -36,123 +71,213 @@ func (n *JSONTable) Restore(ctx *format.RestoreCtx) error {
 		return err
 	}
 	ctx.WritePlain("))")
-	return nil
+	return ctx.Err()
 }
 
 func (n *JSONTable) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	table, ok := newNode.(*JSONTable)
+	if !ok || table == nil {
+		return newNode, false
+	}
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*JSONTable)
-	if n.Expr != nil {
-		node, ok := n.Expr.Accept(v)
-		if !ok {
-			return n, false
-		}
-		n.Expr = node.(ExprNode)
+	if !nodePresent(table.Expr) || len(table.Columns) == 0 {
+		return table, false
 	}
-	for i, column := range n.Columns {
+	expr, ok := table.Expr.Accept(v)
+	if !ok {
+		return table, false
+	}
+	updated, ok := expr.(ExprNode)
+	if !ok || !nodePresent(updated) {
+		return table, false
+	}
+	table.Expr = updated
+	for i, column := range table.Columns {
+		if column == nil {
+			return table, false
+		}
 		node, ok := column.Accept(v)
 		if !ok {
-			return n, false
+			return table, false
 		}
-		n.Columns[i] = node.(*JSONTableColumn)
+		updated, ok := node.(*JSONTableColumn)
+		if !ok || updated == nil {
+			return table, false
+		}
+		table.Columns[i] = updated
 	}
-	return v.Leave(n)
+	return v.Leave(table)
 }
 
 // JSONTableColumn is an ordinality, path, exists, or nested path column.
 type JSONTableColumn struct {
 	node
 
-	Name       model.CIStr
-	Tp         *types.FieldType
-	Path       string
-	Exists     bool
-	Ordinality bool
-	Nested     bool
-	Columns    []*JSONTableColumn
-	OnEmpty    *JSONTableBehavior
-	OnError    *JSONTableBehavior
+	Name        lex.Ident
+	Type        pkast.TypeNode
+	Path        string
+	Columns     []*JSONTableColumn
+	Kind        JSONTableColumnKind
+	PathKeyword bool
+	Behaviors   []*JSONTableBehavior
 }
 
+var _ Node = (*JSONTableColumn)(nil)
+
 func (c *JSONTableColumn) Restore(ctx *format.RestoreCtx) error {
-	switch {
-	case c.Ordinality:
-		ctx.WriteName(c.Name.O)
-		ctx.WriteKeyWord(" FOR ORDINALITY")
-	case c.Nested:
-		ctx.WriteKeyWord("NESTED PATH ")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c == nil {
+		return errors.New("restore JSONTableColumn: nil node")
+	}
+	if err := c.validate(); err != nil {
+		return err
+	}
+	switch c.Kind {
+	case JSONTableColumnOrdinality:
+		ctx.WriteIdent(c.Name)
+		ctx.WriteKeyword(" FOR ORDINALITY")
+		return ctx.Err()
+	case JSONTableColumnNested:
+		if c.PathKeyword {
+			ctx.WriteKeyword("NESTED PATH ")
+		} else {
+			ctx.WriteKeyword("NESTED ")
+		}
 		ctx.WriteString(c.Path)
-		ctx.WriteKeyWord(" COLUMNS (")
+		ctx.WriteKeyword(" COLUMNS (")
 		if err := restoreJSONTableColumns(ctx, c.Columns); err != nil {
 			return err
 		}
 		ctx.WritePlain(")")
+		return ctx.Err()
 	default:
-		ctx.WriteName(c.Name.O)
-		if c.Tp != nil {
-			ctx.WritePlain(" ")
-			if err := c.Tp.Restore(ctx); err != nil {
-				return errors.Annotate(err, "An error occurred while restore JSONTableColumn.Type")
-			}
+		ctx.WriteIdent(c.Name)
+		ctx.WritePlain(" ")
+		if err := c.Type.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore JSONTableColumn.Type")
 		}
-		if c.Exists {
-			ctx.WriteKeyWord(" EXISTS PATH ")
+		if c.Kind == JSONTableColumnExists {
+			ctx.WriteKeyword(" EXISTS PATH ")
 		} else {
-			ctx.WriteKeyWord(" PATH ")
+			ctx.WriteKeyword(" PATH ")
 		}
 		ctx.WriteString(c.Path)
-		if err := c.restoreJSONTableBehaviors(ctx); err != nil {
-			return err
+		for _, behavior := range c.Behaviors {
+			if err := behavior.Restore(ctx); err != nil {
+				return err
+			}
 		}
+		return ctx.Err()
+	}
+}
+
+func (c *JSONTableColumn) validate() error {
+	switch c.Kind {
+	case JSONTableColumnOrdinality:
+		if !c.Name.Present() || c.Type != nil || c.Path != "" || c.PathKeyword || len(c.Columns) != 0 || len(c.Behaviors) != 0 {
+			return errors.New("ast: invalid JSON_TABLE ordinality column")
+		}
+	case JSONTableColumnPath, JSONTableColumnExists:
+		if !c.Name.Present() || !nodePresent(c.Type) || c.Type.TypeCore() == nil || c.PathKeyword || len(c.Columns) != 0 {
+			return errors.New("ast: invalid JSON_TABLE path column")
+		}
+	case JSONTableColumnNested:
+		if c.Name.Present() || c.Type != nil || len(c.Behaviors) != 0 || len(c.Columns) == 0 {
+			return errors.New("ast: invalid JSON_TABLE nested column")
+		}
+	default:
+		return errors.New("ast: unknown JSON_TABLE column kind")
+	}
+	seen := [3]bool{}
+	for _, behavior := range c.Behaviors {
+		if behavior == nil || behavior.validate() != nil {
+			return errors.New("ast: invalid JSON_TABLE behavior")
+		}
+		if seen[behavior.On] {
+			return errors.New("ast: duplicate JSON_TABLE behavior target")
+		}
+		seen[behavior.On] = true
 	}
 	return nil
 }
 
-// Accept visits nested columns and the default expressions of behavior clauses.
+// Accept visits the type, nested columns, and behavior clauses in source order.
 func (c *JSONTableColumn) Accept(v Visitor) (Node, bool) {
+	if c == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(c)
+	column, ok := newNode.(*JSONTableColumn)
+	if !ok || column == nil {
+		return newNode, false
+	}
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	c = newNode.(*JSONTableColumn)
-	for i, column := range c.Columns {
-		node, ok := column.Accept(v)
+	if column.validate() != nil {
+		return column, false
+	}
+	if column.Type != nil {
+		node, ok := column.Type.Accept(v)
 		if !ok {
-			return c, false
+			return column, false
 		}
-		c.Columns[i] = node.(*JSONTableColumn)
-	}
-	for _, behavior := range []*JSONTableBehavior{c.OnEmpty, c.OnError} {
-		if behavior != nil && behavior.Value != nil {
-			node, ok := behavior.Value.Accept(v)
-			if !ok {
-				return c, false
-			}
-			behavior.Value = node.(ExprNode)
+		updated, ok := node.(pkast.TypeNode)
+		if !ok || !nodePresent(updated) || updated.TypeCore() == nil {
+			return column, false
 		}
+		column.Type = updated
 	}
-	return v.Leave(c)
-}
-
-func (c *JSONTableColumn) restoreJSONTableBehaviors(ctx *format.RestoreCtx) error {
-	if c.OnEmpty != nil {
-		if err := c.OnEmpty.Restore(ctx, true); err != nil {
-			return err
+	for i, child := range column.Columns {
+		if child == nil {
+			return column, false
 		}
-	}
-	if c.OnError != nil {
-		if err := c.OnError.Restore(ctx, false); err != nil {
-			return err
+		node, ok := child.Accept(v)
+		if !ok {
+			return column, false
 		}
+		updated, ok := node.(*JSONTableColumn)
+		if !ok || updated == nil {
+			return column, false
+		}
+		column.Columns[i] = updated
 	}
-	return nil
+	for i, behavior := range column.Behaviors {
+		if behavior == nil {
+			return column, false
+		}
+		node, ok := behavior.Accept(v)
+		if !ok {
+			return column, false
+		}
+		updated, ok := node.(*JSONTableBehavior)
+		if !ok || updated == nil {
+			return column, false
+		}
+		column.Behaviors[i] = updated
+	}
+	return v.Leave(column)
 }
 
 func restoreJSONTableColumns(ctx *format.RestoreCtx, cols []*JSONTableColumn) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(cols) == 0 {
+		return errors.New("ast: missing JSON_TABLE columns")
+	}
 	for i, col := range cols {
+		if col == nil {
+			return errors.Errorf("restore JSONTable: nil column at %d", i)
+		}
 		if i != 0 {
 			ctx.WritePlain(", ")
 		}
@@ -160,64 +285,104 @@ func restoreJSONTableColumns(ctx *format.RestoreCtx, cols []*JSONTableColumn) er
 			return errors.Annotatef(err, "An error occurred while restore JSONTable.Column[%d]", i)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // JSONTableBehavior specifies NULL, ERROR, or DEFAULT on an empty path or error.
 type JSONTableBehavior struct {
-	Tp      int
-	OnEmpty bool
-	Value   ExprNode
+	node
+
+	Kind  JSONTableBehaviorKind
+	On    JSONTableBehaviorTarget
+	Value ExprNode
 }
 
-func (b *JSONTableBehavior) Restore(ctx *format.RestoreCtx, onEmpty bool) error {
-	ctx.WritePlain(" ")
-	switch b.Tp {
+var _ Node = (*JSONTableBehavior)(nil)
+
+func (b *JSONTableBehavior) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b == nil {
+		return errors.New("restore JSONTableBehavior: nil node")
+	}
+	if err := b.validate(); err != nil {
+		return err
+	}
+	switch b.Kind {
+	case JSONTableBehaviorNull:
+		ctx.WritePlain(" ")
+		ctx.WriteKeyword("NULL")
 	case JSONTableBehaviorError:
-		ctx.WriteKeyWord("ERROR")
+		ctx.WritePlain(" ")
+		ctx.WriteKeyword("ERROR")
 	case JSONTableBehaviorDefault:
-		ctx.WriteKeyWord("DEFAULT ")
+		ctx.WritePlain(" ")
+		ctx.WriteKeyword("DEFAULT ")
 		if err := b.Value.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore JSONTableBehavior.Default")
-		}
-	default:
-		if b.Value == nil {
-			ctx.WriteKeyWord("NULL")
-		} else if err := b.Value.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore JSONTableBehavior.Value")
 		}
+	default:
+		return errors.Errorf("restore JSONTableBehavior: unknown kind %d", b.Kind)
 	}
-	if onEmpty {
-		ctx.WriteKeyWord(" ON EMPTY")
-	} else {
-		ctx.WriteKeyWord(" ON ERROR")
+	switch b.On {
+	case JSONTableBehaviorOnEmpty:
+		ctx.WriteKeyword(" ON EMPTY")
+	case JSONTableBehaviorOnError:
+		ctx.WriteKeyword(" ON ERROR")
+	default:
+		return errors.Errorf("restore JSONTableBehavior: unknown target %d", b.On)
+	}
+	return ctx.Err()
+}
+
+func (b *JSONTableBehavior) validate() error {
+	if b == nil {
+		return errors.New("ast: nil JSON_TABLE behavior")
+	}
+	switch b.Kind {
+	case JSONTableBehaviorNull, JSONTableBehaviorError:
+		if b.Value != nil {
+			return errors.New("ast: non-default JSON_TABLE behavior carries a value")
+		}
+	case JSONTableBehaviorDefault:
+		if !nodePresent(b.Value) {
+			return errors.New("ast: default JSON_TABLE behavior requires a value")
+		}
+	default:
+		return errors.New("ast: unknown JSON_TABLE behavior kind")
+	}
+	if b.On != JSONTableBehaviorOnEmpty && b.On != JSONTableBehaviorOnError {
+		return errors.New("ast: unknown JSON_TABLE behavior target")
 	}
 	return nil
 }
 
-// NewJSONTableColumnBehavior constructs a column behavior clause.
-func NewJSONTableColumnBehavior(tp int, onEmpty bool, value ExprNode) *JSONTableBehavior {
-	return &JSONTableBehavior{Tp: tp, OnEmpty: onEmpty, Value: value}
-}
-
-// AssignJSONTableBehavior assigns a clause to its ON EMPTY or ON ERROR field.
-func AssignJSONTableBehavior(col *JSONTableColumn, behavior *JSONTableBehavior) {
-	if col == nil || behavior == nil {
-		return
+func (b *JSONTableBehavior) Accept(v Visitor) (Node, bool) {
+	if b == nil {
+		return nil, false
 	}
-	if behavior.OnEmpty {
-		col.OnEmpty = behavior
-		return
+	newNode, skipChildren := v.Enter(b)
+	behavior, ok := newNode.(*JSONTableBehavior)
+	if !ok || behavior == nil {
+		return newNode, false
 	}
-	col.OnError = behavior
-}
-
-// AssignJSONTableBehaviors assigns the column's behavior clauses.
-func AssignJSONTableBehaviors(col *JSONTableColumn, behaviors []*JSONTableBehavior) {
-	if col == nil {
-		return
+	if skipChildren {
+		return v.Leave(newNode)
 	}
-	for _, b := range behaviors {
-		AssignJSONTableBehavior(col, b)
+	if behavior.validate() != nil {
+		return behavior, false
 	}
+	if behavior.Value != nil {
+		node, ok := behavior.Value.Accept(v)
+		if !ok {
+			return behavior, false
+		}
+		updated, ok := node.(ExprNode)
+		if !ok || !nodePresent(updated) {
+			return behavior, false
+		}
+		behavior.Value = updated
+	}
+	return v.Leave(behavior)
 }

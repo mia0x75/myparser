@@ -3,10 +3,13 @@ package ast_test
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
+	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 func getDefaultCharsetAndCollate() (string, string) {
@@ -44,7 +47,7 @@ func TestAstFormat(t *testing.T) {
 		{`345 + "  hello  "`, `345 + "  hello  "`},
 		{`"hello world"    >=    'hello world'`, `"hello world" >= "hello world"`},
 		{`case 3 when 1 then false else true end`, `CASE 3 WHEN 1 THEN FALSE ELSE TRUE END`},
-		{`database.table.column`, "`database`.`table`.`column`"}, // ColumnNameExpr
+		{`database.table.column`, "`database`.`table`.`column`"}, // ColumnRef
 		{`3 is null`, `3 IS NULL`},
 		{`3 is not null`, `3 IS NOT NULL`},
 		{`3 is true`, `3 IS TRUE`},
@@ -56,6 +59,7 @@ func TestAstFormat(t *testing.T) {
 		{`"abc" like '%b%'`, `"abc" LIKE "%b%"`},
 		{`"abc" not like '%b%'`, `"abc" NOT LIKE "%b%"`},
 		{`"abc" like '%b%' escape '_'`, `"abc" LIKE "%b%" ESCAPE '_'`},
+		{`'abc' like 'a%' escape 'x''y'`, `"abc" LIKE "a%" ESCAPE 'x''y'`},
 		{`"abc" regexp '.*bc?'`, `"abc" REGEXP ".*bc?"`},
 		{`"abc" not regexp '.*bc?'`, `"abc" NOT REGEXP ".*bc?"`},
 		{`-  4`, `-4`},
@@ -89,16 +93,52 @@ func TestAstFormat(t *testing.T) {
 		expr := fmt.Sprintf("select %s", tt.input)
 		charset, collation := getDefaultCharsetAndCollate()
 		stmts, _, err := myparser.New().Parse(expr, charset, collation)
-		node := stmts[0].(*ast.SelectStmt).Fields.Fields[0].Expr
+		node := stmts[0].(*ast.SelectStmt).Fields.Items[0].Expr
 		if err != nil {
 			t.Fatalf("got error %v, want nil", err)
 		}
 
 		writer := bytes.NewBufferString("")
-		node.Format(writer)
+		ast.FormatExpr(node, writer)
 		if got := writer.String(); got != tt.output {
 			t.Fatalf("got %#v, want %#v", got, tt.output)
 		}
+	}
+}
+
+func TestColumnRefFormatCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, expr, formatted, restored string
+	}{
+		{"mixed case", "Db.`TaB`.CoL", "`db`.`tab`.`col`", "`Db`.`TaB`.`CoL`"},
+		{"quoted dot", "`A.B`", "`a.b`", "`A.B`"},
+		{"escaped backtick", "`A``B`", "`a``b`", "`A``B`"},
+		{"empty quoted name", "``", "``", "``"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmt, err := myparser.New().ParseOneStmt("SELECT "+tc.expr, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.ColumnRef)
+			parts := append([]lex.Ident(nil), ref.Name.Parts...)
+			var formatted, restored bytes.Buffer
+			ref.Format(&formatted)
+			if formatted.String() != tc.formatted {
+				t.Fatalf("Format = %q, want %q", formatted.String(), tc.formatted)
+			}
+			if err := ref.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, &restored)); err != nil {
+				t.Fatal(err)
+			}
+			if restored.String() != tc.restored || !reflect.DeepEqual(ref.Name.Parts, parts) {
+				t.Fatalf("Restore = %q, want %q; parts = %+v, want %+v", restored.String(), tc.restored, ref.Name.Parts, parts)
+			}
+		})
+	}
+	var empty bytes.Buffer
+	(&ast.ColumnRef{}).Format(&empty)
+	if empty.String() != "``" {
+		t.Fatalf("empty ColumnRef Format = %q, want backquoted empty name", empty.String())
 	}
 }
 
@@ -112,7 +152,7 @@ func TestAstFormatStubCoverage(t *testing.T) {
 		expect string
 	}{
 		{"select (select 1)", "(select 1)"},
-		{"select count(*)", "count(1)"},
+		{"select count(*)", "count(*)"},
 		{"select row(1,2)", "row(1,2)"},
 		{"select @v", "@`v`"},
 		{"select @@global.v", "@@global.`v`"},
@@ -125,7 +165,7 @@ func TestAstFormatStubCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: got error %v, want nil", tt.sql, err)
 		}
-		node := stmts[0].(*ast.SelectStmt).Fields.Fields[0].Expr
+		node := stmts[0].(*ast.SelectStmt).Fields.Items[0].Expr
 		writer := bytes.NewBufferString("")
 		func() {
 			defer func() {
@@ -133,7 +173,7 @@ func TestAstFormatStubCoverage(t *testing.T) {
 					t.Fatalf("%s: Format panicked: %v", tt.sql, r)
 				}
 			}()
-			node.Format(writer)
+			ast.FormatExpr(node, writer)
 		}()
 		if got := writer.String(); got != tt.expect {
 			t.Errorf("%s: got %q, want %q", tt.sql, got, tt.expect)

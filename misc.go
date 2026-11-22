@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/charset"
 )
 
@@ -814,24 +815,42 @@ var tokenMap = map[string]int{
 }
 
 // diagnosticsStatementItemName validates a GET DIAGNOSTICS statement item.
-func diagnosticsStatementItemName(name string) (string, bool) {
+func diagnosticsStatementItemName(name string) (ast.DiagnosticsItemName, bool) {
 	switch strings.ToUpper(name) {
 	case "NUMBER", "ROW_COUNT":
-		return strings.ToUpper(name), true
+		if strings.EqualFold(name, "NUMBER") {
+			return ast.DiagnosticsItemNumber, true
+		}
+		return ast.DiagnosticsItemRowCount, true
 	}
-	return "", false
+	return 0, false
 }
 
 // diagnosticsConditionItemName validates a MySQL or MariaDB condition item.
-func diagnosticsConditionItemName(name string) (string, bool) {
+func diagnosticsConditionItemName(name string) (ast.DiagnosticsItemName, bool) {
 	switch strings.ToUpper(name) {
 	case "CLASS_ORIGIN", "SUBCLASS_ORIGIN", "RETURNED_SQLSTATE",
 		"MESSAGE_TEXT", "MYSQL_ERRNO", "CONSTRAINT_CATALOG",
 		"CONSTRAINT_SCHEMA", "CONSTRAINT_NAME", "CATALOG_NAME",
 		"SCHEMA_NAME", "TABLE_NAME", "COLUMN_NAME", "CURSOR_NAME", "ROW_NUMBER":
-		return strings.ToUpper(name), true
+		return map[string]ast.DiagnosticsItemName{
+			"CLASS_ORIGIN":       ast.DiagnosticsItemClassOrigin,
+			"SUBCLASS_ORIGIN":    ast.DiagnosticsItemSubclassOrigin,
+			"RETURNED_SQLSTATE":  ast.DiagnosticsItemReturnedSQLState,
+			"MESSAGE_TEXT":       ast.DiagnosticsItemMessageText,
+			"MYSQL_ERRNO":        ast.DiagnosticsItemMySQLErrno,
+			"CONSTRAINT_CATALOG": ast.DiagnosticsItemConstraintCatalog,
+			"CONSTRAINT_SCHEMA":  ast.DiagnosticsItemConstraintSchema,
+			"CONSTRAINT_NAME":    ast.DiagnosticsItemConstraintName,
+			"CATALOG_NAME":       ast.DiagnosticsItemCatalogName,
+			"SCHEMA_NAME":        ast.DiagnosticsItemSchemaName,
+			"TABLE_NAME":         ast.DiagnosticsItemTableName,
+			"COLUMN_NAME":        ast.DiagnosticsItemColumnName,
+			"CURSOR_NAME":        ast.DiagnosticsItemCursorName,
+			"ROW_NUMBER":         ast.DiagnosticsItemRowNumber,
+		}[strings.ToUpper(name)], true
 	}
-	return "", false
+	return 0, false
 }
 
 // See https://dev.mysql.com/doc/refman/5.7/en/function-resolution.html for details

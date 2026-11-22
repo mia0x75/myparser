@@ -1,17 +1,25 @@
 package driver
 
 import (
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser/ast"
-	"github.com/mia0x75/myparser/format"
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/types"
 	"github.com/mia0x75/myparser/types/json"
+	pkast "github.com/mia0x75/parserkit/ast"
 )
 
-func TestValueExprRestore(t *testing.T) {
+// TestValueExprFormat verifies the driver-only Format method output.
+// Format is a standalone diagnostic method: it is not part of the AST
+// Node/Restore/Visitor contract and must not be called via ast.ExprNode.
+func TestValueExprFormat(t *testing.T) {
+	js, err := json.ParseBinaryFromString(`{"a": 1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	testCases := []struct {
 		datum  types.Datum
 		expect string
@@ -22,88 +30,51 @@ func TestValueExprRestore(t *testing.T) {
 		{types.NewUintDatum(1), "1"},
 		{types.NewFloat32Datum(1.1), "1.1e+00"},
 		{types.NewFloat64Datum(1.1), "1.1e+00"},
-		{types.NewStringDatum("test `s't\"r."), "'test `s''t\"r.'"},
-		{types.NewBytesDatum([]byte("test `s't\"r.")), "'test `s''t\"r.'"},
+		{types.NewStringDatum("test `s't\"r."), strconv.Quote("test `s't\"r.")},
+		{types.NewBytesDatum([]byte("test `s't\"r.")), strconv.Quote("test `s't\"r.")},
 		{types.NewBinaryLiteralDatum([]byte("test `s't\"r.")), "b'11101000110010101110011011101000010000001100000011100110010011101110100001000100111001000101110'"},
 		{types.NewDecimalDatum(types.NewDecFromInt(321)), "321"},
-		// MysqlTime (date/datetime) restores as a quoted string.
+		// MysqlTime (date/datetime) falls through to ToString, unquoted.
 		{
 			datum: func() types.Datum {
 				var d types.Datum
 				d.SetMysqlTime(types.Time{Time: types.FromDate(2020, 1, 2, 3, 4, 5, 0), Type: mysql.TypeDate})
 				return d
 			}(),
-			expect: "'2020-01-02'",
+			expect: "2020-01-02",
 		},
-		// MysqlDuration (time) restores as a quoted string.
+		// MysqlDuration (time) falls through to ToString, unquoted.
 		{
 			datum:  types.NewDurationDatum(types.Duration{Duration: 3723000000000, Fsp: 0}), // 01:02:03
-			expect: "'01:02:03'",
+			expect: "01:02:03",
 		},
-		// MysqlEnum and MysqlSet restore as quoted strings.
+		// MysqlEnum and MysqlSet fall through to ToString, unquoted.
 		{
 			datum:  func() types.Datum { var d types.Datum; d.SetMysqlEnum(types.Enum{Name: "a"}); return d }(),
-			expect: "'a'",
+			expect: "a",
 		},
 		{
 			datum:  func() types.Datum { var d types.Datum; d.SetMysqlSet(types.Set{Name: "a,b"}); return d }(),
-			expect: "'a,b'",
+			expect: "a,b",
 		},
-		// MysqlJSON restores as unquoted JSON text.
+		// MysqlJSON falls through to ToString, unquoted.
 		{
 			datum: func() types.Datum {
 				d := types.Datum{}
-				j, _ := json.ParseBinaryFromString(`{"a":1}`)
-				d.SetMysqlJSON(j)
+				d.SetMysqlJSON(js)
 				return d
 			}(),
 			expect: `{"a": 1}`,
 		},
 	}
-	// Run Test
-	var sb strings.Builder
-	for _, testCase := range testCases {
-		sb.Reset()
-		expr := &ValueExpr{Datum: testCase.datum}
-		err := expr.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, &sb))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if sb.String() != testCase.expect {
-			t.Fatalf("got %#v, want %#v (Datum: %#v)", sb.String(), testCase.expect, testCase.datum)
-		}
-	}
-}
-
-func TestValueExprFormat(t *testing.T) {
-	js, err := json.ParseBinaryFromString(`{"a": 1}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	datum := func(f func(*types.Datum)) types.Datum {
-		var d types.Datum
-		f(&d)
-		return d
-	}
-	testCases := []struct {
-		datum  types.Datum
-		expect string
-	}{
-		{datum(func(d *types.Datum) { d.SetMysqlDuration(types.Duration{}) }), "00:00:00"},
-		{datum(func(d *types.Datum) { d.SetMysqlEnum(types.Enum{Name: "a"}) }), "a"},
-		{datum(func(d *types.Datum) { d.SetMysqlSet(types.Set{Name: "a,b"}) }), "a,b"},
-		{types.NewMysqlBitDatum(types.BinaryLiteral("ab")), "ab"},
-		{datum(func(d *types.Datum) {
-			d.SetMysqlTime(types.Time{Time: types.FromDate(2020, 1, 2, 3, 4, 5, 0), Type: mysql.TypeDate})
-		}), "2020-01-02"},
-		{datum(func(d *types.Datum) { d.SetMysqlJSON(js) }), `{"a": 1}`},
-	}
-	for _, testCase := range testCases {
-		var sb strings.Builder
-		(&ValueExpr{Datum: testCase.datum}).Format(&sb)
-		if sb.String() != testCase.expect {
-			t.Fatalf("got %#v, want %#v (Datum: %#v)", sb.String(), testCase.expect, testCase.datum)
-		}
+	for i, testCase := range testCases {
+		t.Run("", func(t *testing.T) {
+			var sb strings.Builder
+			(&ValueExpr{Datum: testCase.datum}).Format(&sb)
+			if sb.String() != testCase.expect {
+				t.Fatalf("case %d: Format got %q, want %q (Datum: %#v)", i, sb.String(), testCase.expect, testCase.datum)
+			}
+		})
 	}
 }
 
@@ -129,53 +100,6 @@ func TestValueExprFormatSpecialKindsDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestParamMarkerExprFormat(t *testing.T) {
-	var sb strings.Builder
-	(&ParamMarkerExpr{}).Format(&sb)
-	if got := sb.String(); got != "?" {
-		t.Fatalf("got %#v, want %q", got, "?")
-	}
-}
-
-type testVisitor struct {
-	entered int
-	left    int
-}
-
-func (v *testVisitor) Enter(n ast.Node) (ast.Node, bool) {
-	v.entered++
-	return n, false
-}
-
-func (v *testVisitor) Leave(n ast.Node) (ast.Node, bool) {
-	v.left++
-	return n, true
-}
-
-func TestParamMarkerExprRestoreAcceptAndOrder(t *testing.T) {
-	var sb strings.Builder
-	pm := &ParamMarkerExpr{Offset: 3}
-	if err := pm.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, &sb)); err != nil {
-		t.Fatal(err)
-	}
-	if got := sb.String(); got != "?" {
-		t.Fatalf("Restore: got %#v, want ?", got)
-	}
-
-	visitor := &testVisitor{}
-	if _, ok := pm.Accept(visitor); !ok {
-		t.Fatal("Accept returned ok=false")
-	}
-	if visitor.entered != 1 || visitor.left != 1 {
-		t.Fatalf("Accept counts: entered=%d left=%d, want 1/1", visitor.entered, visitor.left)
-	}
-
-	pm.SetOrder(2)
-	if pm.Order != 2 {
-		t.Fatalf("Order: got %d, want 2", pm.Order)
-	}
-}
-
 func TestValueExprProjectionOffsetAndGetDatumString(t *testing.T) {
 	v := &ValueExpr{Datum: types.NewStringDatum("abc")}
 	v.SetProjectionOffset(7)
@@ -187,13 +111,41 @@ func TestValueExprProjectionOffsetAndGetDatumString(t *testing.T) {
 	}
 }
 
-func TestValueExprAcceptVisitorsChildren(t *testing.T) {
-	v := &ValueExpr{Datum: types.NewIntDatum(1)}
-	visitor := &testVisitor{}
-	if _, ok := v.Accept(visitor); !ok {
-		t.Fatal("Accept returned ok=false")
+// TestValueExprIsNotANode proves driver.ValueExpr is a runtime execution value
+// that must not be placed in an AST slot. The reflect check catches any future
+// regression that re-adds Node/ExprNode identity to the type.
+func TestValueExprIsNotANode(t *testing.T) {
+	t.Parallel()
+	typ := reflect.TypeFor[*ValueExpr]()
+	if typ.Implements(reflect.TypeFor[pkast.Node]()) {
+		t.Error("ValueExpr implements parserkit ast.Node; it must remain outside the AST boundary")
 	}
-	if visitor.entered != 1 || visitor.left != 1 {
-		t.Fatalf("Accept counts: entered=%d left=%d, want 1/1", visitor.entered, visitor.left)
+	if typ.Implements(reflect.TypeFor[pkast.ExprNode]()) {
+		t.Error("ValueExpr implements parserkit ast.ExprNode; it must remain outside the AST boundary")
+	}
+	// Also verify it does not have the Accept method that would make it a visitor node.
+	if _, ok := typ.MethodByName("Accept"); ok {
+		t.Error("ValueExpr exposes Accept; it must remain outside the AST boundary")
+	}
+}
+
+// TestValueExprFormatStringQuoting checks the strconv.Quote behavior for
+// string and bytes kinds, which is the legacy WriteString canonical form.
+func TestValueExprFormatStringQuoting(t *testing.T) {
+	for _, tc := range []struct {
+		input  any
+		expect string
+	}{
+		{"plain", `"plain"`},
+		{"with \"quote\"", `"with \"quote\""`},
+		{"with 'single'", `"with 'single'"`},
+		{"newline\n", `"newline\n"`},
+	} {
+		v := NewValueExpr(tc.input)
+		var sb strings.Builder
+		v.Format(&sb)
+		if sb.String() != tc.expect {
+			t.Fatalf("Format(%v) = %q, want %q", tc.input, sb.String(), tc.expect)
+		}
 	}
 }

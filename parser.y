@@ -7,13 +7,16 @@ import (
 	"strconv"
 	"strings"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+	"github.com/mia0x75/parserkit/loc"
+
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/model"
 	"github.com/mia0x75/myparser/opcode"
 	"github.com/mia0x75/myparser/auth"
 	"github.com/mia0x75/myparser/charset"
-	"github.com/mia0x75/myparser/types"
 )
 
 // lastValueWindow carries the window part of a LAST_VALUE call.
@@ -26,6 +29,7 @@ type lastValueWindow struct {
 
 
 %union {
+	span loc.Span
 	offset int // offset
 	item interface{}
 	ident string
@@ -931,7 +935,6 @@ type lastValueWindow struct {
 	SelectStmt                      /* SELECT statement */
 	ValuesStmt                      /* VALUES statement */
 	ValuesSetOprStmt                /* set operation containing VALUES */
-	ValuesSetOprList                /* unfinalized set operation containing VALUES */
 	TableStmt                       /* TABLE statement */
 	WithSelectStmt                  /* WITH ... SELECT statement */
 	WithUpdateStmt                  /* WITH ... UPDATE statement */
@@ -1077,8 +1080,10 @@ type lastValueWindow struct {
 	FuncDatetimePrecList            /* Function datetime precision list */
 	Field                           /* field expression */
 	Fields                          /* Fields clause */
+%type	<ident>
 	FieldAsName                     /* Field alias name */
 	FieldAsNameOpt                  /* Field alias name opt */
+%type	<item>
 	FieldList                       /* field expression list */
 	FlushOption                     /* Flush option */
 	TableRefsClause                 /* Table references clause */
@@ -1191,7 +1196,7 @@ type lastValueWindow struct {
 	MatchAgainstOpt                 /* MATCH ... AGAINST fulltext options */
 	LocalOpt                        /* Local opt */
 	LockClause                      /* Alter table lock clause */
-	NumLiteral                      /* Num/Int/Float/Decimal Literal */
+	NumLiteral                      /* Numeric literal expression */
 	NoWriteToBinLogAliasOpt         /* NO_WRITE_TO_BINLOG alias LOCAL or empty */
 	ObjectType                      /* Grant statement object type */
 	OnDuplicateKeyUpdate            /* ON DUPLICATE KEY UPDATE value list */
@@ -1318,6 +1323,7 @@ type lastValueWindow struct {
 	ValuesRowList                   /* values table row constructor list */
 	ValuesStmtKeyword               /* VALUES starting a table value constructor */
 	ValuesSetOprOperand             /* VALUES-enabled set operation operand */
+	ValuesSetOprList                /* unfinalized set operation containing VALUES */
 	ValuesSetOprGroup               /* parenthesized set operation containing VALUES */
 	SequenceOption                  /* sequence option */
 	SequenceOptionListOpt           /* sequence option list optional */
@@ -1373,7 +1379,9 @@ type lastValueWindow struct {
 	TransactionReleaseOpt           /* Optional [NO] RELEASE */
 	TransactionChainReleaseOpt      /* Transaction completion options */
 
+%type	<ident>
 	OptExistingWindowName           /* Optional existing WINDOW name */
+%type	<item>
 	OptFromFirstLast                /* Optional FROM FIRST/LAST */
 	OptLLDefault                    /* Optional LEAD/LAG default */
 	OptLeadLagInfo                  /* Optional LEAD/LAG info */
@@ -1393,7 +1401,9 @@ type lastValueWindow struct {
 	WindowFrameExtent               /* WINDOW frame extent */
 	WindowFrameStart                /* WINDOW frame start */
 	WindowFuncCall                  /* WINDOW function call */
+%type	<ident>
 	WindowName                      /* WINDOW name */
+%type	<item>
 	WindowNameOrSpec                /* WINDOW name or spec */
 	WindowSpec                      /* WINDOW spec */
 	WindowSpecDetails               /* WINDOW spec details */
@@ -1643,17 +1653,18 @@ AlterTableStmt:
 			Table: $4.(*ast.TableName),
 			Specs: $5.([]*ast.AlterTableSpec),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList BucketsOpt
 	{
-		$$ = &ast.AnalyzeTableStmt{TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $7.([]model.CIStr), MaxNumBuckets: $8.(uint64) }
+		$$ = &ast.AnalyzeTableStmt{TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $7.([]lex.Ident), MaxNumBuckets: $8.(uint64) }
 	}
 |	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList index IndexNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{
 			TableNames: []*ast.TableName{$4.(*ast.TableName)},
-			PartitionNames: $7.([]model.CIStr),
-			IndexNames: $9.([]model.CIStr),
+			PartitionNames: $7.([]lex.Ident),
+			IndexNames: $9.([]lex.Ident),
 			IndexFlag: true,
 			MaxNumBuckets: $10.(uint64),
 		}
@@ -1677,6 +1688,7 @@ AlterTableSpec:
 			Tp:	ast.AlterTableOption,
 			Options:$1.([]*ast.TableOption),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	convert to CharsetOrCharacterSet defaultKwd OptCollate
 	{
@@ -1685,22 +1697,30 @@ AlterTableSpec:
 			CharsetConvert: true,
 			Options:[]*ast.TableOption{{Tp: ast.TableOptionCharset, StrValue: "DEFAULT"}},
 		}
+		op.Options[0].SetSpan(yyS[yypt-1].span)
 		if $5 != "" {
-			op.Options = append(op.Options, &ast.TableOption{Tp: ast.TableOptionCollate, StrValue: $5.(string)})
+			collation := &ast.TableOption{Tp: ast.TableOptionCollate, StrValue: $5.(string)}
+			collation.SetSpan(yyS[yypt].span)
+			op.Options = append(op.Options, collation)
 		}
 		$$ = op
+		op.SetSpan(yyVAL.span)
 	}
 |	convert to CharsetOrCharacterSet CharsetName OptCollate
 	{
 		op := &ast.AlterTableSpec{
 			Tp: ast.AlterTableOption,
 			CharsetConvert: true,
-			Options:[]*ast.TableOption{{Tp: ast.TableOptionCharset, StrValue: $4.(string)}},
+			Options:[]*ast.TableOption{{Tp: ast.TableOptionCharset, StrValue: charsetName($4.(lex.Ident))}},
 		}
+		op.Options[0].SetSpan(yyS[yypt-1].span)
 		if $5 != "" {
-			op.Options = append(op.Options, &ast.TableOption{Tp: ast.TableOptionCollate, StrValue: $5.(string)})
+			collation := &ast.TableOption{Tp: ast.TableOptionCollate, StrValue: $5.(string)}
+			collation.SetSpan(yyS[yypt].span)
+			op.Options = append(op.Options, collation)
 		}
 		$$ = op
+		op.SetSpan(yyVAL.span)
 	}
 |	add ColumnKeywordOpt ColumnDef ColumnPosition
 	{
@@ -1709,6 +1729,7 @@ AlterTableSpec:
 			NewColumns:	[]*ast.ColumnDef{$3.(*ast.ColumnDef)},
 			Position:	$4.(*ast.ColumnPosition),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	add ColumnKeywordOpt '(' ColumnDefList ')'
 	{
@@ -1716,6 +1737,7 @@ AlterTableSpec:
 			Tp: 		ast.AlterTableAddColumns,
 			NewColumns:	$4.([]*ast.ColumnDef),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	add Constraint
 	{
@@ -1724,6 +1746,7 @@ AlterTableSpec:
 			Tp: ast.AlterTableAddConstraint,
 			Constraint: constraint,
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	add partition PartitionDefinitionListOpt
 	{
@@ -1735,6 +1758,7 @@ AlterTableSpec:
 			Tp: ast.AlterTableAddPartitions,
 			PartDefinitions: defs,
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	add partition partitions NUM
 	{
@@ -1742,6 +1766,7 @@ AlterTableSpec:
 			Tp: ast.AlterTableAddPartitions,
 			Num: getUint64FromNUM($4),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	coalesce partition NUM
 	{
@@ -1749,48 +1774,55 @@ AlterTableSpec:
 			Tp: ast.AlterTableCoalescePartitions,
 			Num: getUint64FromNUM($3),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	drop ColumnKeywordOpt ColumnName RestrictOrCascadeOpt
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp: ast.AlterTableDropColumn,
-			OldColumnName: $3.(*ast.ColumnName),
+			OldColumnName: namePointer($3.(ast.QualifiedName)),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	drop primary key
 	{
 		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableDropPrimaryKey}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	drop partition Identifier
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp: ast.AlterTableDropPartition,
-			Name: $3,
+			Name: syntaxIdent(yylex, $3, yyS[yypt].span),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	truncate partition Identifier
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp: ast.AlterTableTruncatePartition,
-			Name: $3,
+			Name: syntaxIdent(yylex, $3, yyS[yypt].span),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	exchange partition Identifier with tableKwd TableName ExchangePartitionValidationOpt
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp:                ast.AlterTableExchangePartition,
-			Name:              $3,
+			Name:              syntaxIdent(yylex, $3, yyS[yypt-4].span),
 			NewTable:          $6.(*ast.TableName),
 			WithoutValidation: $7.(bool),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	reorganize partition PartitionNameList into '(' PartitionDefinitionList ')'
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp:              ast.AlterTableReorganizePartition,
-			PartitionNames:  $3.([]model.CIStr),
+			PartitionNames:  $3.([]lex.Ident),
 			PartDefinitions: $6.([]*ast.PartitionDefinition),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	reorganize partition all into '(' PartitionDefinitionList ')'
 	{
@@ -1798,45 +1830,54 @@ AlterTableSpec:
 			Tp:              ast.AlterTableReorganizePartition,
 			PartDefinitions: $6.([]*ast.PartitionDefinition),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	remove partitioning
 	{
 		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableRemovePartitioning}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	PartitionByOpt
 	{
 		$$ = &ast.AlterTableSpec{Tp: ast.AlterTablePartition, Partition: $1.(*ast.PartitionOptions)}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	discard tablespace
 	{
 		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableDiscardTablespace}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	import_ tablespace
 	{
 		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableImportTablespace}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	drop KeyOrIndex Identifier
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp: ast.AlterTableDropIndex,
-			Name: $3,
+			Name: syntaxIdent(yylex, $3, yyS[yypt].span),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	drop foreign key IfExists Symbol
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp: ast.AlterTableDropForeignKey,
-			Name: $5.(string),
+			Name: syntaxIdent(yylex, $5.(string), yyS[yypt].span),
 			IfExists: $4.(bool),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	disable keys
 	{
-		$$ = &ast.AlterTableSpec{}
+		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableDisableKeys}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	enable keys
 	{
-		$$ = &ast.AlterTableSpec{}
+		$$ = &ast.AlterTableSpec{Tp: ast.AlterTableEnableKeys}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	modify ColumnKeywordOpt ColumnDef ColumnPosition
 	{
@@ -1845,37 +1886,34 @@ AlterTableSpec:
 			NewColumns:	[]*ast.ColumnDef{$3.(*ast.ColumnDef)},
 			Position:	$4.(*ast.ColumnPosition),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	change ColumnKeywordOpt ColumnName ColumnDef ColumnPosition
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp:    		ast.AlterTableChangeColumn,
-			OldColumnName:	$3.(*ast.ColumnName),
+			OldColumnName:	namePointer($3.(ast.QualifiedName)),
 			NewColumns:	[]*ast.ColumnDef{$4.(*ast.ColumnDef)},
 			Position:	$5.(*ast.ColumnPosition),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	alter ColumnKeywordOpt ColumnName set defaultKwd SignedLiteral
 	{
-		option := &ast.ColumnOption{Expr: $6}
-		colDef := &ast.ColumnDef{
-			Name: 	 $3.(*ast.ColumnName),
-			Options: []*ast.ColumnOption{option},
-		}
 		$$ = &ast.AlterTableSpec{
-			Tp:		ast.AlterTableAlterColumn,
-			NewColumns:	[]*ast.ColumnDef{colDef},
+			Tp: ast.AlterTableAlterColumn,
+			OldColumnName: namePointer($3.(ast.QualifiedName)),
+			Default: $6,
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	alter ColumnKeywordOpt ColumnName drop defaultKwd
 	{
-		colDef := &ast.ColumnDef{
-			Name: 	 $3.(*ast.ColumnName),
-		}
 		$$ = &ast.AlterTableSpec{
-			Tp:		ast.AlterTableAlterColumn,
-			NewColumns:	[]*ast.ColumnDef{colDef},
+			Tp: ast.AlterTableAlterColumn,
+			OldColumnName: namePointer($3.(ast.QualifiedName)),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	rename to TableName
 	{
@@ -1883,6 +1921,7 @@ AlterTableSpec:
 			Tp:    		ast.AlterTableRenameTable,
 			NewTable:      $3.(*ast.TableName),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	rename TableName
 	{
@@ -1890,6 +1929,7 @@ AlterTableSpec:
 			Tp:    		ast.AlterTableRenameTable,
 			NewTable:      $2.(*ast.TableName),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	rename as TableName
 	{
@@ -1897,22 +1937,25 @@ AlterTableSpec:
 			Tp:    		ast.AlterTableRenameTable,
 			NewTable:      $3.(*ast.TableName),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	rename KeyOrIndex Identifier to Identifier
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp:    	    ast.AlterTableRenameIndex,
-			FromKey:    model.NewCIStr($3),
-			ToKey:      model.NewCIStr($5),
+			FromKey:   syntaxIdent(yylex, $3, yyS[yypt-2].span),
+			ToKey:     syntaxIdent(yylex, $5, yyS[yypt].span),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	rename column ColumnName to ColumnName
 	{
 		$$ = &ast.AlterTableSpec{
 			Tp:            ast.AlterTableRenameColumn,
-			OldColumnName: $3.(*ast.ColumnName),
-			NewColumnName: $5.(*ast.ColumnName),
+			OldColumnName: namePointer($3.(ast.QualifiedName)),
+			NewColumnName: namePointer($5.(ast.QualifiedName)),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 |	LockClause
 	{
@@ -1920,6 +1963,7 @@ AlterTableSpec:
 			Tp:    		ast.AlterTableLock,
 			LockType:   $1.(ast.LockType),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 | algorithm EqOpt AlterAlgorithm
 	{
@@ -1928,6 +1972,7 @@ AlterTableSpec:
 			Tp:    		ast.AlterTableAlgorithm,
 			Algorithm:	$3.(ast.AlterAlgorithm),
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 | force
 	{
@@ -1935,6 +1980,7 @@ AlterTableSpec:
 		$$ = &ast.AlterTableSpec{
 			Tp:    		ast.AlterTableForce,
 		}
+		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
 
 
@@ -1977,13 +2023,15 @@ ColumnPosition:
 |	first
 	{
 		$$ = &ast.ColumnPosition{Tp: ast.ColumnPositionFirst}
+		$$.(*ast.ColumnPosition).SetSpan(yyVAL.span)
 	}
 |	after ColumnName
 	{
 		$$ = &ast.ColumnPosition{
 			Tp: ast.ColumnPositionAfter,
-			RelativeColumn: $2.(*ast.ColumnName),
+			RelativeColumn: namePointer($2.(ast.QualifiedName)),
 		}
+		$$.(*ast.ColumnPosition).SetSpan(yyVAL.span)
 	}
 
 
@@ -2001,18 +2049,18 @@ AlterTableSpecList:
 PartitionNameList:
 	Identifier
 	{
-		$$ = []model.CIStr{model.NewCIStr($1)}
+		$$ = []lex.Ident{syntaxIdent(yylex, $1, yyS[yypt].span)}
 	}
 |	PartitionNameList ',' Identifier
 	{
-		$$ = append($1.([]model.CIStr), model.NewCIStr($3))
+		$$ = append($1.([]lex.Ident), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 
 
 ConstraintKeywordOpt:
 	/* EMPTY */         { $$ = nil }
 |	constraint        { $$ = nil }
-|	constraint Symbol { $$ = $2.(string) }
+|	constraint Symbol { $$ = syntaxIdent(yylex, $2.(string), yyS[yypt].span) }
 
 
 Symbol:
@@ -2026,31 +2074,31 @@ RenameTableStmt:
 	rename tableKwd TableToTableList
 	{
 		$$ = &ast.RenameTableStmt{
-			OldTable: $3.([]*ast.TableToTable)[0].OldTable,
-			NewTable: $3.([]*ast.TableToTable)[0].NewTable,
-			TableToTables: $3.([]*ast.TableToTable),
+			Renames: $3.([]*ast.TableRename),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 TableToTableList:
 	TableToTable
 	{
-		$$ = []*ast.TableToTable{$1.(*ast.TableToTable)}
+		$$ = []*ast.TableRename{$1.(*ast.TableRename)}
 	}
 |	TableToTableList ',' TableToTable
 	{
-		$$ = append($1.([]*ast.TableToTable), $3.(*ast.TableToTable))
+		$$ = append($1.([]*ast.TableRename), $3.(*ast.TableRename))
 	}
 
 
 TableToTable:
 	TableName to TableName
 	{
-		$$ = &ast.TableToTable{
-			OldTable: $1.(*ast.TableName),
+		$$ = &ast.TableRename{
+			Table: $1.(*ast.TableName),
 			NewTable: $3.(*ast.TableName),
 		}
+		$$.(*ast.TableRename).SetSpan(yyVAL.span)
 	}
 
 
@@ -2073,18 +2121,18 @@ AnalyzeTableStmt:
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName index IndexNameList
 	{
-		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, IndexNames: $6.([]model.CIStr), IndexFlag: true, NoWriteToBinLog: $2.(bool) }
+		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, IndexNames: $6.([]lex.Ident), IndexFlag: true, NoWriteToBinLog: $2.(bool) }
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName partition PartitionNameList BucketsOpt
 	{
-		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $6.([]model.CIStr), MaxNumBuckets: $7.(uint64), NoWriteToBinLog: $2.(bool) }
+		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $6.([]lex.Ident), MaxNumBuckets: $7.(uint64), NoWriteToBinLog: $2.(bool) }
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName partition PartitionNameList index IndexNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{
 			TableNames: []*ast.TableName{$4.(*ast.TableName)},
-			PartitionNames: $6.([]model.CIStr),
-			IndexNames: $8.([]model.CIStr),
+			PartitionNames: $6.([]lex.Ident),
+			IndexNames: $8.([]lex.Ident),
 			IndexFlag: true,
 			MaxNumBuckets: $9.(uint64),
 			NoWriteToBinLog: $2.(bool),
@@ -2108,23 +2156,23 @@ AnalyzePersistentOpt:
 |	persistent forKwd all { $$ = &ast.AnalyzeTableStmt{Persistent: true, PersistentAll: true} }
 |	persistent forKwd columns AnalyzeColumnList indexes AnalyzeIndexList
 	{
-		$$ = &ast.AnalyzeTableStmt{Persistent: true, ColumnNames: $4.([]model.CIStr), IndexNames: $6.([]model.CIStr)}
+		$$ = &ast.AnalyzeTableStmt{Persistent: true, Columns: $4.([]lex.Ident), IndexNames: $6.([]lex.Ident)}
 	}
 
 
 AnalyzeColumnList:
-	all { $$ = []model.CIStr(nil) }
-|	'(' ')' { $$ = []model.CIStr{} }
+	all { $$ = []lex.Ident(nil) }
+|	'(' ')' { $$ = []lex.Ident{} }
 |	'(' ColumnList ')' { $$ = $2 }
 
 
 AnalyzeIndexList:
-	all { $$ = []model.CIStr(nil) }
+	all { $$ = []lex.Ident(nil) }
 |	'(' IndexNameList ')'
 	{
-		names := $2.([]model.CIStr)
+		names := $2.([]lex.Ident)
 		if names == nil {
-			names = []model.CIStr{}
+			names = []lex.Ident{}
 		}
 		$$ = names
 	}
@@ -2199,7 +2247,10 @@ TableMaintenanceOption:
 Assignment:
 	ColumnName eq ExprOrDefault
 	{
-		$$ = &ast.Assignment{Column: $1.(*ast.ColumnName), Expr:$3}
+		name := $1.(ast.QualifiedName)
+		assignment := &ast.Assignment{Target: columnRef(name, name.Span), Expr: $3}
+		assignment.SetSpan(yyVAL.span)
+		$$ = assignment
 	}
 
 
@@ -2219,6 +2270,7 @@ BeginTransactionStmt:
 |	begin not atomic SpStmtListOpt end
 	{
 		$$ = &ast.BeginEndStmt{NotAtomic: true, List: $4.([]ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	start transaction                          { $$ = &ast.BeginStmt{} }
 |	start transaction with consistent snapshot { $$ = &ast.BeginStmt{} }
@@ -2242,7 +2294,7 @@ ColumnDefList:
 ColumnDef:
 	ColumnName Type ColumnOptionListOpt
 	{
-		colDef := &ast.ColumnDef{Name: $1.(*ast.ColumnName), Tp: $2.(*types.FieldType), Options: $3.([]*ast.ColumnOption)}
+		colDef := syntaxColumnDef($1.(ast.QualifiedName), $2.(*ast.TypeName), $3.([]*ast.ColumnOption), yyVAL.span)
 		if !colDef.Validate() {
 			yyAppendErr(yylex, yyErrorf(yylex, "Invalid column definition"))
 			return 1
@@ -2259,18 +2311,15 @@ ColumnDef:
 				return 1
 			}
 		}
-		tp := types.NewFieldType(mysql.TypeLonglong)
-		tp.Flag |= mysql.UnsignedFlag
-		colDef := &ast.ColumnDef{
-			Name: $1.(*ast.ColumnName),
-			Tp:   tp,
-			Options: []*ast.ColumnOption{
-				{Tp: ast.ColumnOptionNotNull},
-				{Tp: ast.ColumnOptionAutoIncrement},
-				{Tp: ast.ColumnOptionUniqKey},
-			},
+		tp := newSyntaxType(mysql.TypeLonglong)
+		tp.Unsigned = true
+		tp.SetSpan(yyS[yypt-1].span)
+		options := []*ast.ColumnOption{
+			{Tp: ast.ColumnOptionNotNull},
+			{Tp: ast.ColumnOptionAutoIncrement},
+			{Tp: ast.ColumnOptionUniqKey},
 		}
-		colDef.Options = append(colDef.Options, $3.([]*ast.ColumnOption)...)
+		colDef := syntaxColumnDef($1.(ast.QualifiedName), tp, append(options, $3.([]*ast.ColumnOption)...), yyVAL.span)
 		if !colDef.Validate() {
 			yyAppendErr(yylex, yyErrorf(yylex, "Invalid column definition"))
 			return 1
@@ -2282,40 +2331,40 @@ ColumnDef:
 ColumnName:
 	Identifier
 	{
-		$$ = &ast.ColumnName{Name: model.NewCIStr($1)}
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))
 	}
 |	window
 	{
-		$$ = &ast.ColumnName{Name: model.NewCIStr($1)}
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))
 	}
 |	rank
 	{
-		$$ = &ast.ColumnName{Name: model.NewCIStr($1)}
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))
 	}
 |	Identifier '.' Identifier
 	{
-		$$ = &ast.ColumnName{Table: model.NewCIStr($1), Name: model.NewCIStr($3)}
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 |	Identifier '.' Identifier '.' Identifier
 	{
-		$$ = &ast.ColumnName{Schema: model.NewCIStr($1), Table: model.NewCIStr($3), Name: model.NewCIStr($5)}
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt-4].span), syntaxIdent(yylex, $3, yyS[yypt-2].span), syntaxIdent(yylex, $5, yyS[yypt].span))
 	}
 
 
 ColumnNameList:
 	ColumnName
 	{
-		$$ = []*ast.ColumnName{$1.(*ast.ColumnName)}
+		$$ = []ast.QualifiedName{$1.(ast.QualifiedName)}
 	}
 |	ColumnNameList ',' ColumnName
 	{
-		$$ = append($1.([]*ast.ColumnName), $3.(*ast.ColumnName))
+		$$ = append($1.([]ast.QualifiedName), $3.(ast.QualifiedName))
 	}
 
 
 ColumnNameListOpt:
-	/* EMPTY */    { $$ = []*ast.ColumnName{} }
-|	ColumnNameList { $$ = $1.([]*ast.ColumnName) }
+	/* EMPTY */    { $$ = []ast.QualifiedName{} }
+|	ColumnNameList { $$ = $1.([]ast.QualifiedName) }
 
 
 ColumnNameOrUserVarListOpt:
@@ -2337,7 +2386,7 @@ ColumnNameOrUserVariableList:
 ColumnNameOrUserVariable:
 	ColumnName
 	{
-		$$ = &ast.ColumnNameOrUserVar{ColumnName: $1.(*ast.ColumnName)}
+		$$ = &ast.ColumnNameOrUserVar{ColumnName: namePointer($1.(ast.QualifiedName))}
 	}
 |	UserVariable
 	{
@@ -2401,14 +2450,17 @@ ColumnOption:
 	not null
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionNotNull}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	null
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionNull}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	autoIncrement
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionAutoIncrement}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	PrimaryOpt key
 	{
@@ -2416,30 +2468,37 @@ ColumnOption:
 		// can also be specified as just KEY when given in a column definition.
 		// See http://dev.mysql.com/doc/refman/5.7/en/create-table.html
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionPrimaryKey}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	unique %prec lowerThanKey
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionUniqKey}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	unique key
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionUniqKey}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	defaultKwd DefaultValueExpr
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionDefaultValue, Expr: $2}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	on update NowSymOptionFraction
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionOnUpdate, Expr: $3}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	comment stringLit
 	{
-		$$ =  &ast.ColumnOption{Tp: ast.ColumnOptionComment, Expr: ast.NewValueExpr($2)}
+		$$ =  &ast.ColumnOption{Tp: ast.ColumnOptionComment, Expr: stringLiteral(yylex, $2, yyS[yypt].span)}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	check '(' Expression ')'
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionCheck, Expr: $3}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	GeneratedAlways as '(' Expression ')' VirtualOrStored
 	{
@@ -2453,6 +2512,7 @@ ColumnOption:
 			Expr: expr,
 			Stored: $6.(bool),
 		}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	ReferDef
 	{
@@ -2460,22 +2520,27 @@ ColumnOption:
 			Tp: ast.ColumnOptionReference,
 			Refer: $1.(*ast.ReferenceDef),
 		}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	collate CollationName
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionCollate, StrValue: $2.(string)}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	visible
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionVisible}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	invisible
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionInvisible}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 |	srid LengthNum
 	{
-		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionSRID, Expr: ast.NewValueExpr($2)}
+		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionSRID, Expr: numericLiteral(yylex, $2, yyS[yypt].span)}
+		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
 
 GeneratedAlways:
@@ -2504,7 +2569,8 @@ ConstraintElem:
 	{
 		c := &ast.Constraint{
 			Tp: ast.ConstraintPrimaryKey,
-			Keys: $6.([]*ast.IndexColName),
+			BaseConstraint: pkast.BaseConstraint{Keys: $6.([]pkast.IndexKeyPartNode)},
+			IndexName: $3.(lex.Ident),
 		}
 		if $8 != nil {
 			c.Option = $8.(*ast.IndexOption)
@@ -2521,8 +2587,8 @@ ConstraintElem:
 	{
 		c := &ast.Constraint{
 			Tp:	ast.ConstraintFulltext,
-			Keys:	$5.([]*ast.IndexColName),
-			Name:	$3.(string),
+			BaseConstraint: pkast.BaseConstraint{Keys: $5.([]pkast.IndexKeyPartNode)},
+			IndexName: $3.(lex.Ident),
 		}
 		if $7 != nil {
 			c.Option = $7.(*ast.IndexOption)
@@ -2533,8 +2599,8 @@ ConstraintElem:
 	{
 		c := &ast.Constraint{
 			Tp:   ast.ConstraintSpatial,
-			Keys: $5.([]*ast.IndexColName),
-			Name: $3.(string),
+			BaseConstraint: pkast.BaseConstraint{Keys: $5.([]pkast.IndexKeyPartNode)},
+			IndexName: $3.(lex.Ident),
 		}
 		if $7 != nil {
 			c.Option = $7.(*ast.IndexOption)
@@ -2545,8 +2611,8 @@ ConstraintElem:
 	{
 		c := &ast.Constraint{
 			Tp:	ast.ConstraintIndex,
-			Keys:	$5.([]*ast.IndexColName),
-			Name:	$2.(string),
+			BaseConstraint: pkast.BaseConstraint{Keys: $5.([]pkast.IndexKeyPartNode)},
+			IndexName: $2.(lex.Ident),
 		}
 		if $7 != nil {
 			c.Option = $7.(*ast.IndexOption)
@@ -2563,8 +2629,8 @@ ConstraintElem:
 	{
 		c := &ast.Constraint{
 			Tp:	ast.ConstraintUniq,
-			Keys:	$6.([]*ast.IndexColName),
-			Name:	$3.(string),
+			BaseConstraint: pkast.BaseConstraint{Keys: $6.([]pkast.IndexKeyPartNode)},
+			IndexName: $3.(lex.Ident),
 		}
 		if $8 != nil {
 			c.Option = $8.(*ast.IndexOption)
@@ -2581,16 +2647,16 @@ ConstraintElem:
 	{
 		$$ = &ast.Constraint{
 			Tp:	ast.ConstraintForeignKey,
-			Keys:	$5.([]*ast.IndexColName),
-			Name:	$3.(string),
-			Refer:	$7.(*ast.ReferenceDef),
+			BaseConstraint: pkast.BaseConstraint{Keys: $5.([]pkast.IndexKeyPartNode), Refer: $7.(*ast.ReferenceDef)},
+			IndexName: $3.(lex.Ident),
 		}
 	}
 |	check '(' Expression ')'
 	{
+		$3.SetSpan(yyS[yypt-1].span)
 		$$ = &ast.Constraint{
 			Tp:	ast.ConstraintCheck,
-			Expr:	$3.(ast.ExprNode),
+			BaseConstraint: pkast.BaseConstraint{Expr: $3.(ast.ExprNode)},
 		}
 	}
 
@@ -2600,7 +2666,8 @@ ReferDef:
 	{
 		ref := $6.(*ast.ReferenceDef)
 		ref.Table = $2.(*ast.TableName)
-		ref.IndexColNames = $4.([]*ast.IndexColName)
+		ref.Columns = $4.([]pkast.IndexKeyPartNode)
+		ref.SetSpan(yyVAL.span)
 		$$ = ref
 	}
 
@@ -2612,16 +2679,20 @@ ReferOptionsOpt:
 	}
 |	on deleteKwd ReferOpt OnUpdateOpt
 	{
+		action := &ast.OnDeleteOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-1].span))
 		$$ = &ast.ReferenceDef{
-			OnDelete: &ast.OnDeleteOpt{ReferOpt: $3.(ast.ReferOptionType)},
+			OnDelete: action,
 			OnUpdate: $4.(*ast.OnUpdateOpt),
 		}
 	}
 |	on update ReferOpt OnDeleteOpt
 	{
+		action := &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-1].span))
 		$$ = &ast.ReferenceDef{
 			OnDelete: $4.(*ast.OnDeleteOpt),
-			OnUpdate: &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)},
+			OnUpdate: action,
 		}
 	}
 
@@ -2633,7 +2704,9 @@ OnDeleteOpt:
 	}
 |	on deleteKwd ReferOpt
 	{
-		$$ = &ast.OnDeleteOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action := &ast.OnDeleteOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action.SetSpan(yyVAL.span)
+		$$ = action
 	}
 
 
@@ -2644,7 +2717,9 @@ OnUpdateOpt:
 	}
 |	on update ReferOpt
 	{
-		$$ = &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action := &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)}
+		action.SetSpan(yyVAL.span)
+		$$ = action
 	}
 
 
@@ -2662,8 +2737,8 @@ DefaultValueExpr:
 |	FunctionCallNonKeyword
 |	SimpleIdent
 	{
-		x := $1.(*ast.ColumnNameExpr)
-		if x.Name.Schema.O == "" && x.Name.Table.O == "" && strings.EqualFold(x.Name.Name.O, "now") {
+		x := $1.(*ast.ColumnRef)
+		if len(x.Name.Parts) == 1 && strings.EqualFold(x.Name.Parts[0].Name, "now") {
 			yyAppendErr(yylex, yyErrorf(yylex, "DEFAULT NOW requires parentheses"))
 			return 1
 		}
@@ -2673,7 +2748,7 @@ DefaultValueExpr:
 |	SumExpr
 |	SpatialFunctionName '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	'(' Expression ')'
 	{
@@ -2682,33 +2757,17 @@ DefaultValueExpr:
 |	SubSelect
 |	cast '(' Expression as CastType ')'
 	{
-		tp := $5.(*types.FieldType)
-		flen, decimal := mysql.GetDefaultFieldLengthAndDecimalForCast(tp.Tp)
-		if tp.Flen == types.UnspecifiedLength {
-			tp.Flen = flen
-		}
-		if tp.Decimal == types.UnspecifiedLength {
-			tp.Decimal = decimal
-		}
-		$$ = &ast.FuncCastExpr{Expr: $3, Tp: tp, FunctionType: ast.CastFunction}
+		$$ = &ast.FuncCastExpr{Expr: $3, Type: syntaxTypeNode(yylex, $5.(*ast.TypeName), yyS[yypt-1].span), FunctionType: ast.CastFunction}
 	}
 |	builtinCast '(' Expression as CastType ')'
 	{
-		tp := $5.(*types.FieldType)
-		flen, decimal := mysql.GetDefaultFieldLengthAndDecimalForCast(tp.Tp)
-		if tp.Flen == types.UnspecifiedLength {
-			tp.Flen = flen
-		}
-		if tp.Decimal == types.UnspecifiedLength {
-			tp.Decimal = decimal
-		}
-		$$ = &ast.FuncCastExpr{Expr: $3, Tp: tp, FunctionType: ast.CastFunction}
+		$$ = &ast.FuncCastExpr{Expr: $3, Type: syntaxTypeNode(yylex, $5.(*ast.TypeName), yyS[yypt-1].span), FunctionType: ast.CastFunction}
 	}
 
 NowSymOptionFraction:
-	NowSym                 { $$ = &ast.FuncCallExpr{FnName: model.NewCIStr("CURRENT_TIMESTAMP")} }
-|	NowSymFunc '(' ')'     { $$ = &ast.FuncCallExpr{FnName: model.NewCIStr("CURRENT_TIMESTAMP")} }
-|	NowSymFunc '(' NUM ')' { $$ = &ast.FuncCallExpr{FnName: model.NewCIStr("CURRENT_TIMESTAMP"), Args: []ast.ExprNode{ast.NewValueExpr($3)}} }
+	NowSym                 { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt].span)}} }
+|	NowSymFunc '(' ')'     { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-2].span)}} }
+|	NowSymFunc '(' NUM ')' { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-3].span), Args: []ast.ExprNode{numericLiteral(yylex, $3, yyS[yypt-1].span)}}} }
 
 
 /*
@@ -2722,15 +2781,15 @@ NowSym:
 
 
 SignedLiteral:
-	Literal        { $$ = ast.NewValueExpr($1) }
-|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: ast.NewValueExpr($2)} }
-|	'-' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Minus, V: ast.NewValueExpr($2)} }
+	Literal        { $$ = $1 }
+|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: $2.(ast.ExprNode) } }; $$.SetSpan(yyVAL.span) }
+|	'-' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Minus), Expr: $2.(ast.ExprNode) } }; $$.SetSpan(yyVAL.span) }
 
 
 NumLiteral:
-	intLit
-|	floatLit
-|	decLit
+	intLit { $$ = numericLiteral(yylex, $1, yyS[yypt].span) }
+|	floatLit { $$ = numericLiteral(yylex, $1, yyS[yypt].span) }
+|	decLit { $$ = numericLiteral(yylex, $1, yyS[yypt].span) }
 
 
 CreateIndexStmt:
@@ -2750,13 +2809,15 @@ CreateIndexStmt:
 				indexOption.Tp = $5.(model.IndexType)
 			}
 		}
-		$$ = &ast.CreateIndexStmt{
+		stmt := &ast.CreateIndexStmt{
 			Unique:        $2.(bool),
-			IndexName:     $4,
+			IndexName:     syntaxIdent(yylex, $4, yyS[yypt-8].span),
 			Table:         $7.(*ast.TableName),
-			IndexColNames: $9.([]*ast.IndexColName),
+			Keys:          $9.([]pkast.IndexKeyPartNode),
 			IndexOption:   indexOption,
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -2768,8 +2829,11 @@ CreateIndexStmtUnique:
 IndexColName:
 	ColumnName OptFieldLen Order
 	{
-		//Order is parsed but just ignored as MySQL did
-		$$ = &ast.IndexColName{Column: $1.(*ast.ColumnName), Length: $2.(int)}
+		part := &ast.IndexKeyPart{BaseIndexKeyPart: pkast.BaseIndexKeyPart{
+			Column: $1.(ast.QualifiedName), PrefixLength: typeLength($2.(*pkast.BaseLiteralExpr)), Desc: $3.(bool),
+		}}
+		part.SetSpan(yyVAL.span)
+		$$ = part
 	}
 
 
@@ -2777,18 +2841,21 @@ IndexKeyPart:
 	IndexColName
 |	'(' Expression ')'
 	{
-		$$ = &ast.IndexColName{Expr: $2.(ast.ExprNode), ExprOffset: yyS[yypt-2].offset}
+		$2.SetSpan(yyS[yypt-1].span)
+		part := &ast.IndexKeyPart{BaseIndexKeyPart: pkast.BaseIndexKeyPart{Expr: $2}}
+		part.SetSpan(yyVAL.span)
+		$$ = part
 	}
 
 
 IndexKeyPartList:
-	IndexKeyPart { $$ = []*ast.IndexColName{$1.(*ast.IndexColName)} }
-|	IndexKeyPartList ',' IndexKeyPart { $$ = append($1.([]*ast.IndexColName), $3.(*ast.IndexColName)) }
+	IndexKeyPart { $$ = []pkast.IndexKeyPartNode{$1.(*ast.IndexKeyPart)} }
+|	IndexKeyPartList ',' IndexKeyPart { $$ = append($1.([]pkast.IndexKeyPartNode), $3.(*ast.IndexKeyPart)) }
 
 
 IndexColNameList:
-	IndexColName                      { $$ = []*ast.IndexColName{$1.(*ast.IndexColName)} }
-|	IndexColNameList ',' IndexColName { $$ = append($1.([]*ast.IndexColName), $3.(*ast.IndexColName)) }
+	IndexColName                      { $$ = []pkast.IndexKeyPartNode{$1.(*ast.IndexKeyPart)} }
+|	IndexColNameList ',' IndexColName { $$ = append($1.([]pkast.IndexKeyPartNode), $3.(*ast.IndexKeyPart)) }
 
 
 /**************************************AlterDatabaseStmt***************************************
@@ -2805,19 +2872,23 @@ IndexColNameList:
 AlterDatabaseStmt:
 	alter DatabaseSym DBName DatabaseOptionList
 	{
-		$$ = &ast.AlterDatabaseStmt{
-			Name:                 $3.(string),
+		stmt := &ast.AlterDatabaseStmt{
+			Name:                 syntaxIdent(yylex, $3.(string), yyS[yypt-1].span),
 			AlterDefaultDatabase: false,
 			Options:              $4.([]*ast.DatabaseOption),
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 |	alter DatabaseSym DatabaseOptionList
 	{
-		$$ = &ast.AlterDatabaseStmt{
-			Name:                 "",
+		stmt := &ast.AlterDatabaseStmt{
+			Name:                 lex.Ident{Span: loc.InvalidSpan()},
 			AlterDefaultDatabase: true,
 			Options:              $3.([]*ast.DatabaseOption),
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -2834,11 +2905,13 @@ AlterDatabaseStmt:
 CreateDatabaseStmt:
 	create DatabaseSym IfNotExists DBName DatabaseOptionListOpt
 	{
-		$$ = &ast.CreateDatabaseStmt{
-			IfNotExists:	$3.(bool),
-			Name:		$4.(string),
-			Options:	$5.([]*ast.DatabaseOption),
+		stmt := &ast.CreateDatabaseStmt{
+			IfNotExists: $3.(bool),
+			Name:        syntaxIdent(yylex, $4.(string), yyS[yypt-1].span),
+			Options:     $5.([]*ast.DatabaseOption),
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -2879,13 +2952,13 @@ SequenceOptionListOpt:
 SequenceOption:
 	as IntegerType FieldOpts
 	{
-		tp := types.NewFieldType($2.(byte))
+		tp := newSyntaxType($2.(byte))
 		for _, opt := range $3.([]*ast.TypeOpt) {
 			if opt.IsUnsigned {
-				tp.Flag |= mysql.UnsignedFlag
+				tp.Unsigned = true
 			}
 			if opt.IsZerofill {
-				tp.Flag |= mysql.ZerofillFlag
+				tp.Zerofill = true
 			}
 		}
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionAs, Type: tp}
@@ -2955,7 +3028,7 @@ SequenceOption:
 SequenceSignedInt:
 	intLit
 	{
-		value, err := sequenceSignedInt($1, false)
+		value, err := sequenceSignedInt(yylex, $1, false, yyS[yypt].span)
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -2964,7 +3037,7 @@ SequenceSignedInt:
 	}
 |	'+' intLit
 	{
-		value, err := sequenceSignedInt($2, false)
+		value, err := sequenceSignedInt(yylex, $2, false, loc.Span{Start: yyS[yypt-1].span.Start, End: yyS[yypt].span.End})
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -2973,7 +3046,7 @@ SequenceSignedInt:
 	}
 |	'-' intLit
 	{
-		value, err := sequenceSignedInt($2, true)
+		value, err := sequenceSignedInt(yylex, $2, true, loc.Span{Start: yyS[yypt-1].span.Start, End: yyS[yypt].span.End})
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -2983,11 +3056,11 @@ SequenceSignedInt:
 
 
 SequenceStartValue:
-	intLit       { $$ = ast.NewValueExpr($1) }
-|	'+' intLit   { $$ = ast.NewValueExpr($2) }
+	intLit       { $$ = numericLiteral(yylex, $1, yyS[yypt].span) }
+|	'+' intLit   { $$ = numericLiteral(yylex, $2, loc.Span{Start: yyS[yypt-1].span.Start, End: yyS[yypt].span.End}) }
 |	'-' intLit
 	{
-		value, err := sequenceSignedInt($2, true)
+		value, err := sequenceSignedInt(yylex, $2, true, loc.Span{Start: yyS[yypt-1].span.Start, End: yyS[yypt].span.End})
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -2997,9 +3070,9 @@ SequenceStartValue:
 
 
 SequenceBoundValue:
-	NumLiteral     { $$ = ast.NewValueExpr($1) }
-|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: ast.NewValueExpr($2)} }
-|	'-' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Minus, V: ast.NewValueExpr($2)} }
+	NumLiteral     { $$ = $1.(ast.ExprNode) }
+|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: $2.(ast.ExprNode) } }; $$.SetSpan(yyVAL.span) }
+|	'-' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Minus), Expr: $2.(ast.ExprNode) } }; $$.SetSpan(yyVAL.span) }
 
 
 UndoOpt:
@@ -3012,9 +3085,10 @@ CreateTablespaceStmt:
 	{
 		$$ = &ast.CreateTablespaceStmt{
 			Undo:    $2.(bool),
-			Name:    $4,
+			Name:    syntaxIdent(yylex, $4, yyS[yypt-1].span),
 			Options: $5.([]*ast.TablespaceOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3023,17 +3097,20 @@ AlterTablespaceStmt:
 	{
 		$$ = &ast.AlterTablespaceStmt{
 			Undo:    $2.(bool),
-			Name:    $4,
+			Name:    syntaxIdent(yylex, $4, yyS[yypt-1].span),
+			RenameTo: lex.Ident{Span: loc.InvalidSpan()},
 			Options: $5.([]*ast.TablespaceOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	alter UndoOpt tablespace Identifier rename to Identifier
 	{
 		$$ = &ast.AlterTablespaceStmt{
 			Undo:     $2.(bool),
-			Name:     $4,
-			RenameTo: $7,
+			Name:     syntaxIdent(yylex, $4, yyS[yypt-3].span),
+			RenameTo: syntaxIdent(yylex, $7, yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3042,16 +3119,18 @@ DropTablespaceStmt:
 	{
 		$$ = &ast.DropTablespaceStmt{
 			Undo: $2.(bool),
-			Name: $4,
+			Name: syntaxIdent(yylex, $4, yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	drop UndoOpt tablespace Identifier TablespaceOption
 	{
 		$$ = &ast.DropTablespaceStmt{
 			Undo:   $2.(bool),
-			Name:   $4,
+			Name:   syntaxIdent(yylex, $4, yyS[yypt-1].span),
 			Option: $5.(*ast.TablespaceOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3069,47 +3148,58 @@ TablespaceOptionList:
 TablespaceOption:
 	add datafile stringLit
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionDataFile, Str: $3}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionDataFile, Str: $3, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	fileBlockSize EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionFileBlockSize, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionFileBlockSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	extentSize EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionExtentSize, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionExtentSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	initialSize EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionInitialSize, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionInitialSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	autoextendSize EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionAutoextendSize, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionAutoextendSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	maxSize EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionMaxSize, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionMaxSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	nodegroup EqOpt LengthNum
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionNodegroup, Val: $3.(uint64)}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionNodegroup, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	wait
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionWait}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionWait, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	no wait
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionNoWait}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionNoWait, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	comment EqOpt stringLit
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionComment, Str: $3}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionComment, Str: $3, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 |	engine EqOpt Identifier
 	{
-		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionEngine, Str: $3}
+		$$ = &ast.TablespaceOption{Tp: ast.TablespaceOptionEngine, Engine: syntaxIdent(yylex, $3, yyS[yypt].span)}
+		$$.(*ast.TablespaceOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -3117,10 +3207,11 @@ CreateServerStmt:
 	create server Identifier foreign data wrapper stringLit ServerOptionListOpt
 	{
 		$$ = &ast.CreateServerStmt{
-			Name:    $3,
+			Name:    syntaxIdent(yylex, $3, yyS[yypt-5].span),
 			Wrapper: $7,
 			Options: $8.([]*ast.ServerOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3128,9 +3219,10 @@ AlterServerStmt:
 	alter server Identifier ServerOptionListOpt
 	{
 		$$ = &ast.AlterServerStmt{
-			Name:    $3,
+			Name:    syntaxIdent(yylex, $3, yyS[yypt-1].span),
 			Options: $4.([]*ast.ServerOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3139,8 +3231,9 @@ DropServerStmt:
 	{
 		$$ = &ast.DropServerStmt{
 			IfExists: $3.(bool),
-			Name:     $4,
+			Name:     syntaxIdent(yylex, $4, yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3169,7 +3262,8 @@ ServerOptionList:
 ServerOption:
 	ServerOptionName stringLit
 	{
-		$$ = &ast.ServerOption{Name: $1, Value: $2}
+		$$ = &ast.ServerOption{Name: syntaxIdent(yylex, $1, yyS[yypt-1].span), Value: $2}
+		$$.(*ast.ServerOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -3181,7 +3275,7 @@ ServerOptionName:
 ResourceGroupType:
 	Identifier
 	{
-		$$ = strings.EqualFold($1, "SYSTEM")
+		$$ = syntaxIdent(yylex, $1, yyS[yypt].span)
 	}
 
 
@@ -3211,10 +3305,12 @@ ResourceGroupVCPU:
 	NUM
 	{
 		$$ = &ast.ResourceGroupVCPU{From: getUint64FromNUM($1), To: getUint64FromNUM($1)}
+		$$.(*ast.ResourceGroupVCPU).SetSpan(yyVAL.span)
 	}
 |	NUM '-' NUM
 	{
 		$$ = &ast.ResourceGroupVCPU{From: getUint64FromNUM($1), To: getUint64FromNUM($3)}
+		$$.(*ast.ResourceGroupVCPU).SetSpan(yyVAL.span)
 	}
 
 
@@ -3248,12 +3344,13 @@ CreateResourceGroupStmt:
 			tp = $9.(*int)
 		}
 		$$ = &ast.CreateResourceGroupStmt{
-			Name:           $4,
-			IsSystem:       $7.(bool),
+			Name:           syntaxIdent(yylex, $4, yyS[yypt-6].span),
+			Type:           $7.(lex.Ident),
 			VCPU:           $8.([]*ast.ResourceGroupVCPU),
 			ThreadPriority: tp,
 			State:          $10.(int),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3265,11 +3362,12 @@ AlterResourceGroupStmt:
 			tp = $6.(*int)
 		}
 		$$ = &ast.AlterResourceGroupStmt{
-			Name:           $4,
+			Name:           syntaxIdent(yylex, $4, yyS[yypt-3].span),
 			VCPU:           $5.([]*ast.ResourceGroupVCPU),
 			ThreadPriority: tp,
 			State:          $7.(int),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3281,7 +3379,8 @@ ForceOpt:
 DropResourceGroupStmt:
 	drop resource group Identifier ForceOpt
 	{
-		$$ = &ast.DropResourceGroupStmt{Name: $4, Force: $5.(bool)}
+		$$ = &ast.DropResourceGroupStmt{Name: syntaxIdent(yylex, $4, yyS[yypt-1].span), Force: $5.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3299,31 +3398,38 @@ LogfileGroupOptionList:
 LogfileGroupOption:
 	initialSize EqOpt LengthNum
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionInitialSize, Val: $3.(uint64)}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionInitialSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	undoBufferSize EqOpt LengthNum
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionUndoBufferSize, Val: $3.(uint64)}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionUndoBufferSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	redoBufferSize EqOpt LengthNum
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionRedoBufferSize, Val: $3.(uint64)}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionRedoBufferSize, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	nodegroup EqOpt LengthNum
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionNodegroup, Val: $3.(uint64)}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionNodegroup, Val: $3.(uint64), Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	wait
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionWait}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionWait, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	comment EqOpt stringLit
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionComment, Str: $3}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionComment, Str: $3, Engine: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 |	engine EqOpt Identifier
 	{
-		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionEngine, Str: $3}
+		$$ = &ast.LogfileGroupOption{Tp: ast.LogfileGroupOptionEngine, Engine: syntaxIdent(yylex, $3, yyS[yypt].span)}
+		$$.(*ast.LogfileGroupOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -3331,10 +3437,11 @@ CreateLogfileGroupStmt:
 	create logfile group Identifier add undofile stringLit LogfileGroupOptionList
 	{
 		$$ = &ast.CreateLogfileGroupStmt{
-			Name:     $4,
+			Name:     syntaxIdent(yylex, $4, yyS[yypt-4].span),
 			UndoFile: $7,
 			Options:  $8.([]*ast.LogfileGroupOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3342,10 +3449,11 @@ AlterLogfileGroupStmt:
 	alter logfile group Identifier add undofile stringLit LogfileGroupOptionList
 	{
 		$$ = &ast.AlterLogfileGroupStmt{
-			Name:     $4,
+			Name:     syntaxIdent(yylex, $4, yyS[yypt-4].span),
 			UndoFile: $7,
 			Options:  $8.([]*ast.LogfileGroupOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3353,9 +3461,10 @@ DropLogfileGroupStmt:
 	drop logfile group Identifier LogfileGroupOptionList
 	{
 		$$ = &ast.DropLogfileGroupStmt{
-			Name:    $4,
+			Name:    syntaxIdent(yylex, $4, yyS[yypt-1].span),
 			Options: $5.([]*ast.LogfileGroupOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3366,7 +3475,7 @@ DBName:
 DatabaseOption:
 	DefaultKwdOpt CharsetOrCharacterSet EqOpt CharsetName
 	{
-		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionCharset, Value: $4.(string)}
+		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionCharset, Value: charsetName($4.(lex.Ident))}
 	}
 |	DefaultKwdOpt collate EqOpt CollationName
 	{
@@ -3408,17 +3517,20 @@ CreateTableStmt:
 		stmt.Temporary = $3.(bool)
 		stmt.Table = $6.(*ast.TableName)
 		stmt.IfNotExists = $5.(bool)
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 |	create OrReplace TemporaryOpt tableKwd IfNotExists TableName LikeTableWithOrWithoutParen
 	{
-		$$ = &ast.CreateTableStmt{
-			OrReplace:   $2.(bool),
-			Temporary:   $3.(bool),
-			Table:       $6.(*ast.TableName),
-			ReferTable:  $7.(*ast.TableName),
-			IfNotExists: $5.(bool),
+		stmt := &ast.CreateTableStmt{
+			BaseCreateTableStmt: pkast.BaseCreateTableStmt{
+				Temporary: $3.(bool), Table: $6.(*ast.TableName), IfNotExists: $5.(bool),
+			},
+			OrReplace:  $2.(bool),
+			ReferTable: $7.(*ast.TableName),
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -3431,7 +3543,7 @@ CreateTableBody:
 		stmt.Options = tail.Options
 		stmt.Partition = tail.Partition
 		stmt.OnDuplicate = tail.OnDuplicate
-		stmt.Select = tail.Select
+		stmt.Query = tail.Query
 		$$ = stmt
 	}
 |	CreateTableTail
@@ -3493,7 +3605,7 @@ PartitionByOpt:
 	{
 		part := &ast.PartitionOptions{
 			Tp: model.PartitionTypeKey,
-			ColumnNames: $6.([]*ast.ColumnName),
+			ColumnNames: $6.([]ast.QualifiedName),
 			Num: 1, HasNum: true, Linear: $3 != "",
 		}
 		if $8 != nil {
@@ -3509,6 +3621,7 @@ PartitionByOpt:
 			}
 		}
 		$$ = part
+		part.SetSpan(yyVAL.span)
 	}
 |	partition by LinearOpt hash '(' Expression ')' PartitionNumOpt
 	{
@@ -3521,6 +3634,7 @@ PartitionByOpt:
 			tmp.Num = getUint64FromNUM($8)
 		}
 		$$ = tmp
+		tmp.SetSpan(yyVAL.span)
 	}
 |	partition by rangeKwd '(' Expression ')' PartitionNumOpt SubPartitionOpt PartitionDefinitionListOpt
 	{
@@ -3540,6 +3654,7 @@ PartitionByOpt:
 			part.Sub = $8.(*ast.PartitionOptions)
 		}
 		$$ = part
+		part.SetSpan(yyVAL.span)
 	}
 |	partition by rangeKwd columns '(' ColumnNameList ')' PartitionNumOpt SubPartitionOpt PartitionDefinitionListOpt
 	{
@@ -3549,7 +3664,7 @@ PartitionByOpt:
 		}
 		part := &ast.PartitionOptions{
 			Tp:		model.PartitionTypeRange,
-			ColumnNames:	$6.([]*ast.ColumnName),
+			ColumnNames:	$6.([]ast.QualifiedName),
 			Definitions:	defs,
 		}
 		if $8 != nil {
@@ -3559,6 +3674,7 @@ PartitionByOpt:
 			part.Sub = $9.(*ast.PartitionOptions)
 		}
 		$$ = part
+		part.SetSpan(yyVAL.span)
 	}
 
 
@@ -3576,14 +3692,16 @@ SubPartitionOpt:
 			part.Num, part.HasNum = getUint64FromNUM($8), true
 		}
 		$$ = part
+		part.SetSpan(yyVAL.span)
 	}
 |	subpartition by LinearOpt key '(' ColumnNameListOpt ')' SubPartitionNumOpt
 	{
-		part := &ast.PartitionOptions{Tp: model.PartitionTypeKey, ColumnNames: $6.([]*ast.ColumnName), Linear: $3 != "", IsSubPartition: true}
+		part := &ast.PartitionOptions{Tp: model.PartitionTypeKey, ColumnNames: $6.([]ast.QualifiedName), Linear: $3 != "", IsSubPartition: true}
 		if $8 != nil {
 			part.Num, part.HasNum = getUint64FromNUM($8), true
 		}
 		$$ = part
+		part.SetSpan(yyVAL.span)
 	}
 
 
@@ -3623,26 +3741,21 @@ PartitionDefinition:
 	PartitionKeywordOpt Identifier PartDefValuesOpt PartDefOptionsOpt
 	{
 		partDef := &ast.PartitionDefinition{
-			Name: model.NewCIStr($2),
+			Name: syntaxIdent(yylex, $2, yyS[yypt-2].span),
 			OmitPartitionKeyword: $1.(bool),
-			NameOffset: yyS[yypt-2].offset,
 		}
+		partDef.SetSpan(yyVAL.span)
 		switch $3.(type) {
 		case []ast.ExprNode:
 			partDef.LessThan = $3.([]ast.ExprNode)
 		case ast.ExprNode:
 			partDef.LessThan = make([]ast.ExprNode, 1)
 			partDef.LessThan[0] = $3.(ast.ExprNode)
+			partDef.OmitValueParentheses = true
 		}
 
 		if $4 != nil {
 			partDef.Options = $4.([]*ast.TableOption)
-			for _, option := range partDef.Options {
-				if option.Tp == ast.TableOptionComment {
-					partDef.Comment = option.StrValue
-					break
-				}
-			}
 		}
 		$$ = partDef
 	}
@@ -3667,14 +3780,14 @@ PartDefOptionList:
 
 
 PartDefOption:
-	comment EqOpt stringLit { $$ = &ast.TableOption{Tp: ast.TableOptionComment, StrValue: $3} }
-|	engine EqOpt Identifier { $$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $3} }
-|	tablespace EqOpt Identifier { $$ = &ast.TableOption{Tp: ast.TableOptionTablespace, StrValue: $3} }
+	comment EqOpt stringLit { $$ = &ast.TableOption{Tp: ast.TableOptionComment, StrValue: $3}; $$.(*ast.TableOption).SetSpan(yyVAL.span) }
+|	engine EqOpt Identifier { $$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $3}; $$.(*ast.TableOption).SetSpan(yyVAL.span) }
+|	tablespace EqOpt Identifier { $$ = &ast.TableOption{Tp: ast.TableOptionTablespace, StrValue: $3}; $$.(*ast.TableOption).SetSpan(yyVAL.span) }
 
 
 PartDefValuesOpt:
 	/* EMPTY */                                             { $$ = nil }
-|	values less than maxValue                       { $$ = &ast.MaxValueExpr{} }
+|	values less than maxValue                       { value := &ast.MaxValueExpr{}; value.SetSpan(yyS[yypt].span); $$ = value }
 |	values less than '(' MaxValueOrExpressionList ')' { $$ = $5 }
 
 
@@ -3691,12 +3804,12 @@ AsOpt:
 
 CreateTableSelectOpt:
 	/* EMPTY */ { $$ = &ast.CreateTableStmt{} }
-|	SelectStmt  { $$ = &ast.CreateTableStmt{Select: $1} }
-|	SetOprStmt   { $$ = &ast.CreateTableStmt{Select: $1} }
-|	WithSelectStmt { $$ = &ast.CreateTableStmt{Select: $1} }
+|	SelectStmt  { $$ = &ast.CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Query: $1.(*ast.SelectStmt)}} }
+|	SetOprStmt   { $$ = &ast.CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Query: $1.(*ast.SetOprStmt)}} }
+|	WithSelectStmt { $$ = &ast.CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Query: $1.(ast.QueryNode)}} }
 |	SubSelect %prec createTableSelect
 	{
-		$$ = &ast.CreateTableStmt{Select: $1}
+		$$ = &ast.CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Query: setOprQueryFromSubSelect($1.(*ast.SubqueryExpr))}}
 	}
 
 
@@ -3717,7 +3830,7 @@ CreateViewStmt:
     create OrReplace ViewAlgorithm ViewDefiner ViewSQLSecurity view ViewName ViewFieldList as ViewSelect ViewCheckOption
     {
 		startOffset := yyGetParser(yylex).startOffset(&yyS[yypt-1])
-		selStmt := $10
+		selStmt := $10.(ast.QueryNode)
 		selStmt.SetText(strings.TrimSpace(yyGetParser(yylex).src[startOffset:]))
 		x := &ast.CreateViewStmt {
 			OrReplace:     $2.(bool),
@@ -3732,7 +3845,7 @@ CreateViewStmt:
 			x.Security = *sec
 		}
 		if $8 != nil{
-			x.Cols = $8.([]model.CIStr)
+			x.Columns = $8.([]lex.Ident)
 		}
 		if $11 !=nil {
 		    x.HasCheckOption = true
@@ -3749,7 +3862,7 @@ AlterViewStmt:
 	alter ViewAlgorithm ViewDefiner ViewSQLSecurity view ViewName ViewFieldList as ViewSelect ViewCheckOption
 	{
 		startOffset := yyGetParser(yylex).startOffset(&yyS[yypt-1])
-		selStmt := $9
+		selStmt := $9.(ast.QueryNode)
 		selStmt.SetText(strings.TrimSpace(yyGetParser(yylex).src[startOffset:]))
 		x := &ast.AlterViewStmt{
 			ViewName:  $6.(*ast.TableName),
@@ -3763,7 +3876,7 @@ AlterViewStmt:
 			x.Security = *sec
 		}
 		if $7 != nil {
-			x.Cols = $7.([]model.CIStr)
+			x.Columns = $7.([]lex.Ident)
 		}
 		if $10 != nil {
 			x.HasCheckOption = true
@@ -3828,7 +3941,7 @@ CreateFunctionStmt:
 			IfNotExists:     $7.(bool),
 			Name:            $8.(*ast.TableName),
 			Params:          $9.([]*ast.FuncParam),
-			Returns:         $11.(*types.FieldType),
+			ReturnType:      $11.(*ast.TypeName),
 			Characteristics: $12.(*ast.RoutineCharacteristics),
 			Body:            body,
 		}
@@ -3839,7 +3952,7 @@ CreateFunctionStmt:
 			OrReplace:   $2.(bool),
 			IfNotExists: $7.(bool),
 			Name:        $8.(*ast.TableName),
-			Returns:     $10.(*types.FieldType),
+			ReturnType:  $10.(*ast.TypeName),
 			Soname:      $12,
 		}
 	}
@@ -3849,7 +3962,7 @@ CreateFunctionStmt:
 			Aggregate:   true,
 			IfNotExists: $4.(bool),
 			Name:        $5.(*ast.TableName),
-			Returns:     $7.(*types.FieldType),
+			ReturnType:  $7.(*ast.TypeName),
 			Soname:      $9,
 		}
 	}
@@ -3858,11 +3971,11 @@ CreateFunctionStmt:
 UDFReturnType:
 	stringType
 	{
-		$$ = &types.FieldType{Tp: mysql.TypeString, Flen: types.UnspecifiedLength}
+		$$ = ast.NewTypeName("CHAR")
 	}
 |	Type
 	{
-		$$ = $1
+		$$ = $1.(*ast.TypeName)
 	}
 
 
@@ -3887,6 +4000,7 @@ CreateProcedureStmt:
 			Characteristics: $10.(*ast.RoutineCharacteristics),
 			Body:            body,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3940,16 +4054,16 @@ CreateTriggerStmt:
 			Table:       $13.(*ast.TableName),
 			Body:        body,
 		}
-		if cols := $11.([]*ast.ColumnName); cols != nil {
+		if cols := $11.([]ast.QualifiedName); cols != nil {
 			if x.Event != "UPDATE" {
 				yyAppendErr(yylex, yyErrorf(yylex, "UPDATE OF clause is only valid for UPDATE triggers"))
 				return 1
 			}
 			x.UpdateColumns = cols
 		}
-		if order := $17.([]string); order != nil {
-			x.Order = order[0]
-			x.OtherTriggerName = order[1]
+		if order := $17.([]interface{}); order != nil {
+			x.Order = order[0].(string)
+			x.OtherTriggerName = order[1].(lex.Ident)
 		}
 		$$ = x
 	}
@@ -4110,19 +4224,19 @@ FuncParamList:
 FuncParam:
 	Identifier Type
 	{
-		$$ = &ast.FuncParam{Name: $1, Type: $2.(*types.FieldType), Dir: ast.FuncParamDirIn}
+		$$ = &ast.FuncParam{Name: syntaxIdent(yylex, $1, yyS[yypt-1].span), Type: $2.(*ast.TypeName), Dir: ast.FuncParamDirIn}
 	}
 |	in Identifier Type
 	{
-		$$ = &ast.FuncParam{Name: $2, Type: $3.(*types.FieldType), Dir: ast.FuncParamDirIn}
+		$$ = &ast.FuncParam{Name: syntaxIdent(yylex, $2, yyS[yypt-1].span), Type: $3.(*ast.TypeName), Dir: ast.FuncParamDirIn}
 	}
 |	out Identifier Type
 	{
-		$$ = &ast.FuncParam{Name: $2, Type: $3.(*types.FieldType), Dir: ast.FuncParamDirOut}
+		$$ = &ast.FuncParam{Name: syntaxIdent(yylex, $2, yyS[yypt-1].span), Type: $3.(*ast.TypeName), Dir: ast.FuncParamDirOut}
 	}
 |	inout Identifier Type
 	{
-		$$ = &ast.FuncParam{Name: $2, Type: $3.(*types.FieldType), Dir: ast.FuncParamDirInOut}
+		$$ = &ast.FuncParam{Name: syntaxIdent(yylex, $2, yyS[yypt-1].span), Type: $3.(*ast.TypeName), Dir: ast.FuncParamDirInOut}
 	}
 
 
@@ -4231,26 +4345,26 @@ TriggerEvent:
 TriggerUpdateColumnsOpt:
 	/* EMPTY */
 	{
-		$$ = ([]*ast.ColumnName)(nil)
+		$$ = ([]ast.QualifiedName)(nil)
 	}
 |	of ColumnNameList
 	{
-		$$ = $2.([]*ast.ColumnName)
+		$$ = $2.([]ast.QualifiedName)
 	}
 
 
 TriggerOrderOpt:
 	/* EMPTY */
 	{
-		$$ = ([]string)(nil)
+		$$ = ([]interface{})(nil)
 	}
 |	follows Identifier
 	{
-		$$ = []string{"FOLLOWS", $2}
+		$$ = []interface{}{"FOLLOWS", syntaxIdent(yylex, $2, yyS[yypt].span)}
 	}
 |	precedes Identifier
 	{
-		$$ = []string{"PRECEDES", $2}
+		$$ = []interface{}{"PRECEDES", syntaxIdent(yylex, $2, yyS[yypt].span)}
 	}
 
 
@@ -4378,12 +4492,12 @@ ViewName:
 
 ViewFieldList:
 	/* Empty */        { $$ = nil }
-|	'(' ColumnList ')' { $$ = $2.([]model.CIStr) }
+|	'(' ColumnList ')' { $$ = $2.([]lex.Ident) }
 
 
 ColumnList:
-	Identifier { $$ = []model.CIStr{model.NewCIStr($1)} }
-|	ColumnList ',' Identifier { $$ = append($1.([]model.CIStr), model.NewCIStr($3)) }
+	Identifier { $$ = []lex.Ident{syntaxIdent(yylex, $1, yyS[yypt].span)} }
+|	ColumnList ',' Identifier { $$ = append($1.([]lex.Ident), syntaxIdent(yylex, $3, yyS[yypt].span)) }
 
 
 ViewCheckOption:
@@ -4427,20 +4541,29 @@ DeleteFromStmt:
 	{
 		// Single Table
 		tn := $7.(*ast.TableName)
-		tn.PartitionNames = $8.([]model.CIStr)
-		tn.IndexHints = $9.([]*ast.IndexHint)
-		join := &ast.Join{Left: &ast.TableSource{Source: tn}, Right: nil}
+		tn.PartitionNames = $8.([]lex.Ident)
+		if len(tn.PartitionNames) > 0 {
+			tn.SetSpan(loc.Cover(tn.Span(), yyS[yypt-5].span))
+		}
+		ts := syntaxTableSource(tn, tn.Span())
+		ts.IndexHints = $9.([]*ast.IndexHint)
+		if len(ts.IndexHints) > 0 {
+			ts.SetSpan(loc.Cover(ts.Span(), yyS[yypt-4].span))
+		}
 		x := &ast.DeleteStmt{
-			TableRefs: &ast.TableRefsClause{TableRefs: join},
+			BaseDeleteStmt: pkast.BaseDeleteStmt{Table: ts},
 			Priority:  $3.(mysql.PriorityEnum),
 			Quick:	   $4.(bool),
 			IgnoreErr: $5.(bool),
+		}
+		if $2 != nil {
+			x.TableHints = $2.([]*ast.OptimizerHint)
 		}
 		if $10 != nil {
 			x.Where = $10.(ast.ExprNode)
 		}
 		if $11 != nil {
-			x.Order = $11.(*ast.OrderByClause)
+			x.OrderBy = $11.(*ast.OrderByClause)
 		}
 		if $12 != nil {
 			x.Limit = $12.(*ast.Limit)
@@ -4449,6 +4572,7 @@ DeleteFromStmt:
 			x.Returning = $13.(*ast.FieldList)
 		}
 
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 |	deleteKwd TableOptimizerHints PriorityOpt QuickOptional IgnoreOptional TableNameList from TableRefs WhereClauseOptional
@@ -4460,15 +4584,16 @@ DeleteFromStmt:
 			IgnoreErr:	  $5.(bool),
 			IsMultiTable: 	  true,
 			BeforeFrom:	  true,
-			Tables:		  &ast.DeleteTableList{Tables: $6.([]*ast.TableName)},
-			TableRefs:	  &ast.TableRefsClause{TableRefs: $8.(*ast.Join)},
+			Targets:	  $6.([]*ast.TableName),
+			BaseDeleteStmt: pkast.BaseDeleteStmt{Using: dmlRelation($8.(ast.ResultSetNode), yyS[yypt-1].span)},
 		}
 		if $2 != nil {
-			x.TableHints = $2.([]*ast.TableOptimizerHint)
+			x.TableHints = $2.([]*ast.OptimizerHint)
 		}
 		if $9 != nil {
 			x.Where = $9.(ast.ExprNode)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -4480,21 +4605,22 @@ DeleteFromStmt:
 			Quick:		  $4.(bool),
 			IgnoreErr:	  $5.(bool),
 			IsMultiTable:	  true,
-			Tables:		  &ast.DeleteTableList{Tables: $7.([]*ast.TableName)},
-			TableRefs:	  &ast.TableRefsClause{TableRefs: $9.(*ast.Join)},
+			Targets:	  $7.([]*ast.TableName),
+			BaseDeleteStmt: pkast.BaseDeleteStmt{Using: dmlRelation($9.(ast.ResultSetNode), yyS[yypt-3].span)},
 		}
 		if $2 != nil {
-			x.TableHints = $2.([]*ast.TableOptimizerHint)
+			x.TableHints = $2.([]*ast.OptimizerHint)
 		}
 		if $10 != nil {
 			x.Where = $10.(ast.ExprNode)
 		}
 		if $11 != nil {
-			x.Order = $11.(*ast.OrderByClause)
+			x.OrderBy = $11.(*ast.OrderByClause)
 		}
 		if $12 != nil {
 			x.Limit = $12.(*ast.Limit)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -4506,14 +4632,16 @@ database
 DropDatabaseStmt:
 	drop DatabaseSym IfExists DBName
 	{
-		$$ = &ast.DropDatabaseStmt{IfExists: $3.(bool), Name: $4.(string)}
+		stmt := &ast.DropDatabaseStmt{IfExists: $3.(bool), Name: syntaxIdent(yylex, $4.(string), yyS[yypt].span)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
 DropIndexStmt:
 	drop index IfExists Identifier on TableName
 	{
-		$$ = &ast.DropIndexStmt{IfExists: $3.(bool), IndexName: $4, Table: $6.(*ast.TableName)}
+		$$ = &ast.DropIndexStmt{IfExists: $3.(bool), IndexName: syntaxIdent(yylex, $4, yyS[yypt-2].span), Table: $6.(*ast.TableName)}
 	}
 
 
@@ -4626,35 +4754,44 @@ ExplainStmt:
 	ExplainSym TableName
 	{
 		$$ = &ast.ExplainStmt{
+			Schema: lex.Ident{Span: loc.InvalidSpan()},
 			Stmt: &ast.ShowStmt{
 				Tp:	ast.ShowColumns,
 				Table:	$2.(*ast.TableName),
 			},
 		}
+		$$.(*ast.ExplainStmt).Stmt.SetSpan(yyS[yypt].span)
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym TableName ColumnName
 	{
 		$$ = &ast.ExplainStmt{
+			Schema: lex.Ident{Span: loc.InvalidSpan()},
 			Stmt: &ast.ShowStmt{
 				Tp:	ast.ShowColumns,
 				Table:	$2.(*ast.TableName),
-				Column:	$3.(*ast.ColumnName),
+				Column:	namePointer($3.(ast.QualifiedName)),
 			},
 		}
+		$$.(*ast.ExplainStmt).Stmt.SetSpan(loc.Cover(yyS[yypt-1].span, yyS[yypt].span))
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym ExplainTarget
 	{
 		x := $2.(*ast.ExplainStmt)
 		x.Format = "row"
 		$$ = x
+		x.SetSpan(yyVAL.span)
 	}
 |	ExplainSym extended ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $3, Format: "row", Extended: true}
+		$$ = &ast.ExplainStmt{Stmt: $3, Format: "row", Extended: true, Schema: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym partitions ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $3, Format: "row", Partitions: true}
+		$$ = &ast.ExplainStmt{Stmt: $3, Format: "row", Partitions: true, Schema: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym forKwd connection NUM
 	{
@@ -4662,6 +4799,7 @@ ExplainStmt:
 			Format:       "row",
 			ConnectionID: getUint64FromNUM($4),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym format eq ExplainFormat forKwd connection NUM
 	{
@@ -4669,12 +4807,14 @@ ExplainStmt:
 			Format:       $4,
 			ConnectionID: getUint64FromNUM($7),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	ExplainSym format eq ExplainFormat ExplainTarget
 	{
 		x := $5.(*ast.ExplainStmt)
 		x.Format = $4
 		$$ = x
+		x.SetSpan(yyVAL.span)
 	}
 |	ExplainSym analyze ExplainTargetNoInto
 	{
@@ -4682,6 +4822,7 @@ ExplainStmt:
 		x.Format = "row"
 		x.Analyze = true
 		$$ = x
+		x.SetSpan(yyVAL.span)
 	}
 |	ExplainSym analyze format eq ExplainFormat ExplainTargetNoInto
 	{
@@ -4689,14 +4830,17 @@ ExplainStmt:
 		x.Format = $5
 		x.Analyze = true
 		$$ = x
+		x.SetSpan(yyVAL.span)
 	}
 |	analyze ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $2, Format: "row", Analyze: true, AnalyzeOnly: true}
+		$$ = &ast.ExplainStmt{Stmt: $2, Format: "row", Analyze: true, AnalyzeOnly: true, Schema: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	analyze format eq ExplainFormat ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $5, Format: $4, Analyze: true, AnalyzeOnly: true}
+		$$ = &ast.ExplainStmt{Stmt: $5, Format: $4, Analyze: true, AnalyzeOnly: true, Schema: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4704,19 +4848,19 @@ ExplainStmt:
 ExplainTarget:
 	ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $1}
+		$$ = &ast.ExplainStmt{Stmt: $1, Schema: lex.Ident{Span: loc.InvalidSpan()}}
 	}
 |	into SpName ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $3, Into: explainIntoStmt($2.(*ast.VariableTarget))}
+		$$ = &ast.ExplainStmt{Stmt: $3, Into: explainIntoStmt($2.(*ast.VariableTarget)), Schema: lex.Ident{Span: loc.InvalidSpan()}}
 	}
 |	forKwd database Identifier ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $4, Schema: model.NewCIStr($3)}
+		$$ = &ast.ExplainStmt{Stmt: $4, Schema: syntaxIdent(yylex, $3, yyS[yypt-1].span)}
 	}
 |	into SpName forKwd database Identifier ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $6, Into: explainIntoStmt($2.(*ast.VariableTarget)), Schema: model.NewCIStr($5)}
+		$$ = &ast.ExplainStmt{Stmt: $6, Into: explainIntoStmt($2.(*ast.VariableTarget)), Schema: syntaxIdent(yylex, $5, yyS[yypt-1].span)}
 	}
 
 
@@ -4724,11 +4868,11 @@ ExplainTarget:
 ExplainTargetNoInto:
 	ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $1}
+		$$ = &ast.ExplainStmt{Stmt: $1, Schema: lex.Ident{Span: loc.InvalidSpan()}}
 	}
 |	forKwd database Identifier ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $4, Schema: model.NewCIStr($3)}
+		$$ = &ast.ExplainStmt{Stmt: $4, Schema: syntaxIdent(yylex, $3, yyS[yypt-1].span)}
 	}
 
 
@@ -4762,26 +4906,26 @@ NUM:
 Expression:
 	singleAtIdentifier assignmentEq Expression %prec assignmentEq
 	{
-		v := $1
-		v = strings.TrimPrefix(v, "@")
 		$$ = &ast.VariableExpr{
-				Name: 	  v,
-				IsGlobal: false,
-				IsSystem: false,
+				Target: syntaxAtVariableTarget(yylex, $1, yyS[yypt-2].span),
 				Value:	  $3,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	Expression logOr Expression %prec pipes
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.LogicOr, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicOr), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	Expression xor Expression %prec xor
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.LogicXor, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicXor), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	Expression logAnd Expression %prec andand
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.LogicAnd, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicAnd), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	not Expression %prec not
 	{
@@ -4790,26 +4934,31 @@ Expression:
 			expr.Not = true
 			$$ = $2
 		} else {
-			$$ = &ast.UnaryOperationExpr{Op: opcode.Not, V: $2}
+			$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Not), Expr: $2 } }
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri IsOrNotOp trueKwd %prec is
 	{
 		$$ = &ast.IsTruthExpr{Expr:$1, Not: !$2.(bool), True: int64(1)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri IsOrNotOp falseKwd %prec is
 	{
 		$$ = &ast.IsTruthExpr{Expr:$1, Not: !$2.(bool), True: int64(0)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri IsOrNotOp unknown %prec is
 	{
 		/* https://dev.mysql.com/doc/refman/5.7/en/comparison-operators.html#operator_is */
 		$$ = &ast.IsNullExpr{Expr: $1, Not: !$2.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-structure/operators/comparison-operators/is-json */
 |	BoolPri IsOrNotOp jsonType IsJsonTypeOpt IsJsonUniqueKeysOpt %prec is
 	{
 		$$ = &ast.IsJSONExpr{Expr: $1, Not: !$2.(bool), Type: $4, UniqueKeys: $5}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri %prec empty
 
@@ -4833,7 +4982,7 @@ IsJsonUniqueKeysOpt:
 
 
 MaxValueOrExpression:
-	/* EMPTY */ maxValue { $$ = &ast.MaxValueExpr{} }
+	/* EMPTY */ maxValue { $$ = &ast.MaxValueExpr{}; $$.SetSpan(yyVAL.span) }
 |	Expression             { $$ = $1 }
 
 
@@ -4869,7 +5018,7 @@ FuncDatetimePrecListOpt:
 FuncDatetimePrecList:
 	intLit
 	{
-		expr := ast.NewValueExpr($1)
+		expr := numericLiteral(yylex, $1, yyS[yypt].span)
 		$$ = []ast.ExprNode{expr}
 	}
 
@@ -4878,33 +5027,35 @@ BoolPri:
 	BoolPri IsOrNotOp null %prec is
 	{
 		$$ = &ast.IsNullExpr{Expr: $1, Not: !$2.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri CompareOp PredicateExpr %prec eq
 	{
-		$$ = &ast.BinaryOperationExpr{Op: $2.(opcode.Op), L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator($2.(opcode.Op)), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri CompareOp AnyOrAll SubSelect %prec eq
 	{
 		sq := $4.(*ast.SubqueryExpr)
-		sq.MultiRows = true
 		$$ = &ast.CompareSubqueryExpr{Op: $2.(opcode.Op), L: $1, R: sq, All: $3.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri CompareOp AnyOrAll '(' ValuesStmt ')' %prec eq
 	{
-		sq := &ast.SubqueryExpr{Query: $5.(*ast.ValuesStmt), MultiRows: true}
+		sq := &ast.SubqueryExpr{Query: $5.(*ast.ValuesStmt)}
+		sq.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
 		$$ = &ast.CompareSubqueryExpr{Op: $2.(opcode.Op), L: $1, R: sq, All: $3.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BoolPri CompareOp singleAtIdentifier assignmentEq PredicateExpr %prec assignmentEq
 	{
-		v := $3
-		v = strings.TrimPrefix(v, "@")
 		variable := &ast.VariableExpr{
-				Name: 	  v,
-				IsGlobal: false,
-				IsSystem: false,
+				Target: syntaxAtVariableTarget(yylex, $3, yyS[yypt-2].span),
 				Value:	  $5,
 		}
-		$$ = &ast.BinaryOperationExpr{Op: $2.(opcode.Op), L: $1, R: variable}
+		variable.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator($2.(opcode.Op)), Left: $1, Right: variable } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	PredicateExpr
 
@@ -4955,12 +5106,13 @@ PredicateExpr:
 	BitExpr InOrNotOp '(' ExpressionList ')'
 	{
 		$$ = &ast.PatternInExpr{Expr: $1, Not: !$2.(bool), List: $4.([]ast.ExprNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr InOrNotOp SubSelect
 	{
 		sq := $3.(*ast.SubqueryExpr)
-		sq.MultiRows = true
 		$$ = &ast.PatternInExpr{Expr: $1, Not: !$2.(bool), Sel: sq}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr BetweenOrNotOp BitExpr and PredicateExpr
 	{
@@ -4970,17 +5122,17 @@ PredicateExpr:
 			Right:	$5,
 			Not:	!$2.(bool),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr LikeOrNotOp Expression LikeEscapeOpt %prec like
 	{
 		escapeExpr, _ := $4.(ast.ExprNode)
 		escape := byte('\\')
-		if value, ok := escapeExpr.(ast.ValueExpr); ok {
-			text := value.GetString()
-			if _, isString := value.GetValue().(string); isString && len(text) <= 1 {
+		if text, ok := literalStringValue(escapeExpr); ok {
+			if len(text) <= 1 {
 				escapeExpr = nil
 			}
-			if _, isString := value.GetValue().(string); isString && len(text) == 1 {
+			if len(text) == 1 {
 				escape = text[0]
 				escapeExpr = nil
 			}
@@ -4992,20 +5144,24 @@ PredicateExpr:
 			Escape: 	escape,
 			EscapeExpr: escapeExpr,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr RegexpOrNotOp Expression %prec regexpKwd
 	{
 		$$ = &ast.PatternRegexpExpr{Expr: $1, Pattern: $3, Not: !$2.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/json-search-functions.html#operator_member-of */
 |	BitExpr memberKwd of '(' SimpleExpr ')' %prec memberKwd
 	{
 		$$ = &ast.MemberOfExpr{Value: $1, Array: $5}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/string-functions.html#operator_sounds-like */
 |	BitExpr sounds like BitExpr %prec sounds
 	{
 		$$ = &ast.SoundsLikeExpr{Expr: $1, Pattern: $4}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr %prec empty
 
@@ -5037,23 +5193,25 @@ MatchAgainstOpt:
 Field:
 	'*'
 	{
-		$$ = &ast.SelectField{WildCard: &ast.WildCardField{}}
+		$$ = syntaxSelectItem(syntaxWildcard(syntaxName(), yyVAL.span), lex.Ident{Span: loc.InvalidSpan()}, yyVAL.span)
 	}
 |	Identifier '.' '*'
 	{
-		wildCard := &ast.WildCardField{Table: model.NewCIStr($1)}
-		$$ = &ast.SelectField{WildCard: wildCard}
+		name := syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span))
+		$$ = syntaxSelectItem(syntaxWildcard(name, yyVAL.span), lex.Ident{Span: loc.InvalidSpan()}, yyVAL.span)
 	}
 |	Identifier '.' Identifier '.' '*'
 	{
-		wildCard := &ast.WildCardField{Schema: model.NewCIStr($1), Table: model.NewCIStr($3)}
-		$$ = &ast.SelectField{WildCard: wildCard}
+		name := syntaxName(
+			syntaxIdent(yylex, $1, yyS[yypt-4].span),
+			syntaxIdent(yylex, $3, yyS[yypt-2].span),
+		)
+		$$ = syntaxSelectItem(syntaxWildcard(name, yyVAL.span), lex.Ident{Span: loc.InvalidSpan()}, yyVAL.span)
 	}
 |	Expression FieldAsNameOpt
 	{
-		expr := $1
-		asName := $2.(string)
-		$$ = &ast.SelectField{Expr: expr, AsName: model.NewCIStr(asName)}
+		// Build lexical data here rather than boxing aliases in the semantic union.
+		$$ = syntaxSelectItem($1, syntaxIdent(yylex, $2, yyS[yypt].span), yyVAL.span)
 	}
 
 
@@ -5064,53 +5222,49 @@ FieldAsNameOpt:
 
 FieldAsName:
 	Identifier      { $$ = $1 }
-|	as Identifier { $$ = $2 }
+|	as Identifier { $$ = $2; yyVAL.span = yyS[yypt].span }
 |	stringLit       { $$ = $1 }
-|	as stringLit  { $$ = $2 }
-|	as WindowFuncAliasName { $$ = $2 }
+|	as stringLit  { $$ = $2; yyVAL.span = yyS[yypt].span }
+|	as WindowFuncAliasName { $$ = $2; yyVAL.span = yyS[yypt].span }
 
 
 /* Window function keywords are non-reserved in MariaDB and may name aliases. */
 WindowFuncAliasName:
-	lead         { $$ = "lead" }
-|	rank         { $$ = "rank" }
-|	lag          { $$ = "lag" }
-|	ntile        { $$ = "ntile" }
-|	firstValue   { $$ = "first_value" }
-|	lastValue    { $$ = "last_value" }
-|	rowNumber    { $$ = "row_number" }
-|	denseRank    { $$ = "dense_rank" }
-|	cumeDist     { $$ = "cume_dist" }
-|	percentRank  { $$ = "percent_rank" }
-|	nthValue     { $$ = "nth_value" }
+	lead         { $$ = $1 }
+|	rank         { $$ = $1 }
+|	lag          { $$ = $1 }
+|	ntile        { $$ = $1 }
+|	firstValue   { $$ = $1 }
+|	lastValue    { $$ = $1 }
+|	rowNumber    { $$ = $1 }
+|	denseRank    { $$ = $1 }
+|	cumeDist     { $$ = $1 }
+|	percentRank  { $$ = $1 }
+|	nthValue     { $$ = $1 }
 
 
 FieldList:
 	Field
 	{
-		field := $1.(*ast.SelectField)
-		field.Offset = yyGetParser(yylex).startOffset(&yyS[yypt])
-		$$ = []*ast.SelectField{field}
+		$$ = []*ast.SelectItem{$1.(*ast.SelectItem)}
 	}
 |	FieldList ',' Field
 	{
 
-		fl := $1.([]*ast.SelectField)
+		fl := $1.([]*ast.SelectItem)
 		last := fl[len(fl)-1]
-		if last.Expr != nil && last.AsName.O == "" {
+		if _, wildcard := last.Expr.(*ast.WildcardExpr); !wildcard && !last.Alias.Present() {
 			lastEnd := yyGetParser(yylex).endOffset(&yyS[yypt-1])
-			last.SetText(yyGetParser(yylex).src[last.Offset:lastEnd])
+			last.SetText(yyGetParser(yylex).src[int(last.Span().Start):lastEnd])
 		}
-		newField := $3.(*ast.SelectField)
-		newField.Offset = yyGetParser(yylex).startOffset(&yyS[yypt])
-		$$ = append(fl, newField)
+		$$ = append(fl, $3.(*ast.SelectItem))
 	}
 
 
 GroupByClause:
 	group by ByList GroupByWithOpt
 	{
-		gc := &ast.GroupByClause{Items: $3.([]*ast.ByItem)}
+		gc := syntaxGroupBy($3.([]*syntaxByItem), yyVAL.span)
 		switch $4.(int) {
 		case 1:
 			gc.WithRollup = true
@@ -5137,7 +5291,10 @@ GroupByWithOpt:
 
 HavingClause:
 	/* EMPTY */ { $$ = nil }
-|	having Expression { $$ = &ast.HavingClause{Expr: $2} }
+|	having Expression {
+		$2.SetSpan(yyS[yypt].span)
+		$$ = $2
+	}
 
 
 IfExists:
@@ -5156,8 +5313,8 @@ IgnoreOptional:
 
 
 IndexName:
-	/* EMPTY */ { $$ = "" }
-|	Identifier  { $$ = $1 } //"index name"
+	/* EMPTY */ { $$ = lex.Ident{Span: loc.InvalidSpan()} }
+|	Identifier  { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) } //"index name"
 
 
 IndexOptionList:
@@ -5318,17 +5475,17 @@ InsertIntoStmt:
 		x := $8.(*ast.InsertStmt)
 		x.Priority = $3.(mysql.PriorityEnum)
 		x.IgnoreErr = $4.(bool)
-		// Wraps many layers here so that it can be processed the same way as select statement.
 		tn := $6.(*ast.TableName)
-		tn.PartitionNames = $7.([]model.CIStr)
-		ts := &ast.TableSource{Source: tn}
-		x.Table = &ast.TableRefsClause{TableRefs: &ast.Join{Left: ts}}
+		tn.PartitionNames = $7.([]lex.Ident)
+		tn.SetSpan(loc.Cover(tn.Span(), yyS[yypt-3].span))
+		x.Table = tn
 		if $9 != nil {
 			x.OnDuplicate = $9.([]*ast.Assignment)
 		}
 		if $10 != nil {
 			x.Returning = $10.(*ast.FieldList)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -5341,11 +5498,11 @@ InsertRowAliasOpt:
 |	as Identifier InsertRowAliasColumnsOpt
 	{
 		alias := &ast.InsertRowAlias{
-			Name:   model.NewCIStr($2),
-			Offset: yyGetParser(yylex).startOffset(&yyS[yypt-2]),
+			Name: syntaxIdent(yylex, $2, yyS[yypt-1].span),
+			Span: yyVAL.span,
 		}
 		if $3 != nil {
-			alias.Columns = $3.([]model.CIStr)
+			alias.Columns = $3.([]ast.QualifiedName)
 		}
 		$$ = alias
 	}
@@ -5354,16 +5511,11 @@ InsertRowAliasOpt:
 InsertRowAliasColumnsOpt:
 	/* EMPTY */
 	{
-		$$ = ([]model.CIStr)(nil)
+		$$ = ([]ast.QualifiedName)(nil)
 	}
 |	'(' ColumnNameList ')'
 	{
-		columns := $2.([]*ast.ColumnName)
-		names := make([]model.CIStr, 0, len(columns))
-		for _, column := range columns {
-			names = append(names, column.Name)
-		}
-		$$ = names
+		$$ = $2.([]ast.QualifiedName)
 	}
 
 
@@ -5379,7 +5531,9 @@ ReturningOpt:
 	}
 |	returning FieldList
 	{
-		$$ = &ast.FieldList{Fields: $2.([]*ast.SelectField)}
+		fields := &ast.FieldList{Items: $2.([]*ast.SelectItem)}
+		fields.SetSpan(yyS[yypt].span)
+		$$ = fields
 	}
 
 
@@ -5387,58 +5541,60 @@ InsertValues:
 	'(' ColumnNameListOpt ')' ValueSym ValuesList InsertRowAliasOpt
 	{
 		$$ = &ast.InsertStmt{
-			Columns:   $2.([]*ast.ColumnName),
-			Lists:      $5.([][]ast.ExprNode),
+			BaseInsertStmt: pkast.BaseInsertStmt{
+				Columns: syntaxInsertColumns($2.([]ast.QualifiedName)),
+				Values: $5.([][]ast.ExprNode),
+			},
 			RowAlias: $6.(*ast.InsertRowAlias),
 		}
 	}
 |	'(' ColumnNameListOpt ')' SelectStmt
 	{
-		$$ = &ast.InsertStmt{Columns: $2.([]*ast.ColumnName), Select: $4.(*ast.SelectStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Columns: syntaxInsertColumns($2.([]ast.QualifiedName)), Query: $4.(*ast.SelectStmt)}}
 	}
 |	'(' ColumnNameListOpt ')' '(' SelectStmt ')'
 	{
-		$$ = &ast.InsertStmt{Columns: $2.([]*ast.ColumnName), Select: $5.(*ast.SelectStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Columns: syntaxInsertColumns($2.([]ast.QualifiedName)), Query: $5.(*ast.SelectStmt)}}
 	}
 |	'(' ColumnNameListOpt ')' SetOprStmt
 	{
-		$$ = &ast.InsertStmt{Columns: $2.([]*ast.ColumnName), Select: $4.(*ast.SetOprStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Columns: syntaxInsertColumns($2.([]ast.QualifiedName)), Query: $4.(*ast.SetOprStmt)}}
 	}
 |	'(' ColumnNameListOpt ')' WithSelectStmt
 	{
-		$$ = &ast.InsertStmt{Columns: $2.([]*ast.ColumnName), Select: $4.(ast.ResultSetNode)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Columns: syntaxInsertColumns($2.([]ast.QualifiedName)), Query: $4.(ast.QueryNode)}}
 	}
 |	'(' ColumnNameListOpt ')' '(' WithSelectStmt ')'
 	{
-		$$ = &ast.InsertStmt{Columns: $2.([]*ast.ColumnName), Select: $5.(ast.ResultSetNode)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Columns: syntaxInsertColumns($2.([]ast.QualifiedName)), Query: $5.(ast.QueryNode)}}
 	}
 |	ValueSym ValuesList InsertRowAliasOpt %prec insertValues
 	{
-		$$ = &ast.InsertStmt{Lists:  $2.([][]ast.ExprNode), RowAlias: $3.(*ast.InsertRowAlias)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Values: $2.([][]ast.ExprNode)}, RowAlias: $3.(*ast.InsertRowAlias)}
 	}
 |	'(' SelectStmt ')'
 	{
-		$$ = &ast.InsertStmt{Select: $2.(*ast.SelectStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Query: $2.(*ast.SelectStmt)}}
 	}
 |	SelectStmt
 	{
-		$$ = &ast.InsertStmt{Select: $1.(*ast.SelectStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Query: $1.(*ast.SelectStmt)}}
 	}
 |	SetOprStmt
 	{
-		$$ = &ast.InsertStmt{Select: $1.(*ast.SetOprStmt)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Query: $1.(*ast.SetOprStmt)}}
 	}
 |	WithSelectStmt
 	{
-		$$ = &ast.InsertStmt{Select: $1.(ast.ResultSetNode)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Query: $1.(ast.QueryNode)}}
 	}
 |	'(' WithSelectStmt ')'
 	{
-		$$ = &ast.InsertStmt{Select: $2.(ast.ResultSetNode)}
+		$$ = &ast.InsertStmt{BaseInsertStmt: pkast.BaseInsertStmt{Query: $2.(ast.QueryNode)}}
 	}
 |	set ColumnSetValueList InsertRowAliasOpt
 	{
-		$$ = &ast.InsertStmt{Setlist: $2.([]*ast.Assignment), RowAlias: $3.(*ast.InsertRowAlias)}
+		$$ = &ast.InsertStmt{Assignments: $2.([]*ast.Assignment), RowAlias: $3.(*ast.InsertRowAlias)}
 	}
 
 
@@ -5492,10 +5648,13 @@ ExprOrDefault:
 ColumnSetValue:
 	ColumnName eq ExprOrDefault
 	{
-		$$ = &ast.Assignment{
-			Column:	$1.(*ast.ColumnName),
-			Expr:	$3,
+		name := $1.(ast.QualifiedName)
+		assignment := &ast.Assignment{
+			Target: columnRef(name, name.Span),
+			Expr:   $3,
 		}
+		assignment.SetSpan(yyVAL.span)
+		$$ = assignment
 	}
 
 
@@ -5536,8 +5695,9 @@ ReplaceIntoStmt:
 		}
 		x.IsReplace = true
 		x.Priority = $3.(mysql.PriorityEnum)
-		ts := &ast.TableSource{Source: $5.(*ast.TableName)}
-		x.Table = &ast.TableRefsClause{TableRefs: &ast.Join{Left: ts}}
+		tn := $5.(*ast.TableName)
+		x.Table = tn
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -5547,27 +5707,27 @@ ReplaceIntoStmt:
 Literal:
 	falseKwd
 	{
-		$$ = ast.NewValueExpr(false)
+		$$ = syntaxLiteral(yylex, pkast.LiteralBoolean, "false", yyS[yypt].span)
 	}
 |	null
 	{
-		$$ = ast.NewValueExpr(nil)
+		$$ = syntaxLiteral(yylex, pkast.LiteralNull, "null", yyS[yypt].span)
 	}
 |	trueKwd
 	{
-		$$ = ast.NewValueExpr(true)
+		$$ = syntaxLiteral(yylex, pkast.LiteralBoolean, "true", yyS[yypt].span)
 	}
 |	floatLit
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = numericLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	decLit
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = numericLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	intLit
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = numericLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	StringLiteral %prec lowerThanStringLitToken
 	{
@@ -5576,113 +5736,74 @@ Literal:
 |	underscoreCS StringLiteral %prec lowerThanStringLitToken
 	{
 		// See https://dev.mysql.com/doc/refman/5.7/en/charset-literal.html
-		co, err := charset.GetDefaultCollation($1)
+		_, err := charset.GetDefaultCollation($1)
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "Get collation error for charset: %s", $1))
 			return 1
 		}
-		expr := $2.(ast.ValueExpr)
-		tp := expr.GetType()
-		tp.Charset = $1
-		tp.Collate = co
-		if tp.Collate == charset.CollationBin {
-			tp.Flag |= mysql.BinaryFlag
-		}
-		$$ = expr
+		$$ = introduceLiteral(yylex, $2.(*ast.LiteralExpr), $1, yyS[yypt-1].span, yyVAL.span)
 	}
 |	underscoreCS hexLit
 	{
-		expr := ast.NewValueExpr($2)
-		co, err := charset.GetDefaultCollation($1)
+		_, err := charset.GetDefaultCollation($1)
 		if err != nil {
 			yyAppendErr(yylex, err)
 			return 1
 		}
-		tp := expr.GetType()
-		tp.Charset, tp.Collate = $1, co
-		tp.Flag |= mysql.HasCharsetIntroducerFlag
-		tp.Flag &^= mysql.BinaryFlag
-		if co == charset.CollationBin {
-			tp.Flag |= mysql.BinaryFlag
-		}
-		$$ = expr
+		$$ = introduceLiteral(yylex, binaryLiteral(yylex, pkast.LiteralHex, yyS[yypt].span), $1, yyS[yypt-1].span, yyVAL.span)
 	}
 |	underscoreCS bitLit
 	{
-		expr := ast.NewValueExpr($2)
-		co, err := charset.GetDefaultCollation($1)
+		_, err := charset.GetDefaultCollation($1)
 		if err != nil {
 			yyAppendErr(yylex, err)
 			return 1
 		}
-		tp := expr.GetType()
-		tp.Charset, tp.Collate = $1, co
-		tp.Flag |= mysql.HasCharsetIntroducerFlag
-		tp.Flag &^= mysql.BinaryFlag
-		if co == charset.CollationBin {
-			tp.Flag |= mysql.BinaryFlag
-		}
-		$$ = expr
+		$$ = introduceLiteral(yylex, binaryLiteral(yylex, pkast.LiteralBit, yyS[yypt].span), $1, yyS[yypt-1].span, yyVAL.span)
 	}
 |	hexLit
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = binaryLiteral(yylex, pkast.LiteralHex, yyS[yypt].span)
 	}
 |	bitLit
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = binaryLiteral(yylex, pkast.LiteralBit, yyS[yypt].span)
 	}
 
 
 StringLiteral:
 	stringLit
 	{
-		expr := ast.NewValueExpr($1)
-		tp := expr.GetType()
-		tp.Charset = yyGetParser(yylex).charset
-		tp.Collate = yyGetParser(yylex).collation
-		$$ = expr
+		$$ = stringLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	StringLiteral stringLit
 	{
-		valExpr := $1.(ast.ValueExpr)
-		strLit := valExpr.GetString()
-		expr := ast.NewValueExpr(strLit+$2)
-		tp := expr.GetType()
-		tp.Charset = yyGetParser(yylex).charset
-		tp.Collate = yyGetParser(yylex).collation
-		// Fix #4239, use first string literal as projection name.
-		if valExpr.GetProjectionOffset() >= 0 {
-			expr.SetProjectionOffset(valExpr.GetProjectionOffset())
-		} else {
-			expr.SetProjectionOffset(len(strLit))
-		}
-		$$ = expr
+		$$ = stringLiteral(yylex, $1.(*ast.LiteralExpr).Value+$2, yyVAL.span)
 	}
 
 
 OrderBy:
 	order by ByList
 	{
-		$$ = &ast.OrderByClause{Items: $3.([]*ast.ByItem)}
+		$$ = syntaxOrderBy($3.([]*syntaxByItem), yyVAL.span)
 	}
 
 
 WithinGroupOrderBy:
 	order by ByItem
 	{
-		$$ = &ast.OrderByClause{Items: []*ast.ByItem{$3.(*ast.ByItem)}}
+		$$ = syntaxOrderBy([]*syntaxByItem{$3.(*syntaxByItem)}, yyVAL.span)
 	}
 
 
 ByList:
 	ByItem
 	{
-		$$ = []*ast.ByItem{$1.(*ast.ByItem)}
+		$$ = []*syntaxByItem{$1.(*syntaxByItem)}
 	}
 |	ByList ',' ByItem
 	{
-		$$ = append($1.([]*ast.ByItem), $3.(*ast.ByItem))
+		$$ = append($1.([]*syntaxByItem), $3.(*syntaxByItem))
 	}
 
 
@@ -5690,14 +5811,25 @@ ByItem:
 	Expression Order
 	{
 		expr := $1
-		valueExpr, ok := expr.(ast.ValueExpr)
-		if ok {
-			position, isPosition := valueExpr.GetValue().(int64)
-			if isPosition {
-				expr = &ast.PositionExpr{N: int(position)}
+		if literal, ok := expr.(*ast.LiteralExpr); ok {
+			switch literal.Kind {
+			case pkast.LiteralBoolean:
+				position := 0
+				if literal.Value == "true" {
+					position = 1
+				}
+				expr = &ast.PositionExpr{N: position}
+			case pkast.LiteralInteger:
+				if position, err := strconv.ParseInt(literal.Value, 10, 64); err == nil {
+					expr = &ast.PositionExpr{N: int(position)}
+				}
+			}
+			if position, ok := expr.(*ast.PositionExpr); ok {
+				position.SetSpan(literal.Span())
+				position.SetText(literal.Text())
 			}
 		}
-		$$ = &ast.ByItem{Expr: expr, Desc: $2.(bool)}
+		$$ = &syntaxByItem{expr: expr, desc: $2.(bool), span: yyVAL.span}
 	}
 
 
@@ -5715,73 +5847,91 @@ OrderByOptional:
 BitExpr:
 	BitExpr '|' BitExpr %prec '|'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Or, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Or), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '&' BitExpr %prec '&'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.And, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.And), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr lsh BitExpr %prec lsh
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.LeftShift, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LeftShift), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr rsh BitExpr %prec rsh
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.RightShift, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.RightShift), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '+' BitExpr %prec '+'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Plus, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Plus), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '-' BitExpr %prec '-'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Minus, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Minus), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '+' interval Expression TimeUnit %prec '+'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr("DATE_ADD"),
-			Args: []ast.ExprNode{
-				$1,
-				$4,
-				ast.NewValueExpr($5),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, "DATE_ADD", loc.InvalidSpan()),
+				Args: []ast.ExprNode{
+					$1,
+					$4,
+				},
 			},
+			Unit: syntaxIdent(yylex, $5, yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '-' interval Expression TimeUnit %prec '+'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr("DATE_SUB"),
-			Args: []ast.ExprNode{
-				$1,
-				$4,
-				ast.NewValueExpr($5),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, "DATE_SUB", loc.InvalidSpan()),
+				Args: []ast.ExprNode{
+					$1,
+					$4,
+				},
 			},
+			Unit: syntaxIdent(yylex, $5, yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '*' BitExpr %prec '*'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Mul, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mul), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '/' BitExpr %prec '/'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Div, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Div), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '%' BitExpr %prec '%'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Mod, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mod), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr div BitExpr %prec div
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.IntDiv, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.IntDiv), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr mod BitExpr %prec mod
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Mod, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mod), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	BitExpr '^' BitExpr
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Xor, L: $1, R: $3}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Xor), Left: $1, Right: $3 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	SimpleExpr %prec empty
 
@@ -5789,39 +5939,27 @@ BitExpr:
 SimpleIdent:
 	Identifier
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{
-			Name: model.NewCIStr($1),
-		}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span)), yyVAL.span)
 	}
 |	window
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{Name: model.NewCIStr($1)}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span)), yyVAL.span)
 	}
 |	rank %prec empty
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{Name: model.NewCIStr($1)}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span)), yyVAL.span)
 	}
 |	Identifier '.' Identifier
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{
-			Table: model.NewCIStr($1),
-			Name: model.NewCIStr($3),
-		}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span), syntaxIdent(yylex, $3, yyS[yypt].span)), yyVAL.span)
 	}
 |	'.' Identifier '.' Identifier
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{
-			Table: model.NewCIStr($2),
-			Name: model.NewCIStr($4),
-		}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $2, yyS[yypt-2].span), syntaxIdent(yylex, $4, yyS[yypt].span)), yyVAL.span)
 	}
 |	Identifier '.' Identifier '.' Identifier
 	{
-		$$ = &ast.ColumnNameExpr{Name: &ast.ColumnName{
-			Schema: model.NewCIStr($1),
-			Table: model.NewCIStr($3),
-			Name: model.NewCIStr($5),
-		}}
+		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt-4].span), syntaxIdent(yylex, $3, yyS[yypt-2].span), syntaxIdent(yylex, $5, yyS[yypt].span)), yyVAL.span)
 	}
 
 
@@ -5833,22 +5971,29 @@ SimpleExpr:
 |	interval Expression TimeUnit '+' Expression %prec interval
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr("DATE_ADD"),
-			Args: []ast.ExprNode{$5, $2, ast.NewValueExpr($3)},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, "DATE_ADD", loc.InvalidSpan()),
+				Args: []ast.ExprNode{$5, $2},
+			},
+			Unit: syntaxIdent(yylex, $3, yyS[yypt-3].span),
 			IntervalFirst: true,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	cube '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr("CUBE"), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	rollup '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr("ROLLUP"), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	SimpleExpr collate StringName %prec neg
 	{
 		$$ = &ast.CollateExpr{Expr: $1, Collation: $3.(string)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	WindowFuncCall
 	{
@@ -5857,7 +6002,7 @@ SimpleExpr:
 /* https://dev.mysql.com/doc/refman/8.0/en/fulltext-search.html */
 |	match '(' ColumnNameList ')' against '(' BitExpr MatchAgainstOpt ')'
 	{
-		m := &ast.MatchAgainst{Columns: $3.([]*ast.ColumnName), Expr: $7}
+		m := &ast.MatchAgainst{Columns: $3.([]ast.QualifiedName), Expr: $7}
 		switch $8.(int) {
 		case 1:
 			m.Modifier = ast.MatchAgainstBoolean
@@ -5865,37 +6010,44 @@ SimpleExpr:
 			m.QueryExpansion = true
 		}
 		$$ = m
+		m.SetSpan(yyVAL.span)
 	}
 |	Literal
 |	paramMarker
 	{
-		$$ = ast.NewParamMarkerExpr(yyS[yypt].offset)
+		$$ = yyGetParser(yylex).newParamMarkerExpr(yyS[yypt].span)
 	}
 |	Variable
 |	SumExpr
 |	'!' SimpleExpr %prec neg
 	{
-		$$ = &ast.UnaryOperationExpr{Op: opcode.Not, V: $2}
+		$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Not), Expr: $2 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	'~'  SimpleExpr %prec neg
 	{
-		$$ = &ast.UnaryOperationExpr{Op: opcode.BitNeg, V: $2}
+		$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.BitNeg), Expr: $2 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	'-' SimpleExpr %prec neg
 	{
-		$$ = &ast.UnaryOperationExpr{Op: opcode.Minus, V: $2}
+		$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Minus), Expr: $2 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	'+' SimpleExpr %prec neg
 	{
-		$$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: $2}
+		$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: $2 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	SimpleExpr pipes SimpleExpr
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.Concat), Args: []ast.ExprNode{$1, $3}}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.Concat, loc.InvalidSpan()), Args: []ast.ExprNode{$1, $3}}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	not2 SimpleExpr %prec neg
 	{
-		$$ = &ast.UnaryOperationExpr{Op: opcode.Not, V: $2}
+		$$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Not), Expr: $2 } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	SubSelect %prec empty
 /* Complete nested query parentheses before treating the subquery as a scalar. */
@@ -5905,69 +6057,56 @@ SimpleExpr:
 		expr := $2
 		expr.SetText(yyGetParser(yylex).src[startOffset:endOffset])
 		$$ = &ast.ParenthesesExpr{Expr: expr}
+		$$.SetSpan(yyVAL.span)
 	}
 |	'(' ExpressionList ',' Expression ')'
 	{
 		values := append($2.([]ast.ExprNode), $4)
-		$$ = &ast.RowExpr{Values: values}
+		$$ = &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{ Items: values } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	row '(' ExpressionList ',' Expression ')'
 	{
 		values := append($3.([]ast.ExprNode), $5)
-		$$ = &ast.RowExpr{Values: values}
+		$$ = &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{ Items: values } }
+		$$.SetSpan(yyVAL.span)
 	}
 |	exists SubSelect
 	{
 		sq := $2.(*ast.SubqueryExpr)
-		sq.Exists = true
 		$$ = &ast.ExistsSubqueryExpr{Sel: sq}
+		$$.SetSpan(yyVAL.span)
 	}
 |	binaryType SimpleExpr %prec neg
 	{
 		// See https://dev.mysql.com/doc/refman/5.7/en/cast-functions.html#operator_binary
-		x := types.NewFieldType(mysql.TypeString)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CharsetBin
 		$$ = &ast.FuncCastExpr{
 			Expr: $2,
-			Tp: x,
+			Type: syntaxTypeNode(yylex, ast.NewTypeName("BINARY"), yyS[yypt-1].span),
 			FunctionType: ast.CastBinaryOperator,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinCast '(' Expression as CastType ')'
 	{
 		/* See https://dev.mysql.com/doc/refman/5.7/en/cast-functions.html#function_cast */
-		tp := $5.(*types.FieldType)
-		defaultFlen, defaultDecimal := mysql.GetDefaultFieldLengthAndDecimalForCast(tp.Tp)
-		if tp.Flen == types.UnspecifiedLength {
-			tp.Flen = defaultFlen
-		}
-		if tp.Decimal == types.UnspecifiedLength {
-			tp.Decimal = defaultDecimal
-		}
 		$$ = &ast.FuncCastExpr{
 			Expr: $3,
-			Tp: tp,
+			Type: syntaxTypeNode(yylex, $5.(*ast.TypeName), yyS[yypt-1].span),
 			FunctionType: ast.CastFunction,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinCast '(' Expression CastTimeZone as CastDatetimeType ')'
 	{
 		/* AT TIME ZONE / AT LOCAL may only target DATETIME[(fsp)]. */
-		tp := $6.(*types.FieldType)
-		defaultFlen, defaultDecimal := mysql.GetDefaultFieldLengthAndDecimalForCast(tp.Tp)
-		if tp.Flen == types.UnspecifiedLength {
-			tp.Flen = defaultFlen
-		}
-		if tp.Decimal == types.UnspecifiedLength {
-			tp.Decimal = defaultDecimal
-		}
 		$$ = &ast.FuncCastExpr{
 			Expr:         $3,
-			Tp:           tp,
+			Type:         syntaxTypeNode(yylex, $6.(*ast.TypeName), yyS[yypt-1].span),
 			FunctionType: ast.CastFunction,
 			TimeZone:     $4.(*ast.CastTimeZone),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	caseKwd ExpressionOpt WhenClauseList ElseOpt end
 	{
@@ -5978,56 +6117,60 @@ SimpleExpr:
 		if $4 != nil {
 			x.ElseClause = $4.(ast.ExprNode)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 |	convert '(' Expression ',' CastType ')'
 	{
 		// See https://dev.mysql.com/doc/refman/5.7/en/cast-functions.html#function_convert
-		tp := $5.(*types.FieldType)
-		defaultFlen, defaultDecimal := mysql.GetDefaultFieldLengthAndDecimalForCast(tp.Tp)
-		if tp.Flen == types.UnspecifiedLength {
-			tp.Flen = defaultFlen
-		}
-		if tp.Decimal == types.UnspecifiedLength {
-			tp.Decimal = defaultDecimal
-		}
 		$$ = &ast.FuncCastExpr{
 			Expr: $3,
-			Tp: tp,
+			Type: syntaxTypeNode(yylex, $5.(*ast.TypeName), yyS[yypt-1].span),
 			FunctionType: ast.CastConvertFunction,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	convert '(' Expression using CharsetName ')'
 	{
 		// See https://dev.mysql.com/doc/refman/5.7/en/cast-functions.html#function_convert
-		charset1 := ast.NewValueExpr($5)
+		charset := $5.(lex.Ident)
+		charset.Name = charsetName(charset)
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3, charset1},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args:    []ast.ExprNode{$3},
+			},
+			Charset: charset,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	defaultKwd '(' SimpleIdent ')'
 	{
-		$$ = &ast.DefaultExpr{Name: $3.(*ast.ColumnNameExpr).Name}
+		$$ = &ast.DefaultExpr{Name: $3.(*ast.ColumnRef).Name}
+		$$.SetSpan(yyVAL.span)
 	}
 |	values '(' SimpleIdent ')' %prec lowerThanInsertValues
 	{
-		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnNameExpr)}
+		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnRef)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	value '(' SimpleIdent ')'
 	{
-		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnNameExpr), Singular: true}
+		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnRef), Singular: true}
+		$$.SetSpan(yyVAL.span)
 	}
 |	SimpleIdent jss stringLit
 	{
-	    expr := ast.NewValueExpr($3)
-	    $$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.JSONExtract), Args: []ast.ExprNode{$1, expr}}
+	    expr := stringLiteral(yylex, $3, yyS[yypt].span)
+	    $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.JSONExtract, loc.InvalidSpan()), Args: []ast.ExprNode{$1, expr}}}
+	    $$.SetSpan(yyVAL.span)
 	}
 |	SimpleIdent juss stringLit
 	{
-	    expr := ast.NewValueExpr($3)
-	    extract := &ast.FuncCallExpr{FnName: model.NewCIStr(ast.JSONExtract), Args: []ast.ExprNode{$1, expr}}
-	    $$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.JSONUnquote), Args: []ast.ExprNode{extract}}
+	    expr := stringLiteral(yylex, $3, yyS[yypt].span)
+	    extract := &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.JSONExtract, loc.InvalidSpan()), Args: []ast.ExprNode{$1, expr}}}
+	    $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.JSONUnquote, loc.InvalidSpan()), Args: []ast.ExprNode{extract}}}
+	    $$.SetSpan(yyVAL.span)
 	}
 
 
@@ -6117,28 +6260,28 @@ FunctionCallKeyword:
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
 		}
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: args}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: args}}
 	}
 |	interval '(' Expression ',' ExpressionList ')'
 	{
 		args := append([]ast.ExprNode{$3}, $5.([]ast.ExprNode)...)
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: args}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: args}}
 	}
 |	SpatialFunctionName '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	builtinUser '('	ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	FunctionNameOptionalBraces OptionalBraces
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-1].span)}}
 	}
 |	builtinCurDate '(' ')'
     {
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-2].span)}}
     }
 |	FunctionNameDatetimePrecision FuncDatetimePrec
 	{
@@ -6146,52 +6289,56 @@ FunctionCallKeyword:
 		if $2 != nil {
 			args = append(args, $2.(ast.ExprNode))
 		}
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: args}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-1].span), Args: args}}
 	}
 |	charType '(' ExpressionList ')'
 	{
-		nilVal := ast.NewValueExpr(nil)
+		nilVal := syntaxLiteral(yylex, pkast.LiteralNull, "null", loc.InvalidSpan())
 		args := $3.([]ast.ExprNode)
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr(ast.CharFunc),
-			Args: append(args, nilVal),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, ast.CharFunc, yyS[yypt-3].span),
+				Args: append(args, nilVal),
+			},
 		}
 	}
 |	charType '(' ExpressionList using CharsetName ')'
 	{
-		charset1 := ast.NewValueExpr($5)
+		charset1 := stringLiteral(yylex, charsetName($5.(lex.Ident)), yyS[yypt-1].span)
 		args := $3.([]ast.ExprNode)
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr(ast.CharFunc),
-			Args: append(args, charset1),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, ast.CharFunc, yyS[yypt-5].span),
+				Args: append(args, charset1),
+			},
 		}
 	}
 |	dateType  stringLit
 	{
-		expr := ast.NewValueExpr($2)
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.DateLiteral), Args: []ast.ExprNode{expr}}
+		expr := stringLiteral(yylex, $2, yyS[yypt].span)
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.DateLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
 	}
 |	timeType  stringLit
 	{
-		expr := ast.NewValueExpr($2)
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimeLiteral), Args: []ast.ExprNode{expr}}
+		expr := stringLiteral(yylex, $2, yyS[yypt].span)
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.TimeLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
 	}
 |	timestampType  stringLit
 	{
-		expr := ast.NewValueExpr($2)
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimestampLiteral), Args: []ast.ExprNode{expr}}
+		expr := stringLiteral(yylex, $2, yyS[yypt].span)
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.TimestampLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
 	}
 |	insert '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName:model.NewCIStr(ast.InsertFunc), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.InsertFunc, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	mod '(' BitExpr ',' BitExpr ')'
 	{
-		$$ = &ast.BinaryOperationExpr{Op: opcode.Mod, L: $3, R: $5}
+		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mod), Left: $3, Right: $5 } }
 	}
 |	password '(' ExpressionListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName:model.NewCIStr(ast.PasswordFunc), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.PasswordFunc, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 
 
@@ -6219,135 +6366,168 @@ FunctionCallNonKeyword:
 	}
 |	builtinCurTime '(' FuncDatetimePrecListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	builtinSysDate '(' FuncDatetimePrecListOpt ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: $3.([]ast.ExprNode)}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 	}
 |	FunctionNameDateArithMultiForms '(' Expression ',' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{
-				$3,
-				$5,
-				ast.NewValueExpr("DAY"),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{
+					$3,
+					$5,
+				},
 			},
+			Unit: syntaxIdent(yylex, "DAY", loc.InvalidSpan()),
 		}
 	}
 |	FunctionNameDateArithMultiForms '(' Expression ',' interval Expression TimeUnit ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{
-				$3,
-				$6,
-				ast.NewValueExpr($7),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{
+					$3,
+					$6,
+				},
 			},
+			Unit: syntaxIdent(yylex, $7, yyS[yypt-1].span),
 		}
 	}
 |	FunctionNameDateArith '(' Expression ',' interval Expression TimeUnit ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{
-				$3,
-				$6,
-				ast.NewValueExpr($7),
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{
+					$3,
+					$6,
+				},
 			},
+			Unit: syntaxIdent(yylex, $7, yyS[yypt-1].span),
 		}
 	}
 |	builtinExtract '(' TimeUnit from Expression ')'
 	{
-		timeUnit := ast.NewValueExpr($3)
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{timeUnit, $5},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$5},
+			},
+			Unit: syntaxIdent(yylex, $3, yyS[yypt-3].span),
 		}
 	}
 |	getFormat '(' GetFormatSelector ','  Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{ast.NewValueExpr($3), $5},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$5},
+			},
+			FormatSelector: syntaxIdent(yylex, $3, yyS[yypt-3].span),
 		}
 	}
 |	builtinPosition '(' BitExpr in Expression ')'
 	{
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: []ast.ExprNode{$3, $5}}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$3, $5}}}
 	}
 |	builtinSubstring '(' Expression ',' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3, $5},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$3, $5},
+			},
 		}
 	}
 |	builtinSubstring '(' Expression from Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3, $5},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$3, $5},
+			},
 		}
 	}
 |	builtinSubstring '(' Expression ',' Expression ',' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3, $5, $7},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{$3, $5, $7},
+			},
 		}
 	}
 |	builtinSubstring '(' Expression from Expression forKwd Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3, $5, $7},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{$3, $5, $7},
+			},
 		}
 	}
 |	timestampAdd '(' TimestampUnit ',' Expression ',' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{ast.NewValueExpr($3), $5, $7},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{$5, $7},
+			},
+			Unit: syntaxIdent(yylex, $3, yyS[yypt-5].span),
 		}
 	}
 |	timestampDiff '(' TimestampUnit ',' Expression ',' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{ast.NewValueExpr($3), $5, $7},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-7].span),
+				Args: []ast.ExprNode{$5, $7},
+			},
+			Unit: syntaxIdent(yylex, $3, yyS[yypt-5].span),
 		}
 	}
 |	builtinTrim '(' Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$3},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-3].span),
+				Args: []ast.ExprNode{$3},
+			},
 		}
 	}
 |	builtinTrim '(' Expression from Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$5, $3},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$5, $3},
+			},
 		}
 	}
 |	builtinTrim '(' TrimDirection from Expression ')'
 	{
-		nilVal := ast.NewValueExpr(nil)
-		direction := ast.NewValueExpr(int($3.(ast.TrimDirectionType)))
+		nilVal := syntaxLiteral(yylex, pkast.LiteralNull, "null", loc.InvalidSpan())
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$5, nilVal, direction},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-5].span),
+				Args: []ast.ExprNode{$5, nilVal},
+			},
+			TrimDirection: $3.(ast.TrimDirectionType),
 		}
 	}
 |	builtinTrim '(' TrimDirection Expression from Expression ')'
 	{
-		direction := ast.NewValueExpr(int($3.(ast.TrimDirectionType)))
 		$$ = &ast.FuncCallExpr{
-			FnName: model.NewCIStr($1),
-			Args: []ast.ExprNode{$6, $4, direction},
+			BaseCallExpr: pkast.BaseCallExpr{
+				Name: functionName(yylex, $1, yyS[yypt-6].span),
+				Args: []ast.ExprNode{$6, $4},
+			},
+			TrimDirection: $3.(ast.TrimDirectionType),
 		}
 	}
 
@@ -6464,7 +6644,7 @@ HexInteger:
 
 
 WeightStringParam:
-	NumLiteral     { $$ = ast.NewValueExpr($1) }
+	NumLiteral     { $$ = $1.(ast.ExprNode) }
 |	hexLit
 	{
 		value, err := hexInteger(yyDollar[1].ident, true)
@@ -6472,14 +6652,9 @@ WeightStringParam:
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
 		}
-		// Use the same numeric AST type as the decimal spelling emitted by Restore.
-		if value <= math.MaxInt64 {
-			$$ = ast.NewValueExpr(int64(value))
-		} else {
-			$$ = ast.NewValueExpr(value)
-		}
+		$$ = numericLiteral(yylex, value, yyS[yypt].span)
 	}
-|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: ast.NewValueExpr($2)} }
+|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: $2.(ast.ExprNode) } } }
 
 
 GetFormatSelector:
@@ -6509,99 +6684,119 @@ SumExpr:
 	avg '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitAnd '(' Expression ')'  OptWindowingClause
 	{
 		if $5 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, Spec: *($5.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, Spec: *($5.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$3},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitAnd '(' all Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitOr '(' Expression ')'  OptWindowingClause
 	{
 		if $5 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, Spec: *($5.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, Spec: *($5.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$3},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitOr '(' all Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitXor '(' Expression ')'  OptWindowingClause
 	{
 		if $5 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, Spec: *($5.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, Spec: *($5.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$3},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinBitXor '(' all Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinCount '(' DistinctKwd ExpressionList ')' OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: $4.([]ast.ExprNode), Distinct: true, Spec: *($6.(*ast.WindowSpec))}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: $4.([]ast.ExprNode)}, Distinct: true, Spec: *($6.(*ast.WindowSpec))}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: $4.([]ast.ExprNode), Distinct: true}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: $4.([]ast.ExprNode)}, Distinct: true}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinCount '(' all Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinCount '(' Expression ')'  OptWindowingClause
 	{
 		if $5 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, Spec: *($5.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, Spec: *($5.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$3},}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinCount '(' '*' ')'  OptWindowingClause
 	{
-		args := []ast.ExprNode{ast.NewValueExpr(1)}
 		if $5 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: args, Spec: *($5.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span)}, Star: true, Spec: *($5.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: args,}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span)}, Star: true}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinGroupConcat '(' BuggyDefaultFalseDistinctOpt ExpressionList OrderByOptional OptGConcatSeparator SelectStmtLimit ')' OptWindowingClause
 	{
 		args := $4.([]ast.ExprNode)
 		if $9 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: args, Distinct: $3.(bool), Spec: *($9.(*ast.WindowSpec))}
+			win := &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-8].span), Args: args}, Distinct: $3.(bool), Spec: *($9.(*ast.WindowSpec))}
+			if $5 != nil {
+				win.OrderBy = $5.(*ast.OrderByClause)
+			}
+			if $6 != nil {
+				win.Separator = $6.(ast.ExprNode)
+			}
+			if $7 != nil {
+				win.Limit = $7.(*ast.Limit)
+			}
+			$$ = win
 		} else {
-			agg := &ast.AggregateFuncExpr{F: $1, Args: args, Distinct: $3.(bool)}
+			agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-8].span), Args: args}, Distinct: $3.(bool)}
 			if $5 != nil {
 				agg.OrderBy = $5.(*ast.OrderByClause)
 			}
@@ -6613,6 +6808,7 @@ SumExpr:
 			}
 			$$ = agg
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinJSONArrayAgg '(' BuggyDefaultFalseDistinctOpt Expression OrderByOptional SelectStmtLimit ')' OptWindowingClause
 	{
@@ -6621,9 +6817,9 @@ SumExpr:
 				yyAppendErr(yylex, yyErrorf(yylex, "JSON_ARRAYAGG window calls do not accept DISTINCT, ORDER BY, or LIMIT"))
 				return 1
 			}
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Spec: *($8.(*ast.WindowSpec))}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-7].span), Args: []ast.ExprNode{$4}}, Spec: *($8.(*ast.WindowSpec))}
 		} else {
-			agg := &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-7].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 			if $5 != nil {
 				agg.OrderBy = $5.(*ast.OrderByClause)
 			}
@@ -6632,68 +6828,76 @@ SumExpr:
 			}
 			$$ = agg
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinMax '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinMin '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinSum '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinStddevPop '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinStddevSamp '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: $1, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinVarPop '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: ast.AggFuncVarPop, Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.AggFuncVarPop, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: ast.AggFuncVarPop, Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.AggFuncVarPop, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	builtinVarSamp '(' BuggyDefaultFalseDistinctOpt Expression ')'  OptWindowingClause
 	{
 		if $6 != nil {
-			$$ = &ast.WindowFuncExpr{F: strings.ToLower($1), Args: []ast.ExprNode{$4}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool), Spec: *($6.(*ast.WindowSpec)),}
 		} else {
-			$$ = &ast.AggregateFuncExpr{F: strings.ToLower($1), Args: []ast.ExprNode{$4}, Distinct: $3.(bool)}
+			$$ = &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$4}}, Distinct: $3.(bool)}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 
 
 OptGConcatSeparator:
 	/* EMPTY */         { $$ = nil }
-| separator stringLit { $$ = ast.NewValueExpr($2) }
+| separator stringLit { $$ = stringLiteral(yylex, $2, yyS[yypt].span) }
 
 
 FunctionCallGeneric:
@@ -6704,20 +6908,21 @@ FunctionCallGeneric:
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
 		}
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: args}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: args}}
 	}
 |	identifier '(' ExpressionListOpt ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: strings.ToLower($1), Args: $3.([]ast.ExprNode), Spec: $5.(ast.WindowSpec)}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: $3.([]ast.ExprNode)}, Spec: $5.(ast.WindowSpec)}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	identifier '(' ExpressionListOpt ')' within group '(' WithinGroupOrderBy ')' WindowingClause
 	{
 		$$ = &ast.WindowFuncExpr{
-			F:           strings.ToLower($1),
-			Args:        $3.([]ast.ExprNode),
+			BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-9].span), Args: $3.([]ast.ExprNode)},
 			WithinGroup: $8.(*ast.OrderByClause),
 			Spec:        $10.(ast.WindowSpec),
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 
 
@@ -6726,7 +6931,7 @@ FuncDatetimePrec:
 |	'(' ')'     { $$ = nil }
 |	'(' intLit ')'
 	{
-		expr := ast.NewValueExpr($2)
+		expr := numericLiteral(yylex, $2, yyS[yypt-1].span)
 		$$ = expr
 	}
 
@@ -6801,6 +7006,7 @@ WhenClause:
 			Expr: $2,
 			Result: $4,
 		}
+		$$.(*ast.WhenClause).SetSpan(yyVAL.span)
 	}
 
 
@@ -6812,149 +7018,90 @@ ElseOpt:
 CastType:
 	binaryType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeVarString)
-		x.Flen = $2.(int)
-		if x.Flen != types.UnspecifiedLength {
-			x.Tp = mysql.TypeString
-		}
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
+		x := ast.NewTypeName("BINARY")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	charType OptFieldLen OptBinary
 	{
-		x := types.NewFieldType(mysql.TypeVarString)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("CHAR")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		x.Charset = $3.(*ast.OptBinary).Charset
-		if $3.(*ast.OptBinary).IsBinary{
-			x.Flag |= mysql.BinaryFlag
-		}
-		if x.Charset == "" {
-			x.Charset = mysql.DefaultCharset
-			x.Collate = mysql.DefaultCollationName
-		}
+		x.Binary = $3.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	varcharType FieldLen OptBinary
 	{
-		x := types.NewFieldType(mysql.TypeVarchar)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("VARCHAR")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		x.Charset = $3.(*ast.OptBinary).Charset
-		if $3.(*ast.OptBinary).IsBinary {
-			x.Flag |= mysql.BinaryFlag
-		}
-		if x.Charset == "" {
-			x.Charset = mysql.DefaultCharset
-			x.Collate = mysql.DefaultCollationName
-		}
+		x.Binary = $3.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	dateType
 	{
-		x := types.NewFieldType(mysql.TypeDate)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = x
+		$$ = ast.NewTypeName("DATE")
 	}
 |	CastDatetimeType
 |	decimalType FloatOpt
 	{
-		fopt := $2.(*ast.FloatOpt)
-		x := types.NewFieldType(mysql.TypeNewDecimal)
-		x.Flen = fopt.Flen
-		x.Decimal = fopt.Decimal
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
+		x := ast.NewTypeName("DECIMAL")
+		x.Modifiers = typeModifiers($2.([]*pkast.BaseLiteralExpr)...)
 		$$ = x
 	}
 |	FloatingPointType FloatOpt
 	{
-		fopt := $2.(*ast.FloatOpt)
-		x := types.NewFieldType($1.(byte))
-		x.Flen = fopt.Flen
-		x.Decimal = fopt.Decimal
-		if x.Tp == mysql.TypeFloat && x.Flen > 24 {
-			x.Tp = mysql.TypeDouble
-		}
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
+		x := newSyntaxType($1.(byte))
+		x.Modifiers = typeModifiers($2.([]*pkast.BaseLiteralExpr)...)
 		$$ = x
 	}
 |	timeType CastPrecisionOpt
 	{
-		$$ = temporalCastType(mysql.TypeDuration, $2.(string))
+		$$ = temporalCastType(mysql.TypeDuration, $2.(*pkast.BaseLiteralExpr))
 	}
 |	interval daySecond CastPrecisionOpt
 	{
-		x := temporalCastType(mysql.TypeDuration, $3.(string))
-		x.CastTypeName = "INTERVAL DAY_SECOND"
+		x := ast.NewTypeName("INTERVAL DAY_SECOND")
+		x.Modifiers = typeModifiers($3.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	intType
 	{
-		x := types.NewFieldType(mysql.TypeLong)
-		x.CastTypeName = "INT"
-		x.Charset, x.Collate = charset.CharsetBin, charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = x
+		$$ = ast.NewTypeName("INT")
 	}
 |	integerType
 	{
-		x := types.NewFieldType(mysql.TypeLong)
-		x.CastTypeName = "INTEGER"
-		x.Charset, x.Collate = charset.CharsetBin, charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = x
+		$$ = ast.NewTypeName("INTEGER")
 	}
 |	signed OptInteger
 	{
-		x := types.NewFieldType(mysql.TypeLonglong)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = x
+		$$ = ast.NewTypeName("SIGNED")
 	}
 |	unsigned OptInteger
 	{
-		x := types.NewFieldType(mysql.TypeLonglong)
-		x.Flag |= mysql.UnsignedFlag | mysql.BinaryFlag
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		$$ = x
+		$$ = ast.NewTypeName("UNSIGNED")
 	}
 |	jsonType
 	{
-		x := types.NewFieldType(mysql.TypeJSON)
-		x.Flag |= mysql.BinaryFlag | (mysql.ParseToJSONFlag)
-		x.Charset = mysql.DefaultCharset
-		x.Collate = mysql.DefaultCollationName
-		$$ = x
+		$$ = ast.NewTypeName("JSON")
 	}
 |	yearType
 	{
-		x := types.NewFieldType(mysql.TypeYear)
-		x.Flag |= mysql.BinaryFlag
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		$$ = x
+		$$ = ast.NewTypeName("YEAR")
 	}
 
 
 CastDatetimeType:
 	datetimeType CastPrecisionOpt
 	{
-		$$ = temporalCastType(mysql.TypeDatetime, $2.(string))
+		$$ = temporalCastType(mysql.TypeDatetime, $2.(*pkast.BaseLiteralExpr))
 	}
 
 CastPrecisionOpt:
-	/* EMPTY */ %prec empty { $$ = "" }
+	/* EMPTY */ %prec empty { $$ = (*pkast.BaseLiteralExpr)(nil) }
 |	'(' LengthNum ')'
 	{
-		$$ = fmt.Sprintf("%d", $2.(uint64))
+		$$ = typeLiteral(yylex, pkast.LiteralInteger, fmt.Sprintf("%d", $2.(uint64)), yyS[yypt-1].span)
 	}
 
 
@@ -6965,11 +7112,11 @@ CastTimeZone:
 	}
 |	at timeType zone stringLit
 	{
-		$$ = &ast.CastTimeZone{Expr: ast.NewValueExpr($4)}
+		$$ = &ast.CastTimeZone{Expr: stringLiteral(yylex, $4, yyS[yypt].span)}
 	}
 |	at timeType zone interval stringLit
 	{
-		$$ = &ast.CastTimeZone{Expr: ast.NewValueExpr($5), Interval: true}
+		$$ = &ast.CastTimeZone{Expr: stringLiteral(yylex, $5, yyS[yypt].span), Interval: true}
 	}
 
 
@@ -6981,10 +7128,10 @@ PriorityOpt:
 
 
 TableName:
-	Identifier                { $$ = &ast.TableName{Name:model.NewCIStr($1), NameOffset:yyS[yypt].offset} }
-|	FunctionNameIdentifier    { $$ = &ast.TableName{Name:model.NewCIStr($1), NameOffset:yyS[yypt].offset} }
-|	Identifier '.' Identifier { $$ = &ast.TableName{Schema:model.NewCIStr($1), Name:model.NewCIStr($3), NameOffset:yyS[yypt].offset} }
-|	Identifier '.' '*'        { $$ = &ast.TableName{Name:model.NewCIStr($1), NameOffset:yyS[yypt-2].offset} }
+	Identifier                { $$ = syntaxTableName(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))) }
+|	FunctionNameIdentifier    { $$ = syntaxTableName(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))) }
+|	Identifier '.' Identifier { $$ = syntaxTableName(syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span), syntaxIdent(yylex, $3, yyS[yypt].span))) }
+|	Identifier '.' '*'        { $$ = syntaxTableName(syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span))) }
 
 
 /* Only these function tokens remain table names before '('; SYSDATE is rejected. */
@@ -6999,7 +7146,7 @@ RoutineName:
 	TableName
 |	builtinSysDate
 	{
-		$$ = &ast.TableName{Name: model.NewCIStr($1), NameOffset: yyS[yypt].offset}
+		$$ = syntaxTableName(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span)))
 	}
 
 
@@ -7018,10 +7165,12 @@ TableNameList:
 ValuesStmt:
 	ValuesStmtKeyword ValuesRowList
 	{
-		$$ = &ast.ValuesStmt{
-			Rows:                $2.([]*ast.RowExpr),
+		stmt := &ast.ValuesStmt{
+			BaseValuesStmt:      pkast.BaseValuesStmt{Rows: $2.([]pkast.RowNode)},
 			ValuesKeywordOffset: $1.(int),
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7035,20 +7184,22 @@ ValuesStmtKeyword:
 TableStmt:
 	tableKwd TableName
 	{
-		$$ = &ast.TableStmt{Table: $2.(*ast.TableName)}
+		stmt := &ast.TableStmt{BaseTableStmt: pkast.BaseTableStmt{Table: $2.(*ast.TableName)}}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
 ValuesRowList:
 	ValuesRow
 	{
-		$$ = []*ast.RowExpr{$1.(*ast.RowExpr)}
+		$$ = []pkast.RowNode{$1.(*ast.RowExpr)}
 	}
 |	ValuesRowList ',' ValuesRow
 	{
-		rows := $1.([]*ast.RowExpr)
+		rows := $1.([]pkast.RowNode)
 		next := $3.(*ast.RowExpr)
-		if rows[0].OmitRowKeyword != next.OmitRowKeyword {
+		if rows[0].(*ast.RowExpr).OmitRowKeyword != next.OmitRowKeyword {
 			yyAppendErr(yylex, yyErrorf(yylex, "VALUES cannot mix ROW and parenthesized row forms"))
 			return 1
 		}
@@ -7059,11 +7210,15 @@ ValuesRowList:
 ValuesRow:
 	row '(' ExpressionList ')'
 	{
-		$$ = &ast.RowExpr{Values: $3.([]ast.ExprNode)}
+		row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: $3.([]ast.ExprNode)}}
+		row.SetSpan(yyVAL.span)
+		$$ = row
 	}
 |	'(' ExpressionList ')'
 	{
-		$$ = &ast.RowExpr{Values: $2.([]ast.ExprNode), OmitRowKeyword: true}
+		row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: $2.([]ast.ExprNode)}, OmitRowKeyword: true}
+		row.SetSpan(yyVAL.span)
+		$$ = row
 	}
 
 
@@ -7099,11 +7254,13 @@ PreparedStmt:
 		case *ast.VariableExpr:
 			sqlVar = $4.(*ast.VariableExpr)
 		}
-		$$ = &ast.PrepareStmt{
-			Name:		$2,
-			SQLText:	sqlText,
-			SQLVar: 	sqlVar,
+		stmt := &ast.PrepareStmt{
+			Name: syntaxIdent(yylex, $2, yyS[yypt-2].span),
+			SQLText: sqlText,
+			SQLVar: sqlVar,
 		}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7122,11 +7279,15 @@ PrepareSQL:
 ExecuteStmt:
 	execute Identifier ExecuteUsingOpt
 	{
-		$$ = &ast.ExecuteStmt{Name: $2, UsingVars: $3.([]ast.ExprNode)}
+		stmt := &ast.ExecuteStmt{Name: syntaxIdent(yylex, $2, yyS[yypt-1].span), UsingVars: $3.([]ast.ExprNode)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 |	execute immediate Expression ExecuteUsingOpt
 	{
-		$$ = &ast.ExecuteStmt{SQLExpr: $3, UsingVars: $4.([]ast.ExprNode)}
+		stmt := &ast.ExecuteStmt{Name: lex.Ident{Span: loc.InvalidSpan()}, SQLExpr: $3, UsingVars: $4.([]ast.ExprNode)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7146,7 +7307,9 @@ ExecuteUsingList:
 DeallocateStmt:
 	DeallocateSym prepare Identifier
 	{
-		$$ = &ast.DeallocateStmt{Name: $3}
+		stmt := &ast.DeallocateStmt{Name: syntaxIdent(yylex, $3, yyS[yypt].span)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7158,11 +7321,15 @@ deallocate | drop
 RollbackStmt:
 	rollback TransactionWorkOpt TransactionChainReleaseOpt
 	{
-		$$ = &ast.RollbackStmt{TransactionOptions: $3.(ast.TransactionOptions)}
+		stmt := &ast.RollbackStmt{TransactionOptions: $3.(ast.TransactionOptions)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 |	rollback TransactionWorkOpt to SavepointSym identifier
 	{
-		$$ = &ast.RollbackStmt{SavepointName: $5}
+		stmt := &ast.RollbackStmt{SavepointName: syntaxIdent(yylex, $5, yyS[yypt].span)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7174,14 +7341,18 @@ SavepointSym:
 SavepointStmt:
 	savepoint identifier
 	{
-		$$ = &ast.SavepointStmt{Name: $2}
+		stmt := &ast.SavepointStmt{Name: syntaxIdent(yylex, $2, yyS[yypt].span)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
 ReleaseSavepointStmt:
 	release savepoint identifier
 	{
-		$$ = &ast.ReleaseSavepointStmt{Name: $3}
+		stmt := &ast.ReleaseSavepointStmt{Name: syntaxIdent(yylex, $3, yyS[yypt].span)}
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7269,23 +7440,28 @@ WithSelectStmt:
 	{
 		st := $2.(*ast.SelectStmt)
 		st.With = $1.(*ast.WithClause)
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	WithClause SetOprStmt
 	{
 		ut := $2.(*ast.SetOprStmt)
 		ut.With = $1.(*ast.WithClause)
+		ut.SetSpan(yyVAL.span)
 		$$ = ut
 	}
 |	WithClause ValuesSetOprStmt
 	{
 		ut := $2.(*ast.SetOprStmt)
 		ut.With = $1.(*ast.WithClause)
+		ut.SetSpan(yyVAL.span)
 		$$ = ut
 	}
 |	WithClause ParenthesizedQueryStmt
 	{
-		$$ = withClauseSelect($1.(*ast.WithClause), $2.(ast.ResultSetNode)).(ast.StmtNode)
+		stmt := withClauseSelect($1.(*ast.WithClause), $2.(ast.QueryNode)).(ast.StmtNode)
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -7294,6 +7470,7 @@ WithUpdateStmt:
 	{
 		st := $2.(*ast.UpdateStmt)
 		st.With = $1.(*ast.WithClause)
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7303,6 +7480,7 @@ WithDeleteStmt:
 	{
 		st := $2.(*ast.DeleteStmt)
 		st.With = $1.(*ast.WithClause)
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7310,26 +7488,36 @@ WithDeleteStmt:
 WithClause:
 	with WithList
 	{
-		$$ = &ast.WithClause{CTEs: $2.([]*ast.CommonTableExpression)}
+		clause := &ast.WithClause{
+			BaseWithClause: pkast.BaseWithClause{
+				CTEs: $2.([]*ast.CommonTableExpression),
+			},
+		}
+		clause.SetSpan(yyVAL.span)
+		$$ = clause
 	}
 |	with recursive WithList WithCycleOpt
 	{
-		$$ = &ast.WithClause{
-			IsRecursive: true,
-			CTEs: $3.([]*ast.CommonTableExpression),
-			CycleColumns: $4.([]model.CIStr),
+		clause := &ast.WithClause{
+			BaseWithClause: pkast.BaseWithClause{
+				IsRecursive: true,
+				CTEs:        $3.([]*ast.CommonTableExpression),
+			},
+			CycleColumns: $4.([]lex.Ident),
 		}
+		clause.SetSpan(yyVAL.span)
+		$$ = clause
 	}
 
 
 WithCycleOpt:
 	/* EMPTY */
 	{
-		$$ = []model.CIStr{}
+		$$ = []lex.Ident{}
 	}
 |	cycle ColumnList restrict
 	{
-		$$ = $2.([]model.CIStr)
+		$$ = $2.([]lex.Ident)
 	}
 
 
@@ -7347,11 +7535,15 @@ WithList:
 WithClauseItem:
 	Identifier WithColNameListOpt as CTEBody
 	{
-		$$ = &ast.CommonTableExpression{
-			Name:     model.NewCIStr($1),
-			ColNames: $2.([]model.CIStr),
-			Query:    $4.(ast.ResultSetNode),
+		cte := &ast.CommonTableExpression{
+			BaseCommonTableExpression: pkast.BaseCommonTableExpression{
+				Name:    syntaxIdent(yylex, $1, yyS[yypt-3].span),
+				Columns: $2.([]lex.Ident),
+				Query:   $4.(ast.QueryNode),
+			},
 		}
+		cte.SetSpan(yyVAL.span)
+		$$ = cte
 	}
 
 
@@ -7370,31 +7562,31 @@ CTEBody:
 	}
 |	'(' WithSelectStmt ')'
 	{
-		$$ = $2.(ast.ResultSetNode)
+		$$ = $2.(ast.QueryNode)
 	}
 |	'(' ParenthesizedQueryStmt ')'
 	{
-		$$ = $2.(ast.ResultSetNode)
+		$$ = $2.(ast.QueryNode)
 	}
 
 
 WithColNameListOpt:
 	/* EMPTY */
 	{
-		$$ = []model.CIStr{}
+		$$ = []lex.Ident{}
 	}
 |	'(' ColumnList ')'
 	{
-		$$ = $2.([]model.CIStr)
+		$$ = $2.([]lex.Ident)
 	}
 
 
 SelectStmtBasic:
 	selectKwd SelectStmtOpts SelectStmtFieldList SelectIntoOpt	{
+		options := $2.(*selectOptionState)
 		st := &ast.SelectStmt {
-			SelectStmtOpts: $2.(*ast.SelectStmtOpts),
-			Distinct:      $2.(*ast.SelectStmtOpts).Distinct,
-			Fields:        $3.(*ast.FieldList),
+			BaseSelectStmt: pkast.BaseSelectStmt{Distinct: options.distinct, Fields: $3.(*ast.FieldList)},
+			SelectStmtOpts: options.options,
 		}
 		if into, ok := $4.(*ast.SelectIntoStatement); ok && into != nil {
 			into.BeforeFrom = true
@@ -7411,10 +7603,10 @@ SelectStmtFromDualTable:
 	SelectStmtBasic FromDual WhereClauseOptional SelectStmtGroup HavingClause WindowClauseOptional
 	{
 		st := $1.(*ast.SelectStmt)
-		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
-		if lastField.Expr != nil && lastField.AsName.O == "" {
+		lastField := st.Fields.Items[len(st.Fields.Items)-1]
+		if _, wildcard := lastField.Expr.(*ast.WildcardExpr); !wildcard && !lastField.Alias.Present() {
 			lastEnd := yyS[yypt-4].offset-1
-			lastField.SetText(yyGetParser(yylex).src[lastField.Offset:lastEnd])
+			lastField.SetText(yyGetParser(yylex).src[int(lastField.Span().Start):lastEnd])
 		}
 		if $3 != nil {
 			st.Where = $3.(ast.ExprNode)
@@ -7423,11 +7615,12 @@ SelectStmtFromDualTable:
 			st.GroupBy = $4.(*ast.GroupByClause)
 		}
 		if $5 != nil {
-			st.Having = $5.(*ast.HavingClause)
+			st.Having = $5.(ast.ExprNode)
 		}
 		if $6 != nil {
-			st.WindowSpecs = $6.([]ast.WindowSpec)
+			st.WindowSpecs = $6.([]pkast.WindowSpecNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7438,13 +7631,10 @@ SelectStmtFromTable:
 	{
 		st := $1.(*ast.SelectStmt)
 		st.From = $3.(*ast.TableRefsClause)
-		if st.SelectStmtOpts.TableHints != nil {
-			st.TableHints = st.SelectStmtOpts.TableHints
-		}
-		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
-		if lastField.Expr != nil && lastField.AsName.O == "" {
+		lastField := st.Fields.Items[len(st.Fields.Items)-1]
+		if _, wildcard := lastField.Expr.(*ast.WildcardExpr); !wildcard && !lastField.Alias.Present() {
 			lastEnd := yyGetParser(yylex).endOffset(&yyS[yypt-5])
-			lastField.SetText(yyGetParser(yylex).src[lastField.Offset:lastEnd])
+			lastField.SetText(yyGetParser(yylex).src[int(lastField.Span().Start):lastEnd])
 		}
 		if $4 != nil {
 			st.Where = $4.(ast.ExprNode)
@@ -7453,11 +7643,12 @@ SelectStmtFromTable:
 			st.GroupBy = $5.(*ast.GroupByClause)
 		}
 		if $6 != nil {
-			st.Having = $6.(*ast.HavingClause)
+			st.Having = $6.(ast.ExprNode)
 		}
 		if $7 != nil {
-		    st.WindowSpecs = ($7.([]ast.WindowSpec))
+			st.WindowSpecs = $7.([]pkast.WindowSpecNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7472,8 +7663,8 @@ SelectStmt:
 			st.LockedTables = lock.Tables
 			st.LockWaitPolicy = lock.WaitPolicy
 		}
-		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
-		if lastField.Expr != nil && lastField.AsName.O == "" {
+		lastField := st.Fields.Items[len(st.Fields.Items)-1]
+		if _, wildcard := lastField.Expr.(*ast.WildcardExpr); !wildcard && !lastField.Alias.Present() {
 			src := yyGetParser(yylex).src
 			var lastEnd int
 			if $2 != nil {
@@ -7490,7 +7681,7 @@ SelectStmt:
 					lastEnd--
 				}
 			}
-			lastField.SetText(src[lastField.Offset:lastEnd])
+			lastField.SetText(src[int(lastField.Span().Start):lastEnd])
 		}
 		if $2 != nil {
 			st.OrderBy = $2.(*ast.OrderByClause)
@@ -7502,6 +7693,7 @@ SelectStmt:
 			yyAppendErr(yylex, err)
 			return 1
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	SelectStmtWithoutFrom OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
@@ -7519,8 +7711,8 @@ SelectStmt:
 			st.LockedTables = lock.Tables
 			st.LockWaitPolicy = lock.WaitPolicy
 		}
-		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
-		if lastField.Expr != nil && lastField.AsName.O == "" {
+		lastField := st.Fields.Items[len(st.Fields.Items)-1]
+		if _, wildcard := lastField.Expr.(*ast.WildcardExpr); !wildcard && !lastField.Alias.Present() {
 			src := yyGetParser(yylex).src
 			var lastEnd int
 			if $2 != nil {
@@ -7532,7 +7724,7 @@ SelectStmt:
 			} else {
 				lastEnd = yyS[yypt].offset-1
 			}
-			lastField.SetText(src[lastField.Offset:lastEnd])
+			lastField.SetText(src[int(lastField.Span().Start):lastEnd])
 		}
 		if $2 != nil {
 			st.OrderBy = $2.(*ast.OrderByClause)
@@ -7540,6 +7732,7 @@ SelectStmt:
 		if $3 != nil {
 			st.Limit = $3.(*ast.Limit)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	SelectStmtFromDualTable OrderByOptional SelectStmtLimit SelectLockOpt SelectIntoOpt
@@ -7561,6 +7754,7 @@ SelectStmt:
 			yyAppendErr(yylex, err)
 			return 1
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	SelectStmtFromDualTable OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
@@ -7582,6 +7776,7 @@ SelectStmt:
 			st.LockedTables = lock.Tables
 			st.LockWaitPolicy = lock.WaitPolicy
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectLockOpt SelectIntoOpt
@@ -7603,6 +7798,7 @@ SelectStmt:
 			yyAppendErr(yylex, err)
 			return 1
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
@@ -7626,6 +7822,7 @@ SelectStmt:
 		if $3 != nil {
 			st.Limit = $3.(*ast.Limit)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7641,11 +7838,12 @@ SelectStmtWithoutFrom:
 			st.GroupBy = $3.(*ast.GroupByClause)
 		}
 		if $4 != nil {
-			st.Having = $4.(*ast.HavingClause)
+			st.Having = $4.(ast.ExprNode)
 		}
 		if $5 != nil {
-			st.WindowSpecs = $5.([]ast.WindowSpec)
+			st.WindowSpecs = $5.([]pkast.WindowSpecNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
@@ -7663,35 +7861,45 @@ FromDual:
 
 WindowClauseOptional:
 	/* EMPTY */                   { $$ = nil }
-|	window WindowDefinitionList { $$ = $2.([]ast.WindowSpec) }
+|	window WindowDefinitionList { $$ = $2.([]pkast.WindowSpecNode) }
 
 
 WindowDefinitionList:
-	WindowDefinition                          { $$ = []ast.WindowSpec{$1.(ast.WindowSpec)} }
-|	WindowDefinitionList ',' WindowDefinition { $$ = append($1.([]ast.WindowSpec), $3.(ast.WindowSpec)) }
+	WindowDefinition                          { $$ = []pkast.WindowSpecNode{$1.(*ast.WindowSpec)} }
+|	WindowDefinitionList ',' WindowDefinition { $$ = append($1.([]pkast.WindowSpecNode), $3.(*ast.WindowSpec)) }
 
 
 WindowDefinition:
 	WindowName as WindowSpec
 	{
 		var spec = $3.(ast.WindowSpec)
-		spec.Name = $1.(model.CIStr)
-		$$ = spec
+		spec.Name = syntaxIdent(yylex, $1, yyS[yypt-2].span)
+		spec.SetSpan(yyVAL.span)
+		$$ = &spec
 	}
 
 
 WindowName:
-	Identifier { $$ = model.NewCIStr($1) }
+	Identifier { $$ = $1 }
 
 
 WindowSpec:
-	'(' WindowSpecDetails ')' { $$ = $2.(ast.WindowSpec) }
+	'(' WindowSpecDetails ')'
+	{
+		spec := $2.(ast.WindowSpec)
+		spec.SetSpan(yyVAL.span)
+		$$ = spec
+	}
 
 
 WindowSpecDetails:
 	OptExistingWindowName OptPartitionClause OptWindowOrderByClause OptWindowFrameClause
 	{
-		spec := ast.WindowSpec{Ref: $1.(model.CIStr),}
+		spec := ast.WindowSpec{
+			Name: lex.Ident{Span: loc.InvalidSpan()},
+			Ref: syntaxIdent(yylex, $1, yyS[yypt-3].span),
+		}
+		spec.SetSpan(yyVAL.span)
 		if $2 != nil {
 		    spec.PartitionBy = $2.(*ast.PartitionByClause)
 		}
@@ -7706,8 +7914,8 @@ WindowSpecDetails:
 
 
 OptExistingWindowName:
-	/* EMPTY */ { $$ = model.CIStr{} }
-|	WindowName  { $$ = $1.(model.CIStr) }
+	/* EMPTY */ { $$ = "" }
+|	WindowName  { $$ = $1 }
 
 
 OptPartitionClause:
@@ -7716,7 +7924,7 @@ OptPartitionClause:
 	}
 |	partition by ByList
 	{
-		$$ = &ast.PartitionByClause{Items: $3.([]*ast.ByItem)}
+		$$ = syntaxPartitionBy($3.([]*syntaxByItem), yyVAL.span)
 	}
 
 
@@ -7726,7 +7934,7 @@ OptWindowOrderByClause:
 	}
 |	order by ByList
 	{
-		$$ = &ast.OrderByClause{Items: $3.([]*ast.ByItem)}
+		$$ = syntaxOrderBy($3.([]*syntaxByItem), yyVAL.span)
 	}
 
 
@@ -7742,6 +7950,7 @@ OptWindowFrameClause:
 		}
 		frame.Type, frame.Extent = $1.(ast.FrameType), $2.(ast.FrameExtent)
 		frame.TypeOffset = yyS[yypt-2].offset
+		frame.SetSpan(yyVAL.span)
 		$$ = frame
 	}
 
@@ -7750,19 +7959,19 @@ OptWindowFrameExclusion:
 	/* EMPTY */ { $$ = nil }
 |	exclude current row
 	{
-		$$ = &ast.FrameClause{Exclusion: "CURRENT ROW", ExclusionOffset: yyS[yypt-2].offset}
+		$$ = &ast.FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Exclusion: pkast.WindowFrameExcludeCurrentRow}, ExclusionOffset: yyS[yypt-2].offset}
 	}
 |	exclude group
 	{
-		$$ = &ast.FrameClause{Exclusion: "GROUP", ExclusionOffset: yyS[yypt-1].offset}
+		$$ = &ast.FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Exclusion: pkast.WindowFrameExcludeGroup}, ExclusionOffset: yyS[yypt-1].offset}
 	}
 |	exclude ties
 	{
-		$$ = &ast.FrameClause{Exclusion: "TIES", ExclusionOffset: yyS[yypt-1].offset}
+		$$ = &ast.FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Exclusion: pkast.WindowFrameExcludeTies}, ExclusionOffset: yyS[yypt-1].offset}
 	}
 |	exclude no others
 	{
-		$$ = &ast.FrameClause{Exclusion: "NO OTHERS", ExclusionOffset: yyS[yypt-2].offset}
+		$$ = &ast.FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Exclusion: pkast.WindowFrameExcludeNoOthers}, ExclusionOffset: yyS[yypt-2].offset}
 	}
 
 
@@ -7775,10 +7984,11 @@ WindowFrameUnits:
 WindowFrameExtent:
 	WindowFrameStart
 	{
-		$$ = ast.FrameExtent {
-			Start: $1.(ast.FrameBound),
-			End: ast.FrameBound{Type: ast.CurrentRow,},
+		extent := ast.FrameExtent {
+			Start: $1.(*ast.FrameBound),
+			End: &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.CurrentRow}},
 		}
+		$$ = extent
 	}
 |	WindowFrameBetween
 	{
@@ -7789,61 +7999,88 @@ WindowFrameExtent:
 WindowFrameStart:
 	unbounded preceding
 	{
-		$$ = ast.FrameBound{Type: ast.Preceding, UnBounded: true,}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, UnBounded: true}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	NumLiteral preceding
 	{
-		$$ = ast.FrameBound{Type: ast.Preceding, Expr: ast.NewValueExpr($1),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: $1.(ast.ExprNode)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	StringLiteral preceding
 	{
-		$$ = ast.FrameBound{Type: ast.Preceding, Expr: $1, ExprOffset: yyS[yypt-1].offset}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: $1}, ExprOffset: yyS[yypt-1].offset}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	paramMarker preceding
 	{
-		$$ = ast.FrameBound{Type: ast.Preceding, Expr: ast.NewParamMarkerExpr(yyS[yypt].offset),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: yyGetParser(yylex).newParamMarkerExpr(yyS[yypt-1].span)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	interval Expression TimeUnit preceding
 	{
-		$$ = ast.FrameBound{Type: ast.Preceding, Expr: $2, Unit: ast.NewValueExpr($3),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: $2, Unit: syntaxIdent(yylex, $3, yyS[yypt-1].span)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	current row
 	{
-		$$ = ast.FrameBound{Type: ast.CurrentRow,}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.CurrentRow}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 
 
 WindowFrameBetween:
 	between WindowFrameBound and WindowFrameBound
 	{
-		$$ = ast.FrameExtent{Start: $2.(ast.FrameBound), End: $4.(ast.FrameBound),}
+		extent := ast.FrameExtent{Start: $2.(*ast.FrameBound), End: $4.(*ast.FrameBound)}
+		extent.Start.SetSpan(yyS[yypt-2].span)
+		extent.End.SetSpan(yyS[yypt].span)
+		$$ = extent
 	}
 
 
 WindowFrameBound:
 	WindowFrameStart
 	{
-		$$ = $1.(ast.FrameBound)
+		bound := $1.(*ast.FrameBound)
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	unbounded following
 	{
-		$$ = ast.FrameBound{Type: ast.Following, UnBounded: true,}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, UnBounded: true}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	NumLiteral following
 	{
-		$$ = ast.FrameBound{Type: ast.Following, Expr: ast.NewValueExpr($1),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: $1.(ast.ExprNode)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	StringLiteral following
 	{
-		$$ = ast.FrameBound{Type: ast.Following, Expr: $1, ExprOffset: yyS[yypt-1].offset}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: $1}, ExprOffset: yyS[yypt-1].offset}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	paramMarker following
 	{
-		$$ = ast.FrameBound{Type: ast.Following, Expr: ast.NewParamMarkerExpr(yyS[yypt].offset),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: yyGetParser(yylex).newParamMarkerExpr(yyS[yypt-1].span)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 |	interval Expression TimeUnit following
 	{
-		$$ = ast.FrameBound{Type: ast.Following, Expr: $2, Unit: ast.NewValueExpr($3),}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: $2, Unit: syntaxIdent(yylex, $3, yyS[yypt-1].span)}}
+		bound.SetSpan(yyVAL.span)
+		$$ = bound
 	}
 
 
@@ -7857,38 +8094,58 @@ OptWindowingClause:
 
 
 WindowingClause:
-	over WindowNameOrSpec { $$ = $2.(ast.WindowSpec) }
+	over WindowNameOrSpec
+	{
+		spec := $2.(ast.WindowSpec)
+		spec.SetSpan(yyVAL.span)
+		$$ = spec
+	}
 
 
 WindowNameOrSpec:
-	WindowName { $$ = ast.WindowSpec{Name: $1.(model.CIStr), OnlyAlias: true, } }
+	WindowName
+	{
+		spec := ast.WindowSpec{
+			Name: syntaxIdent(yylex, $1, yyS[yypt].span),
+			Ref: lex.Ident{Span: loc.InvalidSpan()},
+			OnlyAlias: true,
+		}
+		spec.SetSpan(yyVAL.span)
+		$$ = spec
+	}
 |	WindowSpec { $$ = $1.(ast.WindowSpec) }
 
 
 WindowFuncCall:
 	rowNumber '(' ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Spec: $4.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span)}, Spec: $4.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	rank '(' ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Spec: $4.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span)}, Spec: $4.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	denseRank '(' ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Spec: $4.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span)}, Spec: $4.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	cumeDist '(' ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Spec: $4.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span)}, Spec: $4.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	percentRank '(' ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Spec: $4.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span)}, Spec: $4.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	ntile '(' Expression ')' WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, Spec: $5.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, Spec: $5.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	lead '(' Expression OptLeadLagInfo ')' OptNullTreatment WindowingClause
 	{
@@ -7896,7 +8153,8 @@ WindowFuncCall:
 		if $4 != nil {
 			args = append(args, $4.([]ast.ExprNode)...)
 		}
-		$$ = &ast.WindowFuncExpr{F: $1, Args: args, IgnoreNull: $6.(bool), Spec: $7.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-6].span), Args: args}, IgnoreNull: $6.(bool), Spec: $7.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	lag '(' Expression OptLeadLagInfo ')' OptNullTreatment WindowingClause
 	{
@@ -7904,30 +8162,34 @@ WindowFuncCall:
 		if $4 != nil {
 			args = append(args, $4.([]ast.ExprNode)...)
 		}
-		$$ = &ast.WindowFuncExpr{F: $1, Args: args, IgnoreNull: $6.(bool), Spec: $7.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-6].span), Args: args}, IgnoreNull: $6.(bool), Spec: $7.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	firstValue '(' Expression ')' OptNullTreatment WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, IgnoreNull: $5.(bool), Spec: $6.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$3}}, IgnoreNull: $5.(bool), Spec: $6.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	lastValue '(' Expression ')' LastValueSuffix
 	{
 		if window, ok := $5.(*lastValueWindow); ok {
-			$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3}, IgnoreNull: window.ignoreNull, Spec: window.spec}
+			$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}, IgnoreNull: window.ignoreNull, Spec: window.spec}
 		} else {
 			// MariaDB scalar LAST_VALUE without OVER: evaluates all arguments and returns the last.
-			$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: []ast.ExprNode{$3}}
+			$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-4].span), Args: []ast.ExprNode{$3}}}
 		}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	lastValue '(' Expression ',' ExpressionList ')'
 	{
 		// MariaDB scalar LAST_VALUE without OVER: evaluates all arguments and returns the last.
 		args := append([]ast.ExprNode{$3}, $5.([]ast.ExprNode)...)
-		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr($1), Args: args}
+		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: args}}
 	}
 |	nthValue '(' Expression ',' Expression ')' OptFromFirstLast OptNullTreatment WindowingClause
 	{
-		$$ = &ast.WindowFuncExpr{F: $1, Args: []ast.ExprNode{$3, $5}, FromLast: $7.(bool), IgnoreNull: $8.(bool), Spec: $9.(ast.WindowSpec),}
+		$$ = &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-8].span), Args: []ast.ExprNode{$3, $5}}, FromLast: $7.(bool), IgnoreNull: $8.(bool), Spec: $9.(ast.WindowSpec),}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 
 OptLeadLagInfo:
@@ -7974,37 +8236,29 @@ OptFromFirstLast:
 TableRefsClause:
 	TableRefs
 	{
-		$$ = &ast.TableRefsClause{TableRefs: $1.(*ast.Join)}
+		clause := &ast.TableRefsClause{BaseFromClause: pkast.BaseFromClause{Table: $1.(*ast.JoinExpr)}}
+		clause.SetSpan(yyVAL.span)
+		$$ = clause
 	}
 
 TableRefs:
 	EscapedTableRef
 	{
-		if j, ok := $1.(*ast.Join); ok {
-			// if $1 is Join, use it directly
+		if j, ok := $1.(*ast.JoinExpr); ok {
 			$$ = j
 		} else {
-			$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: nil}
+			$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode)})
 		}
 	}
 |	TableRefs ',' EscapedTableRef
 	{
-		/* from a, b is default cross join */
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Tp: ast.CrossJoin}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner})
 	}
 
 EscapedTableRef:
 	TableRef %prec lowerThanSetKeyword
 	{
 		$$ = $1
-	}
-|	'{' Identifier TableRef '}'
-	{
-		/*
-		* ODBC escape syntax for outer join is { OJ join_table }
-		* Use an Identifier for OJ
-		*/
-		$$ = $3
 	}
 
 
@@ -8017,32 +8271,40 @@ TableFactor:
 	TableName PartitionNameListOpt TableAsNameOpt IndexHintListOpt
 	{
 		tn := $1.(*ast.TableName)
-		tn.PartitionNames = $2.([]model.CIStr)
-		tn.IndexHints = $4.([]*ast.IndexHint)
+		tn.PartitionNames = $2.([]lex.Ident)
+		if len(tn.PartitionNames) > 0 {
+			tn.SetSpan(loc.Cover(tn.Span(), yyS[yypt-2].span))
+		}
 		ts := $3.(*ast.TableSource)
 		ts.Source = tn
+		ts.IndexHints = $4.([]*ast.IndexHint)
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 |	SubSelect TableAsName WithColNameListOpt
 	{
 		ts := $2.(*ast.TableSource)
-		ts.Source, ts.ColumnNames = $1.(*ast.SubqueryExpr).Query, $3.([]model.CIStr)
+		ts.Source, ts.Columns = $1.(*ast.SubqueryExpr).Query, $3.([]lex.Ident)
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 |	'(' ValuesStmt ')' TableAsName WithColNameListOpt
 	{
 		ts := $4.(*ast.TableSource)
-		ts.Source, ts.ColumnNames = $2.(*ast.ValuesStmt), $5.([]model.CIStr)
+		ts.Source, ts.Columns = $2.(*ast.ValuesStmt), $5.([]lex.Ident)
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 |	'(' TableRefs ')'
 	{
 		parser := yyGetParser(yylex)
 		if parser.joinGroups == nil {
-			parser.joinGroups = make(map[*ast.Join]bool)
+			parser.joinGroups = make(map[*ast.JoinExpr]bool)
 		}
-		parser.joinGroups[$2.(*ast.Join)] = true
-		$$ = $2
+		j := $2.(*ast.JoinExpr)
+		parser.joinGroups[j] = true
+		j.SetSpan(yyVAL.span)
+		$$ = j
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/lateral-derived-tables.html */
 |	lateral '(' SelectStmt ')' TableAsName
@@ -8052,6 +8314,7 @@ TableFactor:
 		yyGetParser(yylex).setLastSelectFieldText(st, endOffset)
 		ts := $5.(*ast.TableSource)
 		ts.Source, ts.Lateral = st, true
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/lateral-derived-tables.html */
@@ -8059,6 +8322,7 @@ TableFactor:
 	{
 		ts := $5.(*ast.TableSource)
 		ts.Source, ts.Lateral = $3.(*ast.SetOprStmt), true
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
@@ -8066,6 +8330,7 @@ TableFactor:
 	{
 		ts := $2.(*ast.TableSource)
 		ts.Source = $1.(*ast.JSONTable)
+		ts.SetSpan(yyVAL.span)
 		$$ = ts
 	}
 
@@ -8074,6 +8339,7 @@ JSONTableExpr:
 	jsonTable '(' Expression ',' stringLit columns '(' JSONTableColumnList ')' ')'
 	{
 		$$ = &ast.JSONTable{Expr: $3, Path: $5, Columns: $8.([]*ast.JSONTableColumn)}
+		$$.(*ast.JSONTable).SetSpan(yyVAL.span)
 	}
 
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
@@ -8092,23 +8358,27 @@ JSONTableColumnList:
 JSONTableColumn:
 	Identifier forKwd ordinality
 	{
-		$$ = &ast.JSONTableColumn{Name: model.NewCIStr($1), Ordinality: true}
+		$$ = &ast.JSONTableColumn{Name: syntaxIdent(yylex, $1, yyS[yypt-2].span), Kind: ast.JSONTableColumnOrdinality}
+		$$.(*ast.JSONTableColumn).SetSpan(yyVAL.span)
 	}
 |	Identifier Type JSONTablePath JSONTableBehaviors
 	{
-		column := &ast.JSONTableColumn{Name: model.NewCIStr($1), Tp: $2.(*types.FieldType), Path: $3.(string)}
-		ast.AssignJSONTableBehaviors(column, $4.([]*ast.JSONTableBehavior))
+		column := &ast.JSONTableColumn{Name: syntaxIdent(yylex, $1, yyS[yypt-3].span), Kind: ast.JSONTableColumnPath, Type: $2.(*ast.TypeName), Path: $3.(string), Behaviors: $4.([]*ast.JSONTableBehavior)}
+		column.SetSpan(yyVAL.span)
 		$$ = column
 	}
 |	Identifier Type exists JSONTablePath JSONTableBehaviors
 	{
-		column := &ast.JSONTableColumn{Name: model.NewCIStr($1), Tp: $2.(*types.FieldType), Path: $4.(string), Exists: true}
-		ast.AssignJSONTableBehaviors(column, $5.([]*ast.JSONTableBehavior))
+		column := &ast.JSONTableColumn{Name: syntaxIdent(yylex, $1, yyS[yypt-4].span), Kind: ast.JSONTableColumnExists, Type: $2.(*ast.TypeName), Path: $4.(string), Behaviors: $5.([]*ast.JSONTableBehavior)}
+		column.SetSpan(yyVAL.span)
 		$$ = column
 	}
 |	nested JSONTableNestedPath columns '(' JSONTableColumnList ')'
 	{
-		$$ = &ast.JSONTableColumn{Path: $2.(string), Nested: true, Columns: $5.([]*ast.JSONTableColumn)}
+		column := $2.(*ast.JSONTableColumn)
+		column.Columns = $5.([]*ast.JSONTableColumn)
+		column.SetSpan(yyVAL.span)
+		$$ = column
 	}
 
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
@@ -8121,9 +8391,12 @@ JSONTablePath:
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
 JSONTableNestedPath:
 	JSONTablePath
+	{
+		$$ = &ast.JSONTableColumn{Name: lex.Ident{Span: loc.InvalidSpan()}, Kind: ast.JSONTableColumnNested, Path: $1.(string), PathKeyword: true}
+	}
 |	stringLit
 	{
-		$$ = $1
+		$$ = &ast.JSONTableColumn{Name: lex.Ident{Span: loc.InvalidSpan()}, Kind: ast.JSONTableColumnNested, Path: $1}
 	}
 
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
@@ -8140,36 +8413,37 @@ JSONTableOnEmpty:
 	JSONTableBehavior on emptyKwd
 	{
 		behavior := $1.(*ast.JSONTableBehavior)
-		behavior.OnEmpty = true
+		behavior.On = ast.JSONTableBehaviorOnEmpty
+		behavior.SetSpan(yyVAL.span)
 		$$ = behavior
 	}
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
 JSONTableOnError:
-	JSONTableBehavior on errorKwd { $$ = $1 }
+	JSONTableBehavior on errorKwd { behavior := $1.(*ast.JSONTableBehavior); behavior.On = ast.JSONTableBehaviorOnError; behavior.SetSpan(yyVAL.span); $$ = behavior }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/json-table-functions.html */
 /* https://mariadb.com/docs/server/reference/sql-functions/special-functions/json-functions/json_table */
 JSONTableBehavior:
-	null { $$ = &ast.JSONTableBehavior{Tp: ast.JSONTableBehaviorValue} }
-|	errorKwd { $$ = &ast.JSONTableBehavior{Tp: ast.JSONTableBehaviorError} }
-|	defaultKwd SignedLiteral { $$ = &ast.JSONTableBehavior{Tp: ast.JSONTableBehaviorDefault, Value: $2} }
+	null { $$ = &ast.JSONTableBehavior{Kind: ast.JSONTableBehaviorNull} }
+|	errorKwd { $$ = &ast.JSONTableBehavior{Kind: ast.JSONTableBehaviorError} }
+|	defaultKwd SignedLiteral { $$ = &ast.JSONTableBehavior{Kind: ast.JSONTableBehaviorDefault, Value: $2} }
 
 PartitionNameListOpt:
-    /* EMPTY */                           { $$ = []model.CIStr{} }
+    /* EMPTY */                           { $$ = []lex.Ident{} }
 |	partition '(' PartitionNameList ')' { $$ = $3 }
 
 
 TableAsNameOpt:
-	/* EMPTY */ { $$ = &ast.TableSource{} }
+	/* EMPTY */ { $$ = &ast.TableSource{BaseTableSource: pkast.BaseTableSource{Alias: lex.Ident{Span: loc.InvalidSpan()}}} }
 |	TableAsName { $$ = $1 }
 
 
 TableAsName:
-	Identifier      { $$ = &ast.TableSource{AsName: model.NewCIStr($1)} }
-|	as Identifier { $$ = &ast.TableSource{AsName: model.NewCIStr($2)} }
+	Identifier      { $$ = &ast.TableSource{BaseTableSource: pkast.BaseTableSource{Alias: syntaxIdent(yylex, $1, yyS[yypt].span)}} }
+|	as Identifier { $$ = &ast.TableSource{BaseTableSource: pkast.BaseTableSource{Alias: syntaxIdent(yylex, $2, yyS[yypt].span)}} }
 
 
 IndexHintType:
@@ -8189,7 +8463,8 @@ IndexHint:
 	IndexHintType IndexHintScope '(' IndexNameList ')'
 	{
 		$$ = &ast.IndexHint{
-			IndexNames:	$4.([]model.CIStr),
+			IndexNames:	$4.([]lex.Ident),
+			Span:       yyVAL.span,
 			HintType:	$1.(ast.IndexHintType),
 			HintScope:	$2.(ast.IndexHintScope),
 		}
@@ -8197,20 +8472,20 @@ IndexHint:
 
 IndexNameList:
 	/* EMPTY */ {
-		var nameList []model.CIStr
+		var nameList []lex.Ident
 		$$ = nameList
 	}
 |	Identifier
 	{
-		$$ = []model.CIStr{model.NewCIStr($1)}
+		$$ = []lex.Ident{syntaxIdent(yylex, $1, yyS[yypt].span)}
 	}
 |	IndexNameList ',' Identifier
 	{
-		$$ = append($1.([]model.CIStr), model.NewCIStr($3))
+		$$ = append($1.([]lex.Ident), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 |	primary
 	{
-		$$ = []model.CIStr{model.NewCIStr($1)}
+		$$ = []lex.Ident{syntaxIdent(yylex, $1, yyS[yypt].span)}
 	}
 
 IndexHintList:
@@ -8237,60 +8512,65 @@ JoinTable:
 	/* Use %prec to evaluate production TableRef before cross join */
 	TableRef CrossOpt TableRef %prec conditionlessJoin
 	{
-		$$ = yyGetParser(yylex).addCrossJoin($1.(ast.ResultSetNode), $3.(ast.ResultSetNode))
+		j := yyGetParser(yylex).addCrossJoin($1.(ast.ResultSetNode), $3.(ast.ResultSetNode))
+		j.SetSpan(yyVAL.span)
+		$$ = j
 	}
 |	TableRef CrossOpt TableRef on Expression
 	{
-		on := &ast.OnCondition{Expr: $5}
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Tp: ast.CrossJoin, On: on}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner, On: $5})
 	}
 |	TableRef CrossOpt TableRef using '(' ColumnNameList ')'
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Tp: ast.CrossJoin, Using: $6.([]*ast.ColumnName)}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner, Using: $6.([]ast.QualifiedName)})
 	}
 |	TableRef JoinType OuterOpt join TableRef on Expression
 	{
-		on := &ast.OnCondition{Expr: $7}
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Tp: $2.(ast.JoinType), On: on}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Type: $2.(pkast.JoinType), On: $7})
 	}
 |	TableRef JoinType OuterOpt join TableRef using '(' ColumnNameList ')'
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Tp: $2.(ast.JoinType), Using: $8.([]*ast.ColumnName)}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Type: $2.(pkast.JoinType), Using: $8.([]ast.QualifiedName)})
 	}
 |	TableRef natural join TableRef
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $4.(ast.ResultSetNode), NaturalJoin: true}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $4.(ast.ResultSetNode), Type: pkast.JoinTypeInner, Natural: true})
 	}
 |	TableRef natural inner join TableRef
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), NaturalJoin: true}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Type: pkast.JoinTypeInner, Natural: true})
 	}
 |	TableRef natural JoinType OuterOpt join TableRef
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $6.(ast.ResultSetNode), Tp: $3.(ast.JoinType), NaturalJoin: true}
+		$$ = newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $6.(ast.ResultSetNode), Type: $3.(pkast.JoinType), Natural: true})
 	}
 |	TableRef straightJoin TableRef
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), StraightJoin: true}
+		j := newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner})
+		j.StraightJoin = true
+		$$ = j
 	}
 |	TableRef straightJoin TableRef on Expression
 	{
-		on := &ast.OnCondition{Expr: $5}
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), StraightJoin: true, On: on}
+		j := newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner, On: $5})
+		j.StraightJoin = true
+		$$ = j
 	}
 |	TableRef straightJoin TableRef using '(' ColumnNameList ')'
 	{
-		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), StraightJoin: true, Using: $6.([]*ast.ColumnName)}
+		j := newJoinExpr(yyVAL.span, pkast.BaseJoinExpr{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Type: pkast.JoinTypeInner, Using: $6.([]ast.QualifiedName)})
+		j.StraightJoin = true
+		$$ = j
 	}
 
 JoinType:
 	left
 	{
-		$$ = ast.LeftJoin
+		$$ = pkast.JoinTypeLeft
 	}
 |	right
 	{
-		$$ = ast.RightJoin
+		$$ = pkast.JoinTypeRight
 	}
 
 OuterOpt:
@@ -8309,17 +8589,19 @@ LimitClause:
 	}
 |	limit LimitOption
 	{
-		$$ = &ast.Limit{Count: $2.(ast.ValueExpr)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 
 LimitOption:
 	LengthNum
 	{
-		$$ = ast.NewValueExpr($1)
+		$$ = numericLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	paramMarker
 	{
-		$$ = ast.NewParamMarkerExpr(yyS[yypt].offset)
+		$$ = yyGetParser(yylex).newParamMarkerExpr(yyS[yypt].span)
 	}
 
 SelectStmtLimit:
@@ -8328,26 +8610,32 @@ SelectStmtLimit:
 	}
 |	limit LimitOption
 	{
-		$$ = &ast.Limit{Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption ',' LimitOption
 	{
-		$$ = &ast.Limit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption offset LimitOption
 	{
-		$$ = &ast.Limit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 
 
 SelectStmtOpts:
 	TableOptimizerHints SelectOptionList %prec empty
 	{
-		opt := $2.(*selectOptionState).options
+		state := $2.(*selectOptionState)
 		if $1 != nil {
-			opt.TableHints = $1.([]*ast.TableOptimizerHint)
+			state.options.TableHints = $1.([]*ast.OptimizerHint)
 		}
-		$$ = opt
+		$$ = state
 	}
 
 
@@ -8410,25 +8698,28 @@ TableOptimizerHints:
 TableOptimizerHintList:
 	TableOptimizerHintOpt
 	{
-		$$ = []*ast.TableOptimizerHint{$1.(*ast.TableOptimizerHint)}
+		$$ = []*ast.OptimizerHint{$1.(*ast.OptimizerHint)}
 	}
 |	TableOptimizerHintList TableOptimizerHintOpt
 	{
-		$$ = append($1.([]*ast.TableOptimizerHint), $2.(*ast.TableOptimizerHint))
+		$$ = append($1.([]*ast.OptimizerHint), $2.(*ast.OptimizerHint))
 	}
 
 
 TableOptimizerHintOpt:
 	maxExecutionTime '(' NUM ')'
 	{
-		$$ = &ast.TableOptimizerHint{HintName: model.NewCIStr($1), MaxExecutionTime: getUint64FromNUM($3)}
+		$$ = &ast.OptimizerHint{Kind: ast.OptimizerHintMaxExecutionTime, MaxExecutionTime: getUint64FromNUM($3)}
+		$$.(*ast.OptimizerHint).SetSpan(yyVAL.span)
 	}
 
 
 SelectStmtFieldList:
 	FieldList
 	{
-		$$ = &ast.FieldList{Fields: $1.([]*ast.SelectField)}
+		fields := &ast.FieldList{Items: $1.([]*ast.SelectItem)}
+		fields.SetSpan(yyVAL.span)
+		$$ = fields
 	}
 
 
@@ -8450,7 +8741,7 @@ SubSelect:
 		src := yyGetParser(yylex).src
 		// See the implementation of yyParse function
 		s.SetText(src[yyS[yypt-1].offset:yyS[yypt].offset])
-		$$ = &ast.SubqueryExpr{Query: s}
+		$$ = newSubqueryExpr(s, yyVAL.span)
 	}
 |	'(' SetOprStmt ')'
 	{
@@ -8458,23 +8749,26 @@ SubSelect:
 		src := yyGetParser(yylex).src
 		// See the implementation of yyParse function
 		s.SetText(src[yyS[yypt-1].offset:yyS[yypt].offset])
-		$$ = &ast.SubqueryExpr{Query: s}
+		$$ = newSubqueryExpr(s, yyVAL.span)
 	}
 |	'(' WithSelectStmt ')'
 	{
-		s := $2.(ast.ResultSetNode)
+		s := $2.(ast.QueryNode)
 		s.SetText(yyGetParser(yylex).src[yyS[yypt-1].offset:yyS[yypt].offset])
-		$$ = &ast.SubqueryExpr{Query: s}
+		$$ = newSubqueryExpr(s, yyVAL.span)
 	}
 |	'(' SubSelect ')'
 	{
-		$$ = $2
+		sub := $2.(*ast.SubqueryExpr)
+		sub.SetSpan(yyVAL.span)
+		$$ = sub
 	}
 |	'(' SubSelect ParenQueryTail ')'
 	{
 		s := parenQueryTail($2.(*ast.SubqueryExpr).Query, $3.(parenQueryTailShape))
+		s.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt-1].span))
 		s.SetText(yyGetParser(yylex).src[yyS[yypt-2].offset:yyS[yypt].offset])
-		$$ = &ast.SubqueryExpr{Query: s}
+		$$ = newSubqueryExpr(s, yyVAL.span)
 	}
 
 
@@ -8535,14 +8829,19 @@ SelectLockWaitOpt:
 ValuesSetOprStmt:
 	ValuesSetOprList
 	{
-		setOpr := $1.(*ast.SetOprStmt)
-		if last, ok := setOpr.SelectList.Selects[len(setOpr.SelectList.Selects)-1].(*ast.SelectStmt); ok {
-			setOpr.OrderBy = last.OrderBy
-			setOpr.Limit = last.Limit
-			last.OrderBy = nil
-			last.Limit = nil
+		parts := $1.(setOprParts)
+		setOpr := buildSetOpr(parts)
+		if setOpr == nil {
+			yyAppendErr(yylex, yyErrorf(yylex, "invalid VALUES set operation"))
+			return 1
 		}
-		normalizeSetOprPrecedence(setOpr)
+		if last, ok := parts[len(parts)-1].query.(*ast.SelectStmt); ok {
+			if err := moveSelectPagination(setOpr, last); err != nil {
+				yyAppendErr(yylex, err)
+				return 1
+			}
+		}
+		setOpr.SetSpan(yyVAL.span)
 		$$ = setOpr
 	}
 
@@ -8551,61 +8850,51 @@ ValuesSetOprList:
 	ValuesStmt SetOpr ValuesSetOprOperand
 	{
 		first := $1.(*ast.ValuesStmt)
-		next := $3.(ast.Node)
-		setNodeSetOpr(next, $2.(*ast.SetOprType))
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: []ast.Node{first, next}}}
-		$$ = setOpr
+		next := $3.(ast.QueryNode)
+		$$ = setOprParts{{query: first}, {query: next, operator: *$2.(*ast.SetOprType)}}
 	}
 |	SetOprClauseList SetOpr ValuesStmt
 	{
-		setOprList := $1.([]ast.Node)
-		if sel, isSelect := setOprList[len(setOprList)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if sel, isSelect := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
 		next := $3.(*ast.ValuesStmt)
-		next.AfterSetOperator = $2.(*ast.SetOprType)
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: append(setOprList, next)}}
-		$$ = setOpr
+		$$ = append(setOprList, setOprPart{query: next, operator: *$2.(*ast.SetOprType)})
 	}
 |	SetOprClauseList SetOpr ValuesSetOprGroup
 	{
-		setOprList := $1.([]ast.Node)
-		if sel, isSelect := setOprList[len(setOprList)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if sel, isSelect := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
-		next := $3.(*ast.SetOprSelectList)
-		next.AfterSetOperator = $2.(*ast.SetOprType)
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: append(setOprList, next)}}
-		$$ = setOpr
+		next := $3.(ast.QueryNode)
+		$$ = append(setOprList, setOprPart{query: next, operator: *$2.(*ast.SetOprType)})
 	}
 |	ValuesSetOprGroup SetOpr ValuesSetOprOperand
 	{
-		first := $1.(*ast.SetOprSelectList)
-		next := $3.(ast.Node)
-		setNodeSetOpr(next, $2.(*ast.SetOprType))
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: []ast.Node{first, next}}}
-		$$ = setOpr
+		first := $1.(ast.QueryNode)
+		next := $3.(ast.QueryNode)
+		$$ = setOprParts{{query: first}, {query: next, operator: *$2.(*ast.SetOprType)}}
 	}
 |	ValuesSetOprList SetOpr ValuesSetOprOperand
 	{
-		setOpr := $1.(*ast.SetOprStmt)
-		if last, ok := setOpr.SelectList.Selects[len(setOpr.SelectList.Selects)-1].(*ast.SelectStmt); ok && !last.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if last, ok := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); ok {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(last, endOffset)
 		}
-		next := $3.(ast.Node)
-		setNodeSetOpr(next, $2.(*ast.SetOprType))
-		setOpr.SelectList.Selects = append(setOpr.SelectList.Selects, next)
-		$$ = setOpr
+		next := $3.(ast.QueryNode)
+		$$ = append(setOprList, setOprPart{query: next, operator: *$2.(*ast.SetOprType)})
 	}
 
 
 ValuesSetOprOperand:
 	SetOprClause
 	{
-		$$ = $1.([]ast.Node)[0]
+		$$ = $1.(setOprParts)[0].query
 	}
 |	ValuesStmt
 	{
@@ -8613,7 +8902,7 @@ ValuesSetOprOperand:
 	}
 |	ValuesSetOprGroup
 	{
-		$$ = $1.(*ast.SetOprSelectList)
+		$$ = $1.(ast.QueryNode)
 	}
 
 
@@ -8622,7 +8911,9 @@ ValuesSetOprGroup:
 	// ambiguous with the VALUES(column) expression in general expression contexts.
 	'(' ValuesSetOprStmt ')'
 	{
-		$$ = setOprSelectListFromSetOprStmt($2.(*ast.SetOprStmt))
+		group := &ast.QueryTailStmt{BaseQueryTailStmt: pkast.BaseQueryTailStmt{Query: $2.(ast.QueryNode), Parenthesized: true}}
+		group.SetSpan(yyVAL.span)
+		$$ = group
 	}
 
 
@@ -8634,35 +8925,51 @@ SetOprStmt:
 SetOprStmtWoutLimitOrderBy:
 	SetOprClauseList SetOpr SelectStmt
 	{
-		setOprList := $1.([]ast.Node)
-		if sel, isSelect := setOprList[len(setOprList)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if setOprOperandsPaged(setOprList) {
+			yyAppendErr(yylex, yyErrorf(yylex, "ORDER BY or LIMIT cannot precede another set operation operand"))
+			return 1
+		}
+		if sel, isSelect := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: setOprList}}
 		st := $3.(*ast.SelectStmt)
-		st.AfterSetOperator = $2.(*ast.SetOprType)
 		// The trailing ORDER BY / LIMIT of the last operand belongs to the
 		// whole set operation, so move them up.
-		setOpr.OrderBy = st.OrderBy
-		setOpr.Limit = st.Limit
-		st.OrderBy = nil
-		st.Limit = nil
-		setOpr.SelectList.Selects = append(setOpr.SelectList.Selects, st)
-		normalizeSetOprPrecedence(setOpr)
+		pagination := &ast.SetOprStmt{}
+		if err := moveSelectPagination(pagination, st); err != nil {
+			yyAppendErr(yylex, err)
+			return 1
+		}
+		setOprList = append(setOprList, setOprPart{query: st, operator: *$2.(*ast.SetOprType)})
+		setOpr := buildSetOpr(setOprList)
+		if setOpr == nil {
+			yyAppendErr(yylex, yyErrorf(yylex, "invalid SELECT set operation"))
+			return 1
+		}
+		setOpr.Tail = pagination.Tail
+		setOpr.SetSpan(yyVAL.span)
 		$$ = setOpr
 	}
 |	SetOprClauseList SetOpr SubSelect
 	{
-		setOprList := $1.([]ast.Node)
-		if sel, isSelect := setOprList[len(setOprList)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if setOprOperandsPaged(setOprList) {
+			yyAppendErr(yylex, yyErrorf(yylex, "ORDER BY or LIMIT cannot precede another set operation operand"))
+			return 1
+		}
+		if sel, isSelect := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
-		nextSetOprList := setOprSelectListFromSubSelect($3.(*ast.SubqueryExpr))
-		nextSetOprList.AfterSetOperator = $2.(*ast.SetOprType)
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: append(setOprList, nextSetOprList)}}
-		normalizeSetOprPrecedence(setOpr)
+		nextQuery := setOprQueryFromSubSelect($3.(*ast.SubqueryExpr))
+		setOpr := buildSetOpr(append(setOprList, setOprPart{query: nextQuery, operator: *$2.(*ast.SetOprType)}))
+		if setOpr == nil {
+			yyAppendErr(yylex, yyErrorf(yylex, "invalid SELECT set operation"))
+			return 1
+		}
+		setOpr.SetSpan(yyVAL.span)
 		$$ = setOpr
 	}
 
@@ -8670,24 +8977,30 @@ SetOprStmtWoutLimitOrderBy:
 SetOprStmtWithLimitOrderBy:
 	SetOprClauseList SetOpr SubSelect ParenQueryTail
 	{
-		setOprList := $1.([]ast.Node)
-		if sel, isSelect := setOprList[len(setOprList)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList := $1.(setOprParts)
+		if setOprOperandsPaged(setOprList) {
+			yyAppendErr(yylex, yyErrorf(yylex, "ORDER BY or LIMIT cannot precede another set operation operand"))
+			return 1
+		}
+		if sel, isSelect := setOprList[len(setOprList)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-2])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
-		nextSetOprList := setOprSelectListFromSubSelect($3.(*ast.SubqueryExpr))
-		nextSetOprList.AfterSetOperator = $2.(*ast.SetOprType)
-		setOpr := &ast.SetOprStmt{SelectList: &ast.SetOprSelectList{Selects: append(setOprList, nextSetOprList)}}
+		nextQuery := setOprQueryFromSubSelect($3.(*ast.SubqueryExpr))
+		setOpr := buildSetOpr(append(setOprList, setOprPart{query: nextQuery, operator: *$2.(*ast.SetOprType)}))
+		if setOpr == nil {
+			yyAppendErr(yylex, yyErrorf(yylex, "invalid SELECT set operation"))
+			return 1
+		}
 		tail := $4.(parenQueryTailShape)
-		setOpr.OrderBy = tail.OrderBy
-		setOpr.Limit = tail.Limit
+		setOpr.Tail = tail.pagination()
 		setOpr.Into = tail.Into
 		if tail.Lock != nil {
 			setOpr.LockTp = tail.Lock.Type
 			setOpr.LockedTables = tail.Lock.Tables
 			setOpr.LockWaitPolicy = tail.Lock.WaitPolicy
 		}
-		normalizeSetOprPrecedence(setOpr)
+		setOpr.SetSpan(yyVAL.span)
 		$$ = setOpr
 	}
 
@@ -8696,18 +9009,13 @@ SetOprClauseList:
 	SetOprClause
 |	SetOprClauseList SetOpr SetOprClause
 	{
-		setOprList1 := $1.([]ast.Node)
-		setOprList2 := $3.([]ast.Node)
-		if sel, isSelect := setOprList1[len(setOprList1)-1].(*ast.SelectStmt); isSelect && !sel.IsInBraces {
+		setOprList1 := $1.(setOprParts)
+		setOprList2 := $3.(setOprParts)
+		if sel, isSelect := setOprList1[len(setOprList1)-1].query.(*ast.SelectStmt); isSelect {
 			endOffset := yyGetParser(yylex).endOffset(&yyS[yypt-1])
 			yyGetParser(yylex).setLastSelectFieldText(sel, endOffset)
 		}
-		switch x := setOprList2[0].(type) {
-		case *ast.SelectStmt:
-			x.AfterSetOperator = $2.(*ast.SetOprType)
-		case *ast.SetOprSelectList:
-			x.AfterSetOperator = $2.(*ast.SetOprType)
-		}
+		setOprList2[0].operator = *$2.(*ast.SetOprType)
 		$$ = append(setOprList1, setOprList2...)
 	}
 
@@ -8715,11 +9023,11 @@ SetOprClauseList:
 SetOprClause:
 	SelectStmt
 	{
-		$$ = []ast.Node{$1.(*ast.SelectStmt)}
+		$$ = setOprParts{{query: $1.(*ast.SelectStmt)}}
 	}
 |	SubSelect
 	{
-		$$ = []ast.Node{setOprSelectListFromSubSelect($1.(*ast.SubqueryExpr))}
+		$$ = setOprParts{{query: setOprQueryFromSubSelect($1.(*ast.SubqueryExpr))}}
 	}
 
 
@@ -8764,28 +9072,37 @@ DefaultTrueDistinctOpt
 SetOprLimit:
 	limit LimitOption
 	{
-		$$ = &ast.Limit{Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption ',' LimitOption
 	{
-		$$ = &ast.Limit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption offset LimitOption
 	{
-		$$ = &ast.Limit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 
 
 /********************Set Statement*******************************/
 SetStmt:
-	set VariableAssignmentList                   { $$ = &ast.SetStmt{Variables: $2.([]*ast.VariableAssignment)} }
+	set VariableAssignmentList                   { $$ = &ast.SetStmt{Variables: $2.([]*ast.VariableAssignment)}; $$.SetSpan(yyVAL.span) }
 /* https://dev.mysql.com/doc/refman/8.0/en/set-variable.html */
 |	set persist VariableAssignmentList
 	{
 		vars := $3.([]*ast.VariableAssignment)
 		for _, v := range vars {
-			v.IsPersist = true
-			v.IsSystem = true
+			if v.Target != nil {
+				v.Target.Kind = ast.VariableTargetSystem
+				v.Target.Scope = ast.VariableScopePersist
+				v.Target.ScopeExplicit = true
+			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
 	}
@@ -8794,8 +9111,11 @@ SetStmt:
 	{
 		vars := $3.([]*ast.VariableAssignment)
 		for _, v := range vars {
-			v.IsPersistOnly = true
-			v.IsSystem = true
+			if v.Target != nil {
+				v.Target.Kind = ast.VariableTargetSystem
+				v.Target.Scope = ast.VariableScopePersistOnly
+				v.Target.ScopeExplicit = true
+			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
 	}
@@ -8805,21 +9125,31 @@ SetStmt:
 	{
 		vars := $4.([]*ast.VariableAssignment)
 		for _, v := range vars {
-			v.IsGlobal = true
+			if v.Target != nil {
+				v.Target.Scope = ast.VariableScopeGlobal
+				v.Target.ScopeExplicit = true
+			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
 	}
 |	set session transaction TransactionChars
 	{
-		$$ = &ast.SetStmt{Variables: $4.([]*ast.VariableAssignment)}
+		vars := $4.([]*ast.VariableAssignment)
+		for _, v := range vars {
+			if v.Target != nil {
+				v.Target.Scope = ast.VariableScopeSession
+				v.Target.ScopeExplicit = true
+			}
+		}
+		$$ = &ast.SetStmt{Variables: vars}
 	}
 |	set transaction TransactionChars
 	{
 		assigns := $3.([]*ast.VariableAssignment)
 		for i:=0; i<len(assigns); i++ {
-			if assigns[i].Name == "tx_isolation" {
+			if assigns[i].Target != nil && len(assigns[i].Target.Name.Parts) == 1 && assigns[i].Target.Name.Parts[0].Name == "tx_isolation" {
 				// A special session variable that make setting tx_isolation take effect one time.
-				assigns[i].Name = "tx_isolation_one_shot"
+				assigns[i].Target.Name.Parts[0].Name = "tx_isolation_one_shot"
 			}
 		}
 		$$ = &ast.SetStmt{Variables: assigns}
@@ -8840,7 +9170,7 @@ SetStatementStmt:
 StatementAssignment:
 	Identifier eq SetExpr
 	{
-		$$ = &ast.VariableAssignment{Name: $1, Value: $3, IsSystem: true}
+		$$ = &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, $1, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone), Value: $3}
 	}
 
 
@@ -8903,22 +9233,22 @@ TransactionChar:
 	isolation level IsolationLevel
 	{
 		varAssigns := []*ast.VariableAssignment{}
-		expr := ast.NewValueExpr($3)
-		varAssigns = append(varAssigns, &ast.VariableAssignment{Name: "tx_isolation", Value: expr, IsSystem: true})
+		expr := stringLiteral(yylex, $3, yyS[yypt].span)
+		varAssigns = append(varAssigns, &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, "tx_isolation", loc.InvalidSpan(), ast.VariableTargetSystem, ast.VariablePrefixNone), Value: expr})
 		$$ = varAssigns
 	}
 |	read write
 	{
 		varAssigns := []*ast.VariableAssignment{}
-		expr := ast.NewValueExpr("0")
-		varAssigns = append(varAssigns, &ast.VariableAssignment{Name: "tx_read_only", Value: expr, IsSystem: true})
+		expr := syntaxLiteral(yylex, pkast.LiteralString, "0", yyVAL.span)
+		varAssigns = append(varAssigns, &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, "tx_read_only", loc.InvalidSpan(), ast.VariableTargetSystem, ast.VariablePrefixNone), Value: expr})
 		$$ = varAssigns
 	}
 |	read only
 	{
 		varAssigns := []*ast.VariableAssignment{}
-		expr := ast.NewValueExpr("1")
-		varAssigns = append(varAssigns, &ast.VariableAssignment{Name: "tx_read_only", Value: expr, IsSystem: true})
+		expr := syntaxLiteral(yylex, pkast.LiteralString, "1", yyVAL.span)
+		varAssigns = append(varAssigns, &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, "tx_read_only", loc.InvalidSpan(), ast.VariableTargetSystem, ast.VariablePrefixNone), Value: expr})
 		$$ = varAssigns
 	}
 
@@ -8931,7 +9261,7 @@ IsolationLevel:
 
 
 SetExpr:
-	on { $$ = ast.NewValueExpr("ON") }
+	on { $$ = stringLiteral(yylex, "ON", yyS[yypt].span) }
 |	ExprOrDefault
 
 SetAssignmentEq:
@@ -8945,112 +9275,116 @@ VariableAssignment:
 			yyAppendErr(yylex, yyErrorf(yylex, "SET %s requires a variable name before '='", $1))
 			return 1
 		}
-		$$ = &ast.VariableAssignment{Name: $1, Value: $3, IsSystem: true}
+		$$ = &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, $1, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone), Value: $3}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	Identifier '.' Identifier SetAssignmentEq SetExpr
 	{
-		target := &ast.VariableTarget{Parts: []string{$1, $3}}
-		$$ = &ast.VariableAssignment{Name: target.LegacyName(), Target: target, Value: $5}
+		$$ = &ast.VariableAssignment{Target: syntaxQualifiedVariableTarget(yylex, $1, $3, loc.Cover(yyS[yypt-4].span, yyS[yypt-2].span), yyS[yypt-2].span, ast.VariableTargetRowField), Value: $5}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	global Identifier SetAssignmentEq SetExpr
 	{
-		$$ = &ast.VariableAssignment{Name: $2, Value: $4, IsGlobal: true, IsSystem: true}
+		target := syntaxVariableTarget(yylex, $2, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone)
+		target.Scope, target.ScopeExplicit = ast.VariableScopeGlobal, true
+		target.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-2].span))
+		$$ = &ast.VariableAssignment{Target: target, Value: $4}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	session Identifier SetAssignmentEq SetExpr
 	{
-		$$ = &ast.VariableAssignment{Name: $2, Value: $4, IsSystem: true}
+		target := syntaxVariableTarget(yylex, $2, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone)
+		target.Scope, target.ScopeExplicit = ast.VariableScopeSession, true
+		target.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-2].span))
+		$$ = &ast.VariableAssignment{Target: target, Value: $4}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	local Identifier SetAssignmentEq SetExpr
 	{
-		$$ = &ast.VariableAssignment{Name: $2, Value: $4, IsSystem: true}
+		target := syntaxVariableTarget(yylex, $2, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone)
+		target.Scope, target.ScopeExplicit = ast.VariableScopeSession, true
+		target.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-2].span))
+		$$ = &ast.VariableAssignment{Target: target, Value: $4}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/set-variable.html */
 |	doubleAtIdentifier SetAssignmentEq SetExpr
 	{
-		v := strings.ToLower($1)
-		var isGlobal, isPersist, isPersistOnly bool
-		if strings.HasPrefix(v, "@@persist_only.") {
-			isPersistOnly = true
-			v = strings.TrimPrefix(v, "@@persist_only.")
-		} else if strings.HasPrefix(v, "@@persist.") {
-			isPersist = true
-			v = strings.TrimPrefix(v, "@@persist.")
-		} else if strings.HasPrefix(v, "@@global.") {
-			isGlobal = true
-			v = strings.TrimPrefix(v, "@@global.")
-		} else if strings.HasPrefix(v, "@@session.") {
-			v = strings.TrimPrefix(v, "@@session.")
-		} else if strings.HasPrefix(v, "@@local.") {
-			v = strings.TrimPrefix(v, "@@local.")
-		} else if strings.HasPrefix(v, "@@") {
-			v = strings.TrimPrefix(v, "@@")
+		target := syntaxSystemVariableTarget(yylex, $1, yyS[yypt-2].span)
+		if !target.ScopeExplicit {
+			target.Scope, target.ScopeExplicit = ast.VariableScopeSession, true
 		}
-		$$ = &ast.VariableAssignment{Name: v, Value: $3, IsGlobal: isGlobal, IsPersist: isPersist, IsPersistOnly: isPersistOnly, IsSystem: true}
+		$$ = &ast.VariableAssignment{Target: target, Value: $3}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	singleAtIdentifier eq Expression
 	{
-		v := $1
-		v = strings.TrimPrefix(v, "@")
-		$$ = &ast.VariableAssignment{Name: v, Value: $3}
+		$$ = &ast.VariableAssignment{Target: syntaxAtVariableTarget(yylex, $1, yyS[yypt-2].span), Value: $3}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	singleAtIdentifier assignmentEq Expression
 	{
-		v := $1
-		v = strings.TrimPrefix(v, "@")
-		$$ = &ast.VariableAssignment{Name: v, Value: $3}
+		$$ = &ast.VariableAssignment{Target: syntaxAtVariableTarget(yylex, $1, yyS[yypt-2].span), Value: $3}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	names CharsetName
 	{
 		$$ = &ast.VariableAssignment{
-			Name: ast.SetNames,
-			Value: ast.NewValueExpr($2.(string)),
+			Kind: ast.VariableAssignmentNames,
+			Value: stringLiteral(yylex, charsetName($2.(lex.Ident)), yyS[yypt].span),
 		}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	names defaultKwd
 	{
-		$$ = &ast.VariableAssignment{Name: ast.SetNames, Value: &ast.DefaultExpr{}}
+		$$ = &ast.VariableAssignment{Kind: ast.VariableAssignmentNames, Value: &ast.DefaultExpr{}}
+		$$.(*ast.VariableAssignment).Value.SetSpan(yyS[yypt].span)
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	names CharsetName collate defaultKwd
 	{
 		$$ = &ast.VariableAssignment{
-			Name: ast.SetNames,
-			Value: ast.NewValueExpr($2.(string)),
+			Kind: ast.VariableAssignmentNames,
+			Value: stringLiteral(yylex, charsetName($2.(lex.Ident)), yyS[yypt-2].span),
 		}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	names CharsetName collate StringName
 	{
 		$$ = &ast.VariableAssignment{
-			Name: ast.SetNames,
-			Value: ast.NewValueExpr($2.(string)),
-			ExtendValue: ast.NewValueExpr($4.(string)),
+			Kind: ast.VariableAssignmentNames,
+			Value: stringLiteral(yylex, charsetName($2.(lex.Ident)), yyS[yypt-2].span),
+			ExtendValue: stringLiteral(yylex, $4.(string), yyS[yypt].span),
 		}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	CharsetOrCharacterSet SetCharsetName
 	{
 		$$ = &ast.VariableAssignment{
-			Name: ast.SetCharset,
-			Value: ast.NewValueExpr($2.(string)),
+			Kind: ast.VariableAssignmentCharset,
+			Value: stringLiteral(yylex, $2.(string), yyS[yypt].span),
 		}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 |	CharsetOrCharacterSet defaultKwd
 	{
-		$$ = &ast.VariableAssignment{Name: ast.SetCharset, Value: &ast.DefaultExpr{}}
+		$$ = &ast.VariableAssignment{Kind: ast.VariableAssignmentCharset, Value: &ast.DefaultExpr{}}
+		$$.(*ast.VariableAssignment).Value.SetSpan(yyS[yypt].span)
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 
 
 CharsetName:
 	StringName {
 		// Validate input charset name to keep the same behavior as parser of MySQL.
-		name, _, err := charset.GetCharsetInfo($1.(string))
+		_, _, err := charset.GetCharsetInfo($1.(string))
 		if err != nil {
 			yyAppendErr(yylex, ErrUnknownCharacterSet.GenWithStackByArgs($1))
 			return 1
 		}
-		// Use charset name returned from charset.GetCharsetInfo(),
-		// to keep lower case of input for generated column restore.
-		$$ = name
+		$$ = syntaxTypeIdent(yylex, $1.(string), yyS[yypt].span)
 	}
-|	binaryType { $$ = charset.CharsetBin }
+|	binaryType { $$ = syntaxTypeIdent(yylex, charset.CharsetBin, yyS[yypt].span) }
 
 
 SetCharsetName:
@@ -9096,35 +9430,17 @@ Variable:
 SystemVariable:
 	doubleAtIdentifier
 	{
-		v := strings.ToLower($1)
-		var isGlobal, isPersist, isPersistOnly bool
-		explicitScope := true
-		if strings.HasPrefix(v, "@@persist_only.") {
-			isPersistOnly = true
-			v = strings.TrimPrefix(v, "@@persist_only.")
-		} else if strings.HasPrefix(v, "@@persist.") {
-			isPersist = true
-			v = strings.TrimPrefix(v, "@@persist.")
-		} else if strings.HasPrefix(v, "@@global.") {
-			isGlobal = true
-			v = strings.TrimPrefix(v, "@@global.")
-		} else if strings.HasPrefix(v, "@@session.") {
-			v = strings.TrimPrefix(v, "@@session.")
-		} else if strings.HasPrefix(v, "@@local.") {
-			v = strings.TrimPrefix(v, "@@local.")
-		} else if strings.HasPrefix(v, "@@") {
-			v, explicitScope = strings.TrimPrefix(v, "@@"), false
-		}
-		$$ = &ast.VariableExpr{Name: v, IsGlobal: isGlobal, IsPersist: isPersist, IsPersistOnly: isPersistOnly, IsSystem: true, ExplicitScope: explicitScope}
+		target := syntaxSystemVariableTarget(yylex, $1, yyS[yypt].span)
+		$$ = &ast.VariableExpr{Target: target}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 UserVariable:
 	singleAtIdentifier
 	{
-		v := $1
-		v = strings.TrimPrefix(v, "@")
-		$$ = &ast.VariableExpr{Name: v, IsGlobal: false, IsSystem: false}
+		$$ = &ast.VariableExpr{Target: syntaxAtVariableTarget(yylex, $1, yyS[yypt].span)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9184,6 +9500,7 @@ ShowStmt:
 				stmt.Where = $3.(ast.ExprNode)
 			}
 		}
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 |	show create view TableName
@@ -9192,22 +9509,24 @@ ShowStmt:
 			Tp:	ast.ShowCreateView,
 			Table:	$4.(*ast.TableName),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	show create database IfNotExists DBName
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowCreateDatabase,
 			IfNotExists: $4.(bool),
-			DBName:	$5.(string),
+			Database: syntaxIdent(yylex, $5.(string), yyS[yypt].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
-|	show create tableKwd TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateTable, Table: $4.(*ast.TableName)} }
-|	show create procedure TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateProcedure, Table: $4.(*ast.TableName)} }
-|	show create function TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateFunction, Table: $4.(*ast.TableName)} }
-|	show create trigger TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateTrigger, Table: $4.(*ast.TableName)} }
-|	show create event TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateEvent, Table: $4.(*ast.TableName)} }
-|	show create user Username   { $$ = &ast.ShowStmt{Tp: ast.ShowCreateUser, User: $4.(*auth.UserIdentity)} }
-|	show grants                   { $$ = &ast.ShowStmt{Tp: ast.ShowGrants} }
+|	show create tableKwd TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateTable, Table: $4.(*ast.TableName)}; $$.SetSpan(yyVAL.span) }
+|	show create procedure TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateProcedure, Table: $4.(*ast.TableName)}; $$.SetSpan(yyVAL.span) }
+|	show create function TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateFunction, Table: $4.(*ast.TableName)}; $$.SetSpan(yyVAL.span) }
+|	show create trigger TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateTrigger, Table: $4.(*ast.TableName)}; $$.SetSpan(yyVAL.span) }
+|	show create event TableName { $$ = &ast.ShowStmt{Tp: ast.ShowCreateEvent, Table: $4.(*ast.TableName)}; $$.SetSpan(yyVAL.span) }
+|	show create user Username   { $$ = &ast.ShowStmt{Tp: ast.ShowCreateUser, User: $4.(*auth.UserIdentity)}; $$.SetSpan(yyVAL.span) }
+|	show grants                   { $$ = &ast.ShowStmt{Tp: ast.ShowGrants}; $$.SetSpan(yyVAL.span) }
 |	show grants forKwd Username UsingRoles
 	{
 		if $5 != nil {
@@ -9223,14 +9542,15 @@ ShowStmt:
 				Roles:  nil,
 			}
 		}
+		$$.SetSpan(yyVAL.span)
 	}
-|	show master status          { $$ = &ast.ShowStmt{Tp: ast.ShowMasterStatus} }
-|	show replica status         { $$ = &ast.ShowStmt{Tp: ast.ShowReplicaStatus} }
-|	show replicas               { $$ = &ast.ShowStmt{Tp: ast.ShowReplicas} }
-|	show binaryType log status  { $$ = &ast.ShowStmt{Tp: ast.ShowBinaryLogStatus} }
-|	show binaryType logs        { $$ = &ast.ShowStmt{Tp: ast.ShowBinaryLogs} }
-|	show OptFull processlist      { $$ = &ast.ShowStmt{Tp: ast.ShowProcessList, Full: $2.(bool)} }
-|	show profiles                 { $$ = &ast.ShowStmt{Tp: ast.ShowProfiles} }
+|	show master status          { $$ = &ast.ShowStmt{Tp: ast.ShowMasterStatus}; $$.SetSpan(yyVAL.span) }
+|	show replica status         { $$ = &ast.ShowStmt{Tp: ast.ShowReplicaStatus}; $$.SetSpan(yyVAL.span) }
+|	show replicas               { $$ = &ast.ShowStmt{Tp: ast.ShowReplicas}; $$.SetSpan(yyVAL.span) }
+|	show binaryType log status  { $$ = &ast.ShowStmt{Tp: ast.ShowBinaryLogStatus}; $$.SetSpan(yyVAL.span) }
+|	show binaryType logs        { $$ = &ast.ShowStmt{Tp: ast.ShowBinaryLogs}; $$.SetSpan(yyVAL.span) }
+|	show OptFull processlist      { $$ = &ast.ShowStmt{Tp: ast.ShowProcessList, Full: $2.(bool)}; $$.SetSpan(yyVAL.span) }
+|	show profiles                 { $$ = &ast.ShowStmt{Tp: ast.ShowProfiles}; $$.SetSpan(yyVAL.span) }
 |	show profile ShowProfileTypesOpt ShowProfileArgsOpt SelectStmtLimit
 	{
 		v := &ast.ShowStmt{
@@ -9245,15 +9565,17 @@ ShowStmt:
 		if $5 != nil {
 			v.ShowProfileLimit = $5.(*ast.Limit)
 		}
+		v.SetSpan(yyVAL.span)
 		$$ = v
 	}
-|	show privileges               { $$ = &ast.ShowStmt{Tp: ast.ShowPrivileges} }
+|	show privileges               { $$ = &ast.ShowStmt{Tp: ast.ShowPrivileges}; $$.SetSpan(yyVAL.span) }
 |	show warnings SelectStmtLimit
 	{
 		stmt := &ast.ShowStmt{Tp: ast.ShowWarnings}
 		if $3 != nil {
 			stmt.Limit = $3.(*ast.Limit)
 		}
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 |	show identSQLErrors SelectStmtLimit
@@ -9262,6 +9584,7 @@ ShowStmt:
 		if $3 != nil {
 			stmt.Limit = $3.(*ast.Limit)
 		}
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 
@@ -9327,7 +9650,7 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowTables,
-			DBName:	$3.(string),
+			Database: $3.(lex.Ident),
 			Full:	$1.(bool),
 		}
 	}
@@ -9335,14 +9658,14 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowOpenTables,
-			DBName:	$3.(string),
+			Database: $3.(lex.Ident),
 		}
 	}
 |	tableKwd status ShowDatabaseNameOpt
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowTableStatus,
-			DBName:	$3.(string),
+			Database: $3.(lex.Ident),
 		}
 	}
 |	ShowIndexKwd FromOrIn TableName
@@ -9356,7 +9679,10 @@ ShowTargetFilterable:
 	{
         show := &ast.ShowStmt{
             Tp: ast.ShowIndex,
-            Table: &ast.TableName{Name:model.NewCIStr($3), Schema: model.NewCIStr($5)},
+            Table: syntaxTableName(syntaxName(
+                syntaxIdent(yylex, $5, yyS[yypt].span),
+                syntaxIdent(yylex, $3, yyS[yypt-2].span),
+            )),
 		}
         $$ = show
 	}
@@ -9365,7 +9691,7 @@ ShowTargetFilterable:
 		$$ = &ast.ShowStmt{
 			Tp:     ast.ShowColumns,
 			Table:	$3.(*ast.TableName),
-			DBName:	$4.(string),
+			Database: $4.(lex.Ident),
 			Full:	$1.(bool),
 		}
 	}
@@ -9375,7 +9701,7 @@ ShowTargetFilterable:
 		$$ = &ast.ShowStmt{
 			Tp:     ast.ShowColumns,
 			Table:	$3.(*ast.TableName),
-			DBName:	$4.(string),
+			Database: $4.(lex.Ident),
 			Full:	$1.(bool),
 		}
 	}
@@ -9397,7 +9723,7 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowTriggers,
-			DBName:	$2.(string),
+			Database: $2.(lex.Ident),
 		}
 	}
 |	function status
@@ -9414,7 +9740,7 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{
 			Tp:	ast.ShowEvents,
-			DBName:	$2.(string),
+			Database: $2.(lex.Ident),
 		}
 	}
 |	plugins
@@ -9444,8 +9770,8 @@ OptFull:
 
 
 ShowDatabaseNameOpt:
-	/* EMPTY */     { $$ = "" }
-|	FromOrIn DBName { $$ = $2.(string) }
+	/* EMPTY */     { $$ = lex.Ident{Span: loc.InvalidSpan()} }
+|	FromOrIn DBName { $$ = syntaxIdent(yylex, $2.(string), yyS[yypt].span) }
 
 
 ShowTableAliasOpt:
@@ -9650,7 +9976,7 @@ SpStmtList:
 SpLabelPrefix:
 	/* EMPTY */
 	{
-		$$ = ""
+		$$ = lex.Ident{Span: loc.InvalidSpan()}
 	}
 |	SpLabelName ':'
 	{
@@ -9659,32 +9985,32 @@ SpLabelPrefix:
 
 
 SpLabelName:
-	identifier { $$ = $1 }
-|	account { $$ = $1 }
-|	always { $$ = $1 }
-|	backup { $$ = $1 }
-|	close { $$ = $1 }
-|	format { $$ = $1 }
-|	invisible { $$ = $1 }
-|	open { $$ = $1 }
-|	options { $$ = $1 }
-|	remove { $$ = $1 }
-|	role { $$ = $1 }
-|	query { $$ = $1 }
-|	names { $$ = $1 }
-|	password { $$ = $1 }
-|	security { $$ = $1 }
-|	server { $$ = $1 }
-|	soname { $$ = $1 }
-|	upgrade { $$ = $1 }
-|	visible { $$ = $1 }
-|	wrapper { $$ = $1 }
+	identifier { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	account { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	always { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	backup { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	close { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	format { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	invisible { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	open { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	options { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	remove { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	role { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	query { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	names { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	password { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	security { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	server { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	soname { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	upgrade { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	visible { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	wrapper { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
 
 
 SpLabelSuffix:
 	/* EMPTY */
 	{
-		$$ = ""
+		$$ = lex.Ident{Span: loc.InvalidSpan()}
 	}
 |	SpLabelName
 	{
@@ -9706,14 +10032,13 @@ SpAtomicOpt:
 SpBeginStmt:
 	SpLabelPrefix begin SpAtomicOpt SpStmtListOpt end SpLabelSuffix
 	{
-		if $6 != "" && $1 != "" && $6 != $1 {
-			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $6, $1))
+		if $6.(lex.Ident).Present() && $1.(lex.Ident).Present() && $6.(lex.Ident).Name != $1.(lex.Ident).Name {
+			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $6.(lex.Ident).Name, $1.(lex.Ident).Name))
 			return 1
 		}
 		x := &ast.BeginEndStmt{NotAtomic: $3.(bool), List: $4.([]ast.StmtNode)}
-		if $1 != "" {
-			x.Label = $1.(string)
-		}
+		x.Label = $1.(lex.Ident)
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -9722,9 +10047,12 @@ SpIfStmt:
 	ifKwd Expression then SpStmtListOpt SpElseIfClauseList SpElseOpt end ifKwd
 	{
 		conditions := make([]*ast.IfClause, 0, 1+len($5.([]*ast.IfClause)))
-		conditions = append(conditions, &ast.IfClause{Condition: $2.(ast.ExprNode), List: $4.([]ast.StmtNode)})
+		first := &ast.IfClause{Condition: $2.(ast.ExprNode), List: $4.([]ast.StmtNode)}
+		first.SetSpan(loc.Cover(yyS[yypt-7].span, loc.Cover(yyS[yypt-5].span, yyS[yypt-4].span)))
+		conditions = append(conditions, first)
 		conditions = append(conditions, $5.([]*ast.IfClause)...)
 		$$ = &ast.IfStmt{Conditions: conditions, ElseList: $6.([]ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9735,7 +10063,9 @@ SpElseIfClauseList:
 	}
 |	SpElseIfClauseList elseif Expression then SpStmtListOpt
 	{
-		$$ = append($1.([]*ast.IfClause), &ast.IfClause{Condition: $3.(ast.ExprNode), List: $5.([]ast.StmtNode)})
+		clause := &ast.IfClause{Condition: $3.(ast.ExprNode), List: $5.([]ast.StmtNode), ElseIf: true}
+		clause.SetSpan(loc.Cover(yyS[yypt-3].span, loc.Cover(yyS[yypt-1].span, yyS[yypt].span)))
+		$$ = append($1.([]*ast.IfClause), clause)
 	}
 
 
@@ -9754,12 +10084,13 @@ SpCaseStmt:
 	caseKwd ExpressionOpt SpWhenClauseList SpCaseElseOpt end caseKwd
 	{
 		x := &ast.CaseStmt{
-			Whens:    $3.([]*ast.CaseWhenStmt),
+			Whens:    $3.([]*ast.CaseWhenClause),
 			ElseList: $4.([]ast.StmtNode),
 		}
 		if v, ok := $2.(ast.ExprNode); ok {
 			x.Value = v
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -9767,18 +10098,19 @@ SpCaseStmt:
 SpWhenClauseList:
 	SpWhenClause
 	{
-		$$ = []*ast.CaseWhenStmt{$1.(*ast.CaseWhenStmt)}
+		$$ = []*ast.CaseWhenClause{$1.(*ast.CaseWhenClause)}
 	}
 |	SpWhenClauseList SpWhenClause
 	{
-		$$ = append($1.([]*ast.CaseWhenStmt), $2.(*ast.CaseWhenStmt))
+		$$ = append($1.([]*ast.CaseWhenClause), $2.(*ast.CaseWhenClause))
 	}
 
 
 SpWhenClause:
 	when Expression then SpStmtListOpt
 	{
-		$$ = &ast.CaseWhenStmt{Expr: $2.(ast.ExprNode), List: $4.([]ast.StmtNode)}
+		$$ = &ast.CaseWhenClause{Expr: $2.(ast.ExprNode), List: $4.([]ast.StmtNode)}
+		$$.(*ast.CaseWhenClause).SetSpan(yyVAL.span)
 	}
 
 
@@ -9796,45 +10128,49 @@ SpCaseElseOpt:
 SpWhileStmt:
 	SpLabelPrefix while Expression do SpStmtListOpt end while SpLabelSuffix
 	{
-		if $8 != "" && $1 != "" && $8 != $1 {
-			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $8, $1))
+		if $8.(lex.Ident).Present() && $1.(lex.Ident).Present() && $8.(lex.Ident).Name != $1.(lex.Ident).Name {
+			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $8.(lex.Ident).Name, $1.(lex.Ident).Name))
 			return 1
 		}
-		$$ = &ast.WhileStmt{Label: $1.(string), Condition: $3.(ast.ExprNode), List: $5.([]ast.StmtNode)}
+		$$ = &ast.WhileStmt{Label: $1.(lex.Ident), Condition: $3.(ast.ExprNode), List: $5.([]ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpRepeatStmt:
 	SpLabelPrefix repeat SpStmtListOpt until Expression end repeat SpLabelSuffix
 	{
-		if $8 != "" && $1 != "" && $8 != $1 {
-			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $8, $1))
+		if $8.(lex.Ident).Present() && $1.(lex.Ident).Present() && $8.(lex.Ident).Name != $1.(lex.Ident).Name {
+			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $8.(lex.Ident).Name, $1.(lex.Ident).Name))
 			return 1
 		}
-		$$ = &ast.RepeatStmt{Label: $1.(string), Condition: $5.(ast.ExprNode), List: $3.([]ast.StmtNode)}
+		$$ = &ast.RepeatStmt{Label: $1.(lex.Ident), Condition: $5.(ast.ExprNode), List: $3.([]ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpLoopStmt:
 	SpLabelPrefix loop SpStmtListOpt end loop SpLabelSuffix
 	{
-		if $6 != "" && $1 != "" && $6 != $1 {
-			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $6, $1))
+		if $6.(lex.Ident).Present() && $1.(lex.Ident).Present() && $6.(lex.Ident).Name != $1.(lex.Ident).Name {
+			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $6.(lex.Ident).Name, $1.(lex.Ident).Name))
 			return 1
 		}
-		$$ = &ast.LoopStmt{Label: $1.(string), List: $3.([]ast.StmtNode)}
+		$$ = &ast.LoopStmt{Label: $1.(lex.Ident), List: $3.([]ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpForStmt:
 	SpLabelPrefix SpForBody SpLabelSuffix
 	{
-		if $3 != "" && $1 != "" && $3 != $1 {
-			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $3, $1))
+		if $3.(lex.Ident).Present() && $1.(lex.Ident).Present() && $3.(lex.Ident).Name != $1.(lex.Ident).Name {
+			yyAppendErr(yylex, yyErrorf(yylex, "the end label '%s' does not match the begin label '%s'", $3.(lex.Ident).Name, $1.(lex.Ident).Name))
 			return 1
 		}
 		stmt := $2.(*ast.ForStmt)
-		stmt.Label = $1.(string)
+		stmt.Label = $1.(lex.Ident)
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 
@@ -9847,47 +10183,53 @@ SpForBody:
 	forKwd identifier in Expression rangeDots Expression do SpStmtListOpt end forKwd
 	{
 		$$ = &ast.ForStmt{
-			Variable:   $2,
+			Variable:   syntaxIdent(yylex, $2, yyS[yypt-8].span),
 			LowerBound: $4,
 			UpperBound: $6,
 			List:       $8.([]ast.StmtNode),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	forKwd identifier in '(' SelectStmt ')' do SpStmtListOpt end forKwd
 	{
 		$$ = &ast.ForStmt{
-			Variable: $2,
-			Query:    $5.(ast.StmtNode),
+			Variable: syntaxIdent(yylex, $2, yyS[yypt-8].span),
+			Query:    $5.(ast.QueryNode),
 			List:     $8.([]ast.StmtNode),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpLeaveStmt:
 	leave SpLabelName
 	{
-		$$ = &ast.LeaveStmt{Label: $2.(string)}
+		$$ = &ast.LeaveStmt{Label: $2.(lex.Ident)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpIterateStmt:
 	iterate SpLabelName
 	{
-		$$ = &ast.IterateStmt{Label: $2.(string)}
+		$$ = &ast.IterateStmt{Label: $2.(lex.Ident)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpOpenStmt:
 	open identifier
 	{
-		$$ = &ast.OpenStmt{Name: $2}
+		$$ = &ast.OpenStmt{Name: syntaxIdent(yylex, $2, yyS[yypt].span)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpCloseStmt:
 	close identifier
 	{
-		$$ = &ast.CloseStmt{Name: $2}
+		$$ = &ast.CloseStmt{Name: syntaxIdent(yylex, $2, yyS[yypt].span)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9895,17 +10237,20 @@ SpFetchStmt:
 	fetch Identifier into SpLocalNameList
 	{
 		targets := $4.([]*ast.VariableTarget)
-		$$ = &ast.FetchStmt{Name: $2, Vars: variableTargetNames(targets), Targets: targets}
+		$$ = &ast.FetchStmt{Name: syntaxIdent(yylex, $2, yyS[yypt-2].span), Targets: targets}
+		$$.SetSpan(yyVAL.span)
 	}
 |	fetch from Identifier into SpLocalNameList
 	{
 		targets := $5.([]*ast.VariableTarget)
-		$$ = &ast.FetchStmt{Name: $3, Vars: variableTargetNames(targets), Targets: targets}
+		$$ = &ast.FetchStmt{Name: syntaxIdent(yylex, $3, yyS[yypt-2].span), HasFrom: true, Targets: targets}
+		$$.SetSpan(yyVAL.span)
 	}
 |	fetch next from Identifier into SpLocalNameList
 	{
 		targets := $6.([]*ast.VariableTarget)
-		$$ = &ast.FetchStmt{Name: $4, Vars: variableTargetNames(targets), Targets: targets}
+		$$ = &ast.FetchStmt{Name: syntaxIdent(yylex, $4, yyS[yypt-2].span), HasNext: true, HasFrom: true, Targets: targets}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9924,29 +10269,29 @@ SpName:
 	SpLocalName
 |	singleAtIdentifier
 	{
-		$$ = &ast.VariableTarget{Parts: []string{$1}, IsUser: true}
+		$$ = syntaxAtVariableTarget(yylex, $1, yyS[yypt].span)
 	}
 
 
 SpLocalName:
 	Identifier
 	{
-		$$ = &ast.VariableTarget{Parts: []string{$1}}
+		$$ = syntaxVariableTarget(yylex, $1, yyS[yypt].span, ast.VariableTargetLocal, ast.VariablePrefixNone)
 	}
 |	Identifier '.' Identifier
 	{
-		$$ = &ast.VariableTarget{Parts: []string{$1, $3}}
+		$$ = syntaxQualifiedVariableTarget(yylex, $1, $3, yyVAL.span, yyS[yypt].span, ast.VariableTargetRowField)
 	}
 
 
 SpLocalNameList:
 	Identifier
 	{
-		$$ = []*ast.VariableTarget{{Parts: []string{$1}}}
+		$$ = []*ast.VariableTarget{syntaxVariableTarget(yylex, $1, yyS[yypt].span, ast.VariableTargetLocal, ast.VariablePrefixNone)}
 	}
 |	SpLocalNameList ',' Identifier
 	{
-		$$ = append($1.([]*ast.VariableTarget), &ast.VariableTarget{Parts: []string{$3}})
+		$$ = append($1.([]*ast.VariableTarget), syntaxVariableTarget(yylex, $3, yyS[yypt].span, ast.VariableTargetLocal, ast.VariablePrefixNone))
 	}
 
 
@@ -9961,17 +10306,20 @@ SelectIntoClause:
 	into SpNameList
 	{
 		targets := $2.([]*ast.VariableTarget)
-		$$ = &ast.SelectIntoStatement{Tp: ast.SelectIntoVarList, VarList: variableTargetNames(targets), Targets: targets}
+		$$ = &ast.SelectIntoStatement{Tp: ast.SelectIntoVarList, Targets: targets}
+		$$.(*ast.SelectIntoStatement).SetSpan(yyVAL.span)
 	}
 |	into outfile stringLit SelectIntoOutfileOpts
 	{
 		st := $4.(*ast.SelectIntoStatement)
 		st.FileName = $3
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	into dumpfile stringLit
 	{
 		$$ = &ast.SelectIntoStatement{Tp: ast.SelectIntoDumpfile, FileName: $3}
+		$$.(*ast.SelectIntoStatement).SetSpan(yyVAL.span)
 	}
 
 
@@ -9980,7 +10328,7 @@ SelectIntoOutfileOpts:
 	{
 		$$ = &ast.SelectIntoStatement{
 			Tp:      ast.SelectIntoOutfile,
-			Charset: $1.(string),
+			Charset: charsetName($1.(lex.Ident)),
 			Fields:  $2.(*ast.FieldsClause),
 			Lines:   $3.(*ast.LinesClause),
 		}
@@ -9990,72 +10338,80 @@ SelectIntoOutfileOpts:
 SpDeclareStmt:
 	declare SpVarNameList Type SpDeclareDefaultOpt
 	{
-		st := &ast.DeclareStmt{Names: $2.([]string), Type: $3.(*types.FieldType)}
+		st := &ast.DeclareStmt{Names: $2.([]lex.Ident), Type: $3.(*ast.TypeName)}
 		if $4 != nil {
 			st.Default = $4.(ast.ExprNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	declare SpVarNameList SpRowType SpDeclareDefaultOpt
 	{
-		st := &ast.DeclareStmt{Names: $2.([]string), RowType: $3.([]*ast.ColumnDef)}
+		st := &ast.DeclareStmt{Names: $2.([]lex.Ident), RowType: $3.([]*ast.ColumnDef)}
 		if $4 != nil {
 			st.Default = $4.(ast.ExprNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	declare SpVarNameList typeSym of ColumnName SpDeclareDefaultOpt
 	{
-		st := &ast.DeclareStmt{Names: $2.([]string), TypeRef: $5.(*ast.ColumnName)}
+		st := &ast.DeclareStmt{Names: $2.([]lex.Ident), TypeRef: namePointer($5.(ast.QualifiedName))}
 		if $6 != nil {
 			st.Default = $6.(ast.ExprNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	declare SpVarNameList row typeSym of ColumnName SpDeclareDefaultOpt
 	{
-		st := &ast.DeclareStmt{Names: $2.([]string), TypeRef: $6.(*ast.ColumnName), RowTypeRef: true}
+		st := &ast.DeclareStmt{Names: $2.([]lex.Ident), TypeRef: namePointer($6.(ast.QualifiedName)), RowTypeRef: true}
 		if $7 != nil {
 			st.Default = $7.(ast.ExprNode)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	declare identifier condition forKwd SpConditionValue
 	{
-		$$ = &ast.DeclareConditionStmt{Name: $2, Condition: $5.(*ast.HandlerCondition)}
+		$$ = &ast.DeclareConditionStmt{Name: syntaxIdent(yylex, $2, yyS[yypt-3].span), Condition: $5.(*ast.HandlerCondition)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	declare identifier cursor forKwd SelectStmt
 	{
-		$$ = &ast.DeclareCursorStmt{Name: $2, Select: $5.(ast.StmtNode)}
+		$$ = &ast.DeclareCursorStmt{Name: syntaxIdent(yylex, $2, yyS[yypt-3].span), Select: $5.(ast.QueryNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	declare identifier cursor forKwd ProcedureAnalyseStmt
 	{
-		$$ = &ast.DeclareCursorStmt{Name: $2, Select: $5.(ast.StmtNode)}
+		$$ = &ast.DeclareCursorStmt{Name: syntaxIdent(yylex, $2, yyS[yypt-3].span), Select: $5.(ast.QueryNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	declare SpHandlerAction handler forKwd SpConditionValueList SpStmt
 	{
 		$$ = &ast.DeclareHandlerStmt{Action: $2.(ast.HandlerType), Conditions: $5.([]*ast.HandlerCondition), Stmt: $6.(ast.StmtNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
 SpVarNameList:
 	SpVarName
 	{
-		$$ = []string{$1.(string)}
+		$$ = []lex.Ident{$1.(lex.Ident)}
 	}
 |	SpVarNameList ',' SpVarName
 	{
-		$$ = append($1.([]string), $3.(string))
+		$$ = append($1.([]lex.Ident), $3.(lex.Ident))
 	}
 
 
 SpVarName:
-	identifier { $$ = $1 }
-|	query { $$ = $1 }
-|	names { $$ = $1 }
-|	role { $$ = $1 }
-|	password { $$ = $1 }
-|	count { $$ = $1 }
+	identifier { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	query { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	names { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	role { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	password { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	count { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
 
 
 SpRowType:
@@ -10079,10 +10435,8 @@ SpRowFieldList:
 SpRowField:
 	Identifier Type
 	{
-		$$ = &ast.ColumnDef{
-			Name: &ast.ColumnName{Name: model.NewCIStr($1)},
-			Tp:   $2.(*types.FieldType),
-		}
+		name := syntaxName(syntaxIdent(yylex, $1, yyS[yypt-1].span))
+		$$ = syntaxColumnDef(name, $2.(*ast.TypeName), nil, yyVAL.span)
 	}
 
 
@@ -10126,11 +10480,11 @@ SpConditionValueList:
 SpConditionValue:
 	sqlState value stringLit
 	{
-		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionSQLState, Value: $3}
+		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionSQLState, SQLState: $3}
 	}
 |	sqlState stringLit
 	{
-		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionSQLState, Value: $2}
+		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionSQLState, SQLState: $2}
 	}
 |	intLit
 	{
@@ -10138,7 +10492,7 @@ SpConditionValue:
 	}
 |	identifier
 	{
-		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionName, Value: $1}
+		$$ = &ast.HandlerCondition{Type: ast.HandlerConditionName, Value: syntaxIdent(yylex, $1, yyS[yypt].span)}
 	}
 |	sqlWarning
 	{
@@ -10190,7 +10544,7 @@ SpSignalInfoItemList:
 SpSignalInfoItem:
 	identifier eq Expression
 	{
-		$$ = &ast.SignalInfoItem{Name: $1, Value: $3.(ast.ExprNode)}
+		$$ = &ast.SignalInfoItem{Name: syntaxIdent(yylex, $1, yyS[yypt-2].span), Value: $3.(ast.ExprNode)}
 	}
 
 
@@ -10286,7 +10640,9 @@ ParenthesizedQueryStmt:
 	}
 |	SubSelect ParenQueryTail %prec '('
 	{
-		$$ = parenQueryTail($1.(*ast.SubqueryExpr).Query, $2.(parenQueryTailShape)).(ast.StmtNode)
+		stmt := parenQueryTail($1.(*ast.SubqueryExpr).Query, $2.(parenQueryTailShape))
+		stmt.SetSpan(yyVAL.span)
+		$$ = stmt
 	}
 
 
@@ -10457,6 +10813,7 @@ StatementList:
 				s.SetText(lexer.stmtText())
 			}
 			yyGetParser(yylex).result = append(yyGetParser(yylex).result, s)
+			yyGetParser(yylex).paramIndex = 0
 		}
 	}
 |	StatementList ';' Statement
@@ -10467,6 +10824,7 @@ StatementList:
 				s.SetText(lexer.stmtText())
 			}
 			yyGetParser(yylex).result = append(yyGetParser(yylex).result, s)
+			yyGetParser(yylex).paramIndex = 0
 		}
 	}
 
@@ -10476,8 +10834,9 @@ Constraint:
 	{
 		cst := $2.(*ast.Constraint)
 		if $1 != nil {
-			cst.Name = $1.(string)
+			cst.Name = $1.(lex.Ident)
 		}
+		cst.SetSpan(yyVAL.span)
 		$$ = cst
 	}
 
@@ -10492,12 +10851,14 @@ TableElement:
 	}
 |	period forKwd Identifier '(' ColumnName ',' ColumnName ')'
 	{
-		start, end := $5.(*ast.ColumnName), $7.(*ast.ColumnName)
-		if start.Schema.O != "" || start.Table.O != "" || end.Schema.O != "" || end.Table.O != "" {
+		start, end := $5.(ast.QualifiedName), $7.(ast.QualifiedName)
+		if len(start.Parts) != 1 || len(end.Parts) != 1 {
 			yyAppendErr(yylex, yyErrorf(yylex, "PERIOD FOR requires two unqualified column names"))
 			return 1
 		}
-		$$ = &ast.PeriodDefinition{Name: model.NewCIStr($3), Start: start, End: end, Offset: yyS[yypt-7].offset}
+		period := &ast.PeriodDefinition{Name: syntaxIdent(yylex, $3, yyS[yypt-5].span), Start: start, End: end}
+		period.SetSpan(yyVAL.span)
+		$$ = period
 	}
 
 
@@ -10524,8 +10885,8 @@ CreateTableDefinition:
 	'(' TableElementList ')'
 	{
 		tes := $2.([]interface {})
-		var columnDefs []*ast.ColumnDef
-		var constraints []*ast.Constraint
+		var columnDefs []pkast.ColumnDefNode
+		var constraints []pkast.ConstraintNode
 		var periods []*ast.PeriodDefinition
 		for _, te := range tes {
 			switch te := te.(type) {
@@ -10538,8 +10899,7 @@ CreateTableDefinition:
 			}
 		}
 		$$ = &ast.CreateTableStmt{
-			Cols:           columnDefs,
-			Constraints:    constraints,
+			BaseCreateTableStmt: pkast.BaseCreateTableStmt{Columns: columnDefs, Constraints: constraints},
 			Periods:        periods,
 		}
 	}
@@ -10549,79 +10909,98 @@ TableOption:
 	engine StringName
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $2.(string)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	engine eq StringName
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $3.(string)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	DefaultKwdOpt CharsetOrCharacterSet EqOpt CharsetName
 	{
-		$$ = &ast.TableOption{Tp: ast.TableOptionCharset, StrValue: $4.(string)}
+		$$ = &ast.TableOption{Tp: ast.TableOptionCharset, StrValue: charsetName($4.(lex.Ident))}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	DefaultKwdOpt collate EqOpt CollationName
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionCollate, StrValue: $4.(string)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	autoIncrement EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionAutoIncrement, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	comment EqOpt stringLit
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionComment, StrValue: $3}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	avgRowLength EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionAvgRowLength, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	connection EqOpt stringLit
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionConnection, StrValue: $3}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	checksum EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionCheckSum, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	password EqOpt stringLit
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionPassword, StrValue: $3}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	compression EqOpt stringLit
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionCompression, StrValue: $3}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	keyBlockSize EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionKeyBlockSize, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	maxRows EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionMaxRows, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	minRows EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionMinRows, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	delayKeyWrite EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionDelayKeyWrite, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	RowFormat
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionRowFormat, UintValue: $1.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	statsPersistent EqOpt StatsPersistentVal
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionStatsPersistent}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	shardRowIDBits EqOpt LengthNum
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionShardRowID, UintValue: $3.(uint64)}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	packKeys EqOpt StatsPersistentVal
 	{
 		// Parse it but will ignore it.
 		$$ = &ast.TableOption{Tp: ast.TableOptionPackKeys}
+		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -10687,70 +11066,54 @@ RowFormat:
 Type:
 	NumericType
 	{
-		$$ = $1
+		$$ = syntaxTypeNode(yylex, $1.(*ast.TypeName), yyS[yypt].span)
 	}
 |	StringType
 	{
-		$$ = $1
+		$$ = syntaxTypeNode(yylex, $1.(*ast.TypeName), yyS[yypt].span)
 	}
 |	DateAndTimeType
 	{
-		$$ = $1
+		$$ = syntaxTypeNode(yylex, $1.(*ast.TypeName), yyS[yypt].span)
 	}
 |	SpatialType
 	{
-		$$ = $1
+		$$ = syntaxTypeNode(yylex, $1.(*ast.TypeName), yyS[yypt].span)
 	}
 
 
 SpatialType:
 	geometryType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "GEOMETRY"
-		$$ = x
+		$$ = ast.NewTypeName("GEOMETRY")
 	}
 |	pointType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "POINT"
-		$$ = x
+		$$ = ast.NewTypeName("POINT")
 	}
 |	lineStringType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "LINESTRING"
-		$$ = x
+		$$ = ast.NewTypeName("LINESTRING")
 	}
 |	polygonType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "POLYGON"
-		$$ = x
+		$$ = ast.NewTypeName("POLYGON")
 	}
 |	multiPointType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "MULTIPOINT"
-		$$ = x
+		$$ = ast.NewTypeName("MULTIPOINT")
 	}
 |	multiLineStringType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "MULTILINESTRING"
-		$$ = x
+		$$ = ast.NewTypeName("MULTILINESTRING")
 	}
 |	multiPolygonType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "MULTIPOLYGON"
-		$$ = x
+		$$ = ast.NewTypeName("MULTIPOLYGON")
 	}
 |	geometryCollectionType
 	{
-		x := types.NewFieldType(mysql.TypeGeometry)
-		x.GeometryType = "GEOMETRYCOLLECTION"
-		$$ = x
+		$$ = ast.NewTypeName("GEOMETRYCOLLECTION")
 	}
 
 
@@ -10768,79 +11131,74 @@ SpatialFunctionName:
 NumericType:
 	IntegerType OptFieldLen FieldOpts
 	{
-		x := types.NewFieldType($1.(byte))
-		x.Flen = $2.(int)
+		x := newSyntaxType($1.(byte))
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		for _, o := range $3.([]*ast.TypeOpt) {
 			if o.IsUnsigned {
-				x.Flag |= mysql.UnsignedFlag
+				x.Unsigned = true
 			}
 			if o.IsZerofill {
-				x.Flag |= mysql.ZerofillFlag
+				x.Zerofill = true
 			}
 		}
 		$$ = x
 	}
 |	BooleanType FieldOpts
 	{
-		x := types.NewFieldType($1.(byte))
-		x.Flen = 1
+		x := ast.NewTypeName("BOOL")
 		for _, o := range $2.([]*ast.TypeOpt) {
 			if o.IsUnsigned {
-				x.Flag |= mysql.UnsignedFlag
+				x.Unsigned = true
 			}
 			if o.IsZerofill {
-				x.Flag |= mysql.ZerofillFlag
+				x.Zerofill = true
 			}
 		}
 		$$ = x
 	}
 |	FixedPointType FloatOpt FieldOpts
 	{
-		fopt := $2.(*ast.FloatOpt)
-		x := types.NewFieldType($1.(byte))
-		x.Flen = fopt.Flen
-		x.Decimal = fopt.Decimal
+		x := newSyntaxType($1.(byte))
+		x.Modifiers = typeModifiers($2.([]*pkast.BaseLiteralExpr)...)
 		for _, o := range $3.([]*ast.TypeOpt) {
 			if o.IsUnsigned {
-				x.Flag |= mysql.UnsignedFlag
+				x.Unsigned = true
 			}
 			if o.IsZerofill {
-				x.Flag |= mysql.ZerofillFlag
+				x.Zerofill = true
 			}
 		}
 		$$ = x
 	}
 |	FloatingPointType FloatOpt FieldOpts
 	{
-		fopt := $2.(*ast.FloatOpt)
-		x := types.NewFieldType($1.(byte))
-		x.Flen = fopt.Flen
-		if x.Tp == mysql.TypeFloat {
-			if x.Flen > 24 {
-				x.Tp = mysql.TypeDouble
-			}
-		}
-		x.Decimal = fopt.Decimal
+		x := newSyntaxType($1.(byte))
+		x.Modifiers = typeModifiers($2.([]*pkast.BaseLiteralExpr)...)
 		for _, o := range $3.([]*ast.TypeOpt) {
 			if o.IsUnsigned {
-				x.Flag |= mysql.UnsignedFlag
+				x.Unsigned = true
 			}
 			if o.IsZerofill {
-				x.Flag |= mysql.ZerofillFlag
+				x.Zerofill = true
 			}
 		}
 		$$ = x
 	}
 |	BitValueType OptFieldLen
 	{
-		x := types.NewFieldType($1.(byte))
-		x.Flen = $2.(int)
-		if x.Flen == types.UnspecifiedLength || x.Flen == 0 {
-			x.Flen = 1
-		} else if x.Flen > 64 {
-			yyAppendErr(yylex, ErrTooBigDisplayWidth.GenWithStackByArgs(x.Flen))
+		core := $2.(*pkast.BaseLiteralExpr)
+		length := typeLength(core)
+		if length < 1 {
+			if core == nil {
+				core = typeLiteral(yylex, pkast.LiteralInteger, "1", loc.InvalidSpan())
+			} else {
+				core.Value = "1"
+			}
+		} else if length > 64 {
+			yyAppendErr(yylex, ErrTooBigDisplayWidth.GenWithStackByArgs(length))
 		}
-		$$ = x
+		$$ = newSyntaxType($1.(byte))
+		$$.(*ast.TypeName).Modifiers = typeModifiers(core)
 	}
 
 
@@ -10951,114 +11309,77 @@ BitValueType:
 StringType:
 	charType FieldLen OptBinary
 	{
-		x := types.NewFieldType(mysql.TypeString)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("CHAR")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		x.Charset = $3.(*ast.OptBinary).Charset
-		if $3.(*ast.OptBinary).IsBinary {
-			x.Flag |= mysql.BinaryFlag
-		}
+		x.Binary = $3.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	charType OptBinary
 	{
-		x := types.NewFieldType(mysql.TypeString)
+		x := ast.NewTypeName("CHAR")
 		x.Charset = $2.(*ast.OptBinary).Charset
-		if $2.(*ast.OptBinary).IsBinary {
-			x.Flag |= mysql.BinaryFlag
-		}
+		x.Binary = $2.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	Varchar FieldLen OptBinary
 	{
-		x := types.NewFieldType(mysql.TypeVarchar)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("VARCHAR")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		x.Charset = $3.(*ast.OptBinary).Charset
-		if $3.(*ast.OptBinary).IsBinary {
-			x.Flag |= mysql.BinaryFlag
-		}
+		x.Binary = $3.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	binaryType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeString)
-		x.Flen = $2.(int)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CharsetBin
-		x.Flag |= mysql.BinaryFlag
+		x := ast.NewTypeName("BINARY")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	varbinaryType FieldLen
 	{
-		x := types.NewFieldType(mysql.TypeVarchar)
-		x.Flen = $2.(int)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CharsetBin
-		x.Flag |= mysql.BinaryFlag
+		x := ast.NewTypeName("VARBINARY")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	BlobType
 	{
-		x := $1.(*types.FieldType)
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CharsetBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = $1.(*types.FieldType)
+		$$ = $1.(*ast.TypeName)
 	}
 |	TextType OptBinary
 	{
-		x := $1.(*types.FieldType)
+		x := $1.(*ast.TypeName)
 		x.Charset = $2.(*ast.OptBinary).Charset
-		if $2.(*ast.OptBinary).IsBinary {
-			x.Flag |= mysql.BinaryFlag
-		}
+		x.Binary = $2.(*ast.OptBinary).IsBinary
 		$$ = x
 	}
 |	enum '(' StringList ')' OptCharset
 	{
-		x := types.NewFieldType(mysql.TypeEnum)
-		x.Elems = $3.([]string)
-		x.Charset = $5.(string)
-		$$ = x
+		$$ = ast.NewTypeName("ENUM")
+		$$.(*ast.TypeName).Modifiers = typeModifiers($3.([]*pkast.BaseLiteralExpr)...)
+		$$.(*ast.TypeName).Charset = $5.(lex.Ident)
 	}
 |	set '(' StringList ')' OptCharset
 	{
-		x := types.NewFieldType(mysql.TypeSet)
-		x.Elems = $3.([]string)
-		x.Charset = $5.(string)
-		$$ = x
+		$$ = ast.NewTypeName("SET")
+		$$.(*ast.TypeName).Modifiers = typeModifiers($3.([]*pkast.BaseLiteralExpr)...)
+		$$.(*ast.TypeName).Charset = $5.(lex.Ident)
 	}
 |	jsonType
 	{
-		x := types.NewFieldType(mysql.TypeJSON)
-		x.Decimal = 0
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		$$ = x
+		$$ = ast.NewTypeName("JSON")
 	}
 |	uuidType
 	{
-		// MariaDB UUID column type: char(36).
-		x := types.NewFieldType(mysql.TypeString)
-		x.Flen = 36
-		x.Charset = mysql.DefaultCharset
-		$$ = x
+		$$ = ast.NewTypeName("UUID")
 	}
 |	inet4Type
 	{
-		// MariaDB INET4 column type: unsigned bigint.
-		x := types.NewFieldType(mysql.TypeLonglong)
-		x.Flag |= mysql.UnsignedFlag
-		$$ = x
+		$$ = ast.NewTypeName("INET4")
 	}
 |	inet6Type
 	{
-		// MariaDB INET6 column type: varbinary(16).
-		x := types.NewFieldType(mysql.TypeVarchar)
-		x.Flen = 16
-		x.Charset = charset.CharsetBin
-		x.Collate = charset.CollationBin
-		x.Flag |= mysql.BinaryFlag
-		$$ = x
+		$$ = ast.NewTypeName("INET6")
 	}
 
 
@@ -11069,102 +11390,80 @@ varcharType
 BlobType:
 	tinyblobType
 	{
-		x := types.NewFieldType(mysql.TypeTinyBlob)
-		$$ = x
+		$$ = ast.NewTypeName("TINYBLOB")
 	}
 |	blobType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeBlob)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("BLOB")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	mediumblobType
 	{
-		x := types.NewFieldType(mysql.TypeMediumBlob)
-		$$ = x
+		$$ = ast.NewTypeName("MEDIUMBLOB")
 	}
 |	longblobType
 	{
-		x := types.NewFieldType(mysql.TypeLongBlob)
-		$$ = x
+		$$ = ast.NewTypeName("LONGBLOB")
 	}
 
 
 TextType:
 	tinytextType
 	{
-		x := types.NewFieldType(mysql.TypeTinyBlob)
-		$$ = x
-
+		$$ = ast.NewTypeName("TINYTEXT")
 	}
 |	textType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeBlob)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("TEXT")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	mediumtextType
 	{
-		x := types.NewFieldType(mysql.TypeMediumBlob)
-		$$ = x
+		$$ = ast.NewTypeName("MEDIUMTEXT")
 	}
 |	longtextType
 	{
-		x := types.NewFieldType(mysql.TypeLongBlob)
-		$$ = x
+		$$ = ast.NewTypeName("LONGTEXT")
 	}
 |	long varcharType
 	{
-		x := types.NewFieldType(mysql.TypeMediumBlob)
-		$$ = x
+		$$ = ast.NewTypeName("MEDIUMTEXT")
 	}
 |	long byteType
 	{
-		x := types.NewFieldType(mysql.TypeLongBlob)
-		$$ = x
+		$$ = ast.NewTypeName("LONGTEXT")
 	}
 
 
 DateAndTimeType:
 	dateType
 	{
-		x := types.NewFieldType(mysql.TypeDate)
-		$$ = x
+		$$ = ast.NewTypeName("DATE")
 	}
 |	datetimeType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeDatetime)
-		x.Flen = mysql.MaxDatetimeWidthNoFsp
-		x.Decimal = $2.(int)
-		if x.Decimal > 0 {
-			x.Flen = x.Flen + 1 + x.Decimal
-		}
+		x := ast.NewTypeName("DATETIME")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	timestampType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeTimestamp)
-		x.Flen = mysql.MaxDatetimeWidthNoFsp
-		x.Decimal = $2.(int)
-		if x.Decimal > 0 {
-			x.Flen = x.Flen + 1 + x.Decimal
-		}
+		x := ast.NewTypeName("TIMESTAMP")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	timeType OptFieldLen
 	{
-		x := types.NewFieldType(mysql.TypeDuration)
-		x.Flen = mysql.MaxDurationWidthNoFsp
-		x.Decimal = $2.(int)
-		if x.Decimal > 0 {
-			x.Flen = x.Flen + 1 + x.Decimal
-		}
+		x := ast.NewTypeName("TIME")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 |	yearType YearLenOpt FieldOpts
 	{
-		x := types.NewFieldType(mysql.TypeYear)
-		x.Flen = $2.(int)
+		x := ast.NewTypeName("YEAR")
+		x.Modifiers = typeModifiers($2.(*pkast.BaseLiteralExpr))
 		$$ = x
 	}
 
@@ -11172,27 +11471,26 @@ DateAndTimeType:
 FieldLen:
 	'(' LengthNum ')'
 	{
-		value, err := strconv.Atoi(strconv.FormatUint($2.(uint64), 10))
-		if err != nil {
+		if $2.(uint64) > math.MaxInt64 {
 			yyAppendErr(yylex, yyErrorf(yylex, "field length is out of range"))
 			return 1
 		}
-		$$ = value
+		$$ = typeLiteral(yylex, pkast.LiteralInteger, strconv.FormatUint($2.(uint64), 10), yyS[yypt-1].span)
 	}
 
 
 OptFieldLen:
-	/* EMPTY */ %prec empty { $$ = types.UnspecifiedLength }
-|	FieldLen    { $$ = $1.(int) }
+	/* EMPTY */ %prec empty { $$ = (*pkast.BaseLiteralExpr)(nil) }
+|	FieldLen    { $$ = $1.(*pkast.BaseLiteralExpr) }
 
 
 /* YEAR display width tolerating overflowed numeric literals: the lexer falls
    back to a decimal literal for 20+ digit numbers, and MariaDB accepts such
    YEAR(n) forms at parse time. */
 YearLenOpt:
-	/* EMPTY */ %prec empty { $$ = types.UnspecifiedLength }
-|	FieldLen    { $$ = $1.(int) }
-|	'(' decLit ')' { $$ = types.UnspecifiedLength }
+	/* EMPTY */ %prec empty { $$ = (*pkast.BaseLiteralExpr)(nil) }
+|	FieldLen    { $$ = $1.(*pkast.BaseLiteralExpr) }
+|	'(' decLit ')' { $$ = (*pkast.BaseLiteralExpr)(nil) }
 
 
 FieldOpt:
@@ -11207,9 +11505,9 @@ FieldOpts:
 
 
 FloatOpt:
-	/* EMPTY */ %prec empty { $$ = &ast.FloatOpt{Flen: types.UnspecifiedLength, Decimal: types.UnspecifiedLength} }
-|	FieldLen    { $$ = &ast.FloatOpt{Flen: $1.(int), Decimal: types.UnspecifiedLength} }
-|	Precision   { $$ = $1.(*ast.FloatOpt) }
+	/* EMPTY */ %prec empty { $$ = []*pkast.BaseLiteralExpr(nil) }
+|	FieldLen    { $$ = []*pkast.BaseLiteralExpr{$1.(*pkast.BaseLiteralExpr)} }
+|	Precision   { $$ = $1.([]*pkast.BaseLiteralExpr) }
 
 
 Precision:
@@ -11222,7 +11520,10 @@ Precision:
 			yyAppendErr(yylex, yyErrorf(yylex, "Too big precision"))
 			return 1
 		}
-		$$ = &ast.FloatOpt{Flen: int(flen), Decimal: int(decimal)}
+		$$ = []*pkast.BaseLiteralExpr{
+			typeLiteral(yylex, pkast.LiteralInteger, strconv.FormatUint(flen, 10), yyS[yypt-3].span),
+			typeLiteral(yylex, pkast.LiteralInteger, strconv.FormatUint(decimal, 10), yyS[yypt-1].span),
+		}
 	}
 
 OptBinMod:
@@ -11235,28 +11536,28 @@ OptBinary:
 	{
 		$$ = &ast.OptBinary{
 			IsBinary: false,
-			Charset:  "",
+			Charset:  lex.Ident{},
 		}
 	}
 |	binaryType OptCharset
 	{
 		$$ = &ast.OptBinary{
 			IsBinary: true,
-			Charset:  $2.(string),
+			Charset:  $2.(lex.Ident),
 		}
 	}
 |	CharsetOrCharacterSet CharsetName OptBinMod
 	{
 		$$ = &ast.OptBinary{
 			IsBinary: $3.(bool),
-			Charset:  $2.(string),
+			Charset:  $2.(lex.Ident),
 		}
 	}
 
 
 OptCharset:
-	/* EMPTY */           { $$ = "" }
-|	CharsetOrCharacterSet CharsetName { $$ = $2.(string) }
+	/* EMPTY */           { $$ = lex.Ident{} }
+|	CharsetOrCharacterSet CharsetName { $$ = $2.(lex.Ident) }
 
 
 CharsetOrCharacterSet:
@@ -11270,8 +11571,8 @@ OptCollate:
 
 
 StringList:
-	stringLit                { $$ = []string{$1} }
-|	StringList ',' stringLit { $$ = append($1.([]string), $3) }
+	stringLit                { $$ = []*pkast.BaseLiteralExpr{typeLiteral(yylex, pkast.LiteralString, $1, yyS[yypt].span)} }
+|	StringList ',' stringLit { $$ = append($1.([]*pkast.BaseLiteralExpr), typeLiteral(yylex, pkast.LiteralString, $3, yyS[yypt].span)) }
 
 
 StringName:
@@ -11286,26 +11587,22 @@ StringName:
 UpdateStmt:
 	update TableOptimizerHints PriorityOpt IgnoreOptional TableRef set AssignmentList WhereClauseOptional OrderByOptional LimitClause ReturningOpt
 	{
-		var refs *ast.Join
-		if x, ok := $5.(*ast.Join); ok {
-			refs = x
-		} else {
-			refs = &ast.Join{Left: $5.(ast.ResultSetNode)}
-		}
 		st := &ast.UpdateStmt{
 			Priority:  $3.(mysql.PriorityEnum),
-			TableRefs: &ast.TableRefsClause{TableRefs: refs},
-			List:	   $7.([]*ast.Assignment),
+			BaseUpdateStmt: pkast.BaseUpdateStmt{
+				Table: dmlRelation($5.(ast.ResultSetNode), yyS[yypt-6].span),
+				Assignments: $7.([]*ast.Assignment),
+			},
 			IgnoreErr: $4.(bool),
 		}
 		if $2 != nil {
-			st.TableHints = $2.([]*ast.TableOptimizerHint)
+			st.TableHints = $2.([]*ast.OptimizerHint)
 		}
 		if $8 != nil {
 			st.Where = $8.(ast.ExprNode)
 		}
 		if $9 != nil {
-			st.Order = $9.(*ast.OrderByClause)
+			st.OrderBy = $9.(*ast.OrderByClause)
 		}
 		if $10 != nil {
 			st.Limit = $10.(*ast.Limit)
@@ -11313,18 +11610,21 @@ UpdateStmt:
 		if $11 != nil {
 			st.Returning = $11.(*ast.FieldList)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 |	update TableOptimizerHints PriorityOpt IgnoreOptional TableRefs set AssignmentList WhereClauseOptional ReturningOpt
 	{
 		st := &ast.UpdateStmt{
 			Priority:  $3.(mysql.PriorityEnum),
-			TableRefs: &ast.TableRefsClause{TableRefs: $5.(*ast.Join)},
-			List:	   $7.([]*ast.Assignment),
+			BaseUpdateStmt: pkast.BaseUpdateStmt{
+				Table: dmlRelation($5.(ast.ResultSetNode), yyS[yypt-4].span),
+				Assignments: $7.([]*ast.Assignment),
+			},
 			IgnoreErr: $4.(bool),
 		}
 		if $2 != nil {
-			st.TableHints = $2.([]*ast.TableOptimizerHint)
+			st.TableHints = $2.([]*ast.OptimizerHint)
 		}
 		if $8 != nil {
 			st.Where = $8.(ast.ExprNode)
@@ -11332,12 +11632,17 @@ UpdateStmt:
 		if $9 != nil {
 			st.Returning = $9.(*ast.FieldList)
 		}
+		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
 
 
 UseStmt:
-	use DBName { $$ = &ast.UseStmt{DBName: $2.(string)} }
+	use DBName
+	{
+		$$ = &ast.UseStmt{Database: syntaxIdent(yylex, $2.(string), yyS[yypt].span)}
+		$$.SetSpan(yyVAL.span)
+	}
 
 
 PurgeStmt:
@@ -11663,10 +11968,11 @@ GrantStmt:
 		$$ = &ast.GrantStmt{
 			Privs: $2.([]*ast.PrivElem),
 			ObjectType: $4.(ast.ObjectTypeType),
-			Level: $5.(*ast.GrantLevel),
+			Object: $5.(*ast.GrantObject),
 			Users: $7.([]*ast.UserSpec),
 			WithGrant: $8.(bool),
 		}
+		$$.SetSpan(yyVAL.span)
 	 }
 
 
@@ -11695,13 +12001,15 @@ PrivElem:
 		$$ = &ast.PrivElem{
 			Priv: $1.(mysql.PrivilegeType),
 		}
+		$$.(*ast.PrivElem).SetSpan(yyVAL.span)
 	}
 |	PrivType '(' ColumnNameList ')'
 	{
 		$$ = &ast.PrivElem{
 			Priv: $1.(mysql.PrivilegeType),
-			Cols: $3.([]*ast.ColumnName),
+			Cols: $3.([]ast.QualifiedName),
 		}
+		$$.(*ast.PrivElem).SetSpan(yyVAL.span)
 	}
 
 
@@ -11752,37 +12060,23 @@ ObjectType:
 PrivLevel:
 	'*'
 	{
-		$$ = &ast.GrantLevel {
-			Level: ast.GrantLevelDB,
-		}
+		$$ = grantObject(yyVAL.span, grantStar(yyS[yypt].span))
 	}
 |	'*' '.' '*'
 	{
-		$$ = &ast.GrantLevel {
-			Level: ast.GrantLevelGlobal,
-		}
+		$$ = grantObject(yyVAL.span, grantStar(yyS[yypt-2].span), grantStar(yyS[yypt].span))
 	}
 | 	Identifier '.' '*'
 	{
-		$$ = &ast.GrantLevel {
-			Level: ast.GrantLevelDB,
-			DBName: $1,
-		}
+		$$ = grantObject(yyVAL.span, grantName(syntaxIdent(yylex, $1, yyS[yypt-2].span)), grantStar(yyS[yypt].span))
 	}
 |	Identifier '.' Identifier
 	{
-		$$ = &ast.GrantLevel {
-			Level: ast.GrantLevelTable,
-			DBName: $1,
-			TableName: $3,
-		}
+		$$ = grantObject(yyVAL.span, grantName(syntaxIdent(yylex, $1, yyS[yypt-2].span)), grantName(syntaxIdent(yylex, $3, yyS[yypt].span)))
 	}
 |	Identifier
 	{
-		$$ = &ast.GrantLevel {
-			Level: ast.GrantLevelTable,
-			TableName: $1,
-		}
+		$$ = grantObject(yyVAL.span, grantName(syntaxIdent(yylex, $1, yyS[yypt].span)))
 	}
 
 
@@ -11795,9 +12089,10 @@ RevokeStmt:
 		$$ = &ast.RevokeStmt{
 			Privs: $2.([]*ast.PrivElem),
 			ObjectType: $4.(ast.ObjectTypeType),
-			Level: $5.(*ast.GrantLevel),
+			Object: $5.(*ast.GrantObject),
 			Users: $7.([]*ast.UserSpec),
 		}
+		$$.SetSpan(yyVAL.span)
 	 }
 
 
@@ -11840,13 +12135,14 @@ LoadDataStmt:
 		if $15 != nil {
 			x.ColumnAssignments = $15.([]*ast.Assignment)
 		}
-		columns := []*ast.ColumnName{}
+		columns := []ast.QualifiedName{}
 		for _, v := range x.ColumnsAndUserVars {
 			if v.ColumnName != nil {
-				columns = append(columns, v.ColumnName)
+				columns = append(columns, *v.ColumnName)
 			}
 		}
 		x.Columns = columns
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -11857,8 +12153,8 @@ IgnoreLines:
 
 
 CharsetOpt:
-	/* EMPTY */ { $$ = "" }
-|	CharsetOrCharacterSet CharsetName { $$ = $2.(string) }
+	/* EMPTY */ { $$ = lex.Ident{} }
+|	CharsetOrCharacterSet CharsetName { $$ = $2.(lex.Ident) }
 
 
 LocalOpt:
@@ -12003,10 +12299,12 @@ LoadDataSetList:
 LoadDataSetItem:
 	SimpleIdent eq ExprOrDefault
 	{
-		$$ = &ast.Assignment{
-			Column:	$1.(*ast.ColumnNameExpr).Name,
-			Expr:	$3,
+		assignment := &ast.Assignment{
+			Target: $1.(*ast.ColumnRef),
+			Expr:   $3,
 		}
+		assignment.SetSpan(yyVAL.span)
+		$$ = assignment
 	}
 
 
@@ -12132,7 +12430,7 @@ ReplicaStartTail:
 	{
 		suffix := $1.(*ast.ReplicaSuffix)
 		channel := $3.(*ast.ReplicaSuffix)
-		suffix.ConnectionOptions = $2.([]*ast.Assignment)
+		suffix.ConnectionOptions = $2.([]*ast.ReplicationOption)
 		suffix.Channel = channel.Channel
 		suffix.HasChannel = channel.HasChannel
 		$$ = suffix
@@ -12140,7 +12438,7 @@ ReplicaStartTail:
 |	ReplicaConnectionOptions ReplicaChannelOpt
 	{
 		suffix := $2.(*ast.ReplicaSuffix)
-		suffix.ConnectionOptions = $1.([]*ast.Assignment)
+		suffix.ConnectionOptions = $1.([]*ast.ReplicationOption)
 		$$ = suffix
 	}
 /* MariaDB places FOR CHANNEL before UNTIL.
@@ -12209,7 +12507,7 @@ ReplicaUntilOpt:
 ReplicaUntil:
 	until ReplicaUntilFileOptions
 	{
-		options := $2.([]*ast.Assignment)
+		options := $2.([]*ast.ReplicationOption)
 		if err := validateReplicaUntilFiles(options); err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -12218,11 +12516,15 @@ ReplicaUntil:
 	}
 |	until sqlBeforeGTIDs eq stringLit
 	{
-		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.Assignment{newReplicationOption($2, ast.NewValueExpr($4))}}
+		opt := newReplicationOption(syntaxIdent(yylex, $2, yyS[yypt-2].span), stringLiteral(yylex, $4, yyS[yypt].span))
+		opt.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
+		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.ReplicationOption{opt}}
 	}
 |	until sqlAfterGTIDs eq stringLit
 	{
-		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.Assignment{newReplicationOption($2, ast.NewValueExpr($4))}}
+		opt := newReplicationOption(syntaxIdent(yylex, $2, yyS[yypt-2].span), stringLiteral(yylex, $4, yyS[yypt].span))
+		opt.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
+		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.ReplicationOption{opt}}
 	}
 |	until sqlAfterMTSGaps
 	{
@@ -12231,19 +12533,21 @@ ReplicaUntil:
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/start-replica */
 |	until masterGTIDPos eq stringLit
 	{
-		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.Assignment{newReplicationOption($2, ast.NewValueExpr($4))}}
+		opt := newReplicationOption(syntaxIdent(yylex, $2, yyS[yypt-2].span), stringLiteral(yylex, $4, yyS[yypt].span))
+		opt.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
+		$$ = &ast.ReplicaSuffix{UntilOptions: []*ast.ReplicationOption{opt}}
 	}
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 ReplicaUntilFileOptions:
-	ReplicationFileOption { $$ = []*ast.Assignment{$1.(*ast.Assignment)} }
-|	ReplicaUntilFileOptions ',' ReplicationFileOption { $$ = append($1.([]*ast.Assignment), $3.(*ast.Assignment)) }
+	ReplicationFileOption { $$ = []*ast.ReplicationOption{$1.(*ast.ReplicationOption)} }
+|	ReplicaUntilFileOptions ',' ReplicationFileOption { $$ = append($1.([]*ast.ReplicationOption), $3.(*ast.ReplicationOption)) }
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 ReplicaConnectionOptionsOpt:
-	/* EMPTY */ { $$ = []*ast.Assignment(nil) }
+	/* EMPTY */ { $$ = []*ast.ReplicationOption(nil) }
 |	ReplicaConnectionOptions
 
 
@@ -12251,44 +12555,63 @@ ReplicaConnectionOptionsOpt:
 ReplicaConnectionOptions:
 	user eq stringLit ReplicaPasswordOpt ReplicaDefaultAuthOpt ReplicaPluginDirOpt
 	{
-		options := []*ast.Assignment{newReplicationOption("USER", ast.NewValueExpr($3))}
-		options = append(options, $4.([]*ast.Assignment)...)
-		options = append(options, $5.([]*ast.Assignment)...)
-		$$ = append(options, $6.([]*ast.Assignment)...)
+		head := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-5].span), stringLiteral(yylex, $3, yyS[yypt-3].span))
+		head.SetSpan(loc.Cover(yyS[yypt-5].span, yyS[yypt-3].span))
+		options := []*ast.ReplicationOption{head}
+		options = append(options, $4.([]*ast.ReplicationOption)...)
+		options = append(options, $5.([]*ast.ReplicationOption)...)
+		$$ = append(options, $6.([]*ast.ReplicationOption)...)
 	}
 |	password eq stringLit ReplicaDefaultAuthOpt ReplicaPluginDirOpt
 	{
-		options := []*ast.Assignment{newReplicationOption("PASSWORD", ast.NewValueExpr($3))}
-		options = append(options, $4.([]*ast.Assignment)...)
-		$$ = append(options, $5.([]*ast.Assignment)...)
+		head := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-4].span), stringLiteral(yylex, $3, yyS[yypt-2].span))
+		head.SetSpan(loc.Cover(yyS[yypt-4].span, yyS[yypt-2].span))
+		options := []*ast.ReplicationOption{head}
+		options = append(options, $4.([]*ast.ReplicationOption)...)
+		$$ = append(options, $5.([]*ast.ReplicationOption)...)
 	}
 |	defaultAuth eq stringLit ReplicaPluginDirOpt
 	{
-		options := []*ast.Assignment{newReplicationOption("DEFAULT_AUTH", ast.NewValueExpr($3))}
-		$$ = append(options, $4.([]*ast.Assignment)...)
+		head := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-3].span), stringLiteral(yylex, $3, yyS[yypt-1].span))
+		head.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-1].span))
+		$$ = append([]*ast.ReplicationOption{head}, $4.([]*ast.ReplicationOption)...)
 	}
 |	pluginDir eq stringLit
 	{
-		$$ = []*ast.Assignment{newReplicationOption("PLUGIN_DIR", ast.NewValueExpr($3))}
+		opt := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		opt.SetSpan(yyVAL.span)
+		$$ = []*ast.ReplicationOption{opt}
 	}
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 ReplicaPasswordOpt:
-	/* EMPTY */ { $$ = []*ast.Assignment(nil) }
-|	password eq stringLit { $$ = []*ast.Assignment{newReplicationOption("PASSWORD", ast.NewValueExpr($3))} }
+	/* EMPTY */ { $$ = []*ast.ReplicationOption(nil) }
+|	password eq stringLit {
+		opt := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		opt.SetSpan(yyVAL.span)
+		$$ = []*ast.ReplicationOption{opt}
+	}
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 ReplicaDefaultAuthOpt:
-	/* EMPTY */ { $$ = []*ast.Assignment(nil) }
-|	defaultAuth eq stringLit { $$ = []*ast.Assignment{newReplicationOption("DEFAULT_AUTH", ast.NewValueExpr($3))} }
+	/* EMPTY */ { $$ = []*ast.ReplicationOption(nil) }
+|	defaultAuth eq stringLit {
+		opt := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		opt.SetSpan(yyVAL.span)
+		$$ = []*ast.ReplicationOption{opt}
+	}
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 ReplicaPluginDirOpt:
-	/* EMPTY */ { $$ = []*ast.Assignment(nil) }
-|	pluginDir eq stringLit { $$ = []*ast.Assignment{newReplicationOption("PLUGIN_DIR", ast.NewValueExpr($3))} }
+	/* EMPTY */ { $$ = []*ast.ReplicationOption(nil) }
+|	pluginDir eq stringLit {
+		opt := newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		opt.SetSpan(yyVAL.span)
+		$$ = []*ast.ReplicationOption{opt}
+	}
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
@@ -12316,7 +12639,7 @@ ChangeMasterStmt:
 		name := $4.(*ast.ReplicaSuffix)
 		channel := $7.(*ast.ReplicaSuffix)
 		stmt := &ast.ChangeMasterStmt{
-			Options: $6.([]*ast.Assignment),
+			Options: $6.([]*ast.ReplicationOption),
 			ConnectionName: name.ConnectionName,
 			HasConnectionName: name.HasConnectionName,
 			Channel: channel.Channel,
@@ -12334,7 +12657,7 @@ ChangeMasterStmt:
 |	change replication source ReplicationLiteralMode to ReplicationOptionList ReplicaChannelOpt
 	{
 		channel := $7.(*ast.ReplicaSuffix)
-		stmt := &ast.ChangeMasterStmt{Replica: true, Options: $6.([]*ast.Assignment), Channel: channel.Channel, HasChannel: channel.HasChannel}
+		stmt := &ast.ChangeMasterStmt{Replica: true, Options: $6.([]*ast.ReplicationOption), Channel: channel.Channel, HasChannel: channel.HasChannel}
 		if err := validateChangeMaster(stmt); err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -12362,11 +12685,11 @@ ReplicationLiteralMode:
 ReplicationOptionList:
 	ReplicationOption
 	{
-		$$ = []*ast.Assignment{$1.(*ast.Assignment)}
+		$$ = []*ast.ReplicationOption{$1.(*ast.ReplicationOption)}
 	}
 |	ReplicationOptionList ',' ReplicationOption
 	{
-		$$ = append($1.([]*ast.Assignment), $3.(*ast.Assignment))
+		$$ = append($1.([]*ast.ReplicationOption), $3.(*ast.ReplicationOption))
 	}
 
 
@@ -12375,73 +12698,90 @@ ReplicationOptionList:
 ReplicationOption:
 	ReplicationStringOptionName eq stringLit
 	{
-		$$ = newReplicationOption($1, ast.NewValueExpr($3))
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationTLSCipherSuitesOptionName eq ReplicationStringOrNullValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationNumericOptionName eq ReplicationUnsignedValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	sourceHeartbeatPeriod eq ReplicationNumber
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationBooleanOptionName eq ReplicationUnsignedValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	requireRowFormat eq ReplicationBinaryValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationStrictBinaryOptionName eq ReplicationStrictBinaryValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationIDListOptionName eq '(' ReplicationIDListOpt ')'
 	{
-		$$ = newReplicationOption($1, &ast.ReplicationOptionValue{Values: $4.([]ast.ExprNode)})
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-4].span), &ast.ReplicationOptionValue{Values: $4.([]ast.ExprNode)})
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	requireTablePrimaryKeyCheck eq ReplicationPrimaryKeyCheckValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	assignGTIDsToAnonymousTransactions eq ReplicationAssignGTIDValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	privilegeChecksUser eq ReplicationPrivilegeValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationFileOption
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
 |	ReplicationStringDefaultOptionName eq ReplicationStringOrDefaultValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationNumericDefaultOptionName eq ReplicationUnsignedOrDefaultValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	masterHeartbeatPeriod eq ReplicationNumberOrDefaultValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationMariaBooleanDefaultOptionName eq ReplicationBoolOrDefaultValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	ReplicationMariaBooleanOptionName eq ReplicationBoolValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	masterUseGTID eq ReplicationUseGTIDValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -12511,13 +12851,13 @@ ReplicationIDListOptionName:
 
 /* https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
 ReplicationStringOrNullValue:
-	stringLit { $$ = ast.NewValueExpr($1) }
-|	null { $$ = ast.NewValueExpr(nil) }
+	stringLit { $$ = stringLiteral(yylex, $1, yyS[yypt].span) }
+|	null { $$ = syntaxLiteral(yylex, pkast.LiteralNull, "null", yyS[yypt].span) }
 
 
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
 ReplicationStringOrDefaultValue:
-	stringLit { $$ = ast.NewValueExpr($1) }
+	stringLit { $$ = stringLiteral(yylex, $1, yyS[yypt].span) }
 |	defaultKwd { $$ = &ast.DefaultExpr{} }
 
 
@@ -12542,8 +12882,8 @@ ReplicationBoolOrDefaultValue:
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
 ReplicationBoolValue:
 	ReplicationUnsignedValue
-|	trueKwd { $$ = ast.NewValueExpr(true) }
-|	falseKwd { $$ = ast.NewValueExpr(false) }
+|	trueKwd { $$ = syntaxLiteral(yylex, pkast.LiteralBoolean, "true", yyS[yypt].span) }
+|	falseKwd { $$ = syntaxLiteral(yylex, pkast.LiteralBoolean, "false", yyS[yypt].span) }
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
@@ -12566,7 +12906,7 @@ ReplicationStrictBinaryValue:
 			yyAppendErr(yylex, yyErrorf(yylex, "Replication boolean option only accepts integer 0 or 1"))
 			return 1
 		}
-		$$ = ast.NewValueExpr($1)
+		$$ = numericLiteral(yylex, $1, yyS[yypt].span)
 	}
 |	ReplicationHexNumber
 	{
@@ -12582,19 +12922,19 @@ ReplicationStrictBinaryValue:
    https://github.com/mysql/mysql-server/blob/8.4/sql/sql_yacc.yy
    https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
 ReplicationUnsignedNumber:
-	NumLiteral { $$ = replicationUnsignedNumber(yyDollar[1].ident) }
+	NumLiteral { $$ = replicationUnsignedNumber(yyDollar[1].ident, yyS[yypt].span) }
 /* MariaDB additionally accepts a leading '+'.
    https://github.com/MariaDB/server/blob/12.3/sql/sql_yacc.yy
    https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
-|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: replicationUnsignedNumber(yyDollar[2].ident)} }
+|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: replicationUnsignedNumber(yyDollar[2].ident, yyS[yypt].span) } } }
 
 
 /* Heartbeat periods use NUM_literal rather than ulong_num/ulonglong_num.
    https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
 ReplicationNumber:
-	NumLiteral { $$ = ast.NewValueExpr($1) }
+	NumLiteral { $$ = $1.(ast.ExprNode) }
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
-|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{Op: opcode.Plus, V: ast.NewValueExpr($2)} }
+|	'+' NumLiteral { $$ = &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{ Op: pkast.Operator(opcode.Plus), Expr: $2.(ast.ExprNode) } } }
 
 
 /* https://github.com/mysql/mysql-server/blob/8.4/sql/sql_yacc.yy */
@@ -12609,7 +12949,7 @@ ReplicationUnsignedValue:
 ReplicationHexNumber:
 	hexLit
 	{
-		value, err := replicationHexNumber($1, yyDollar[1].ident)
+		value, err := replicationHexNumber($1, yyDollar[1].ident, yyS[yypt].span)
 		if err != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
@@ -12648,7 +12988,7 @@ ReplicationAssignGTIDValue:
 			yyAppendErr(yylex, yyErrorf(yylex, "Invalid UUID for ASSIGN_GTIDS_TO_ANONYMOUS_TRANSACTIONS"))
 			return 1
 		}
-		$$ = ast.NewValueExpr($1)
+		$$ = stringLiteral(yylex, $1, yyS[yypt].span)
 	}
 
 
@@ -12663,7 +13003,7 @@ ReplicationPrivilegeValue:
 		}
 		$$ = &ast.ReplicationOptionValue{User: user}
 	}
-|	null { $$ = ast.NewValueExpr(nil) }
+|	null { $$ = syntaxLiteral(yylex, pkast.LiteralNull, "null", yyS[yypt].span) }
 
 
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
@@ -12682,19 +13022,23 @@ ReplicationUseGTIDValue:
 ReplicationFileOption:
 	ReplicationLogFileOptionName eq stringLit
 	{
-		$$ = newReplicationOption($1, ast.NewValueExpr($3))
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), stringLiteral(yylex, $3, yyS[yypt].span))
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	masterLogPos eq ReplicationUnsignedNumber
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	sourceLogPos eq ReplicationUnsignedNumber
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 |	relayLogPos eq ReplicationUnsignedValue
 	{
-		$$ = newReplicationOption($1, $3)
+		$$ = newReplicationOption(syntaxIdent(yylex, $1, yyS[yypt-2].span), $3)
+		$$.(*ast.ReplicationOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -12722,11 +13066,11 @@ ResetStmt:
 	}
 |	reset persist ResetPersistName
 	{
-		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, PersistName: $3.(string)}
+		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, PersistName: $3.(ast.QualifiedName)}
 	}
 |	reset persist ifKwd exists ResetPersistName
 	{
-		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, IfExists: true, PersistName: $5.(string)}
+		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, IfExists: true, PersistName: $5.(ast.QualifiedName)}
 	}
 
 
@@ -12744,7 +13088,7 @@ ResetOption:
 	}
 |	master to NUM
 	{
-		$$ = &ast.ResetStmt{Tp: ast.ResetMaster, Args: []ast.ExprNode{ast.NewValueExpr($3)}}
+		$$ = &ast.ResetStmt{Tp: ast.ResetMaster, Args: []ast.ExprNode{numericLiteral(yylex, $3, yyS[yypt].span)}}
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/reset-slave.html */
 |	slave ResetAllOpt ChannelOpt
@@ -12766,7 +13110,7 @@ ResetOption:
 	}
 |	binaryType logs and gtids to NUM
 	{
-		$$ = &ast.ResetStmt{Tp: ast.ResetBinaryLogsAndGTIDs, Args: []ast.ExprNode{ast.NewValueExpr($6)}}
+		$$ = &ast.ResetStmt{Tp: ast.ResetBinaryLogsAndGTIDs, Args: []ast.ExprNode{numericLiteral(yylex, $6, yyS[yypt].span)}}
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/reset */
 |	query cache
@@ -12785,15 +13129,15 @@ ResetAllOpt:
 ResetPersistName:
 	Identifier
 	{
-		$$ = $1
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span))
 	}
 |	Identifier '.' Identifier
 	{
-		$$ = $1 + "." + $3
+		$$ = syntaxName(syntaxIdent(yylex, $1, yyS[yypt-2].span), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 |	defaultKwd '.' Identifier
 	{
-		$$ = "default." + $3
+		$$ = syntaxName(syntaxIdent(yylex, "default", yyS[yypt-2].span), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 
 
@@ -12818,86 +13162,92 @@ ShutdownStmt:
 HandlerStmt:
 	handler TableName open HandlerAliasOpt
 	{
-		$$ = &ast.HandlerStmt{Tp: ast.HandlerOpen, Table: $2.(*ast.TableName), Alias: $4.(string)}
+		$$ = &ast.HandlerStmt{Tp: ast.HandlerOpen, Table: $2.(*ast.TableName), Alias: $4.(lex.Ident), Index: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	handler Identifier close
 	{
-		$$ = &ast.HandlerStmt{Tp: ast.HandlerClose, Table: &ast.TableName{Name: model.NewCIStr($2)}}
+		$$ = &ast.HandlerStmt{Tp: ast.HandlerClose, Table: syntaxTableName(syntaxName(syntaxIdent(yylex, $2, yyS[yypt-1].span))), Alias: lex.Ident{Span: loc.InvalidSpan()}, Index: lex.Ident{Span: loc.InvalidSpan()}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	handler Identifier read HandlerDirection HandlerWhereOpt HandlerLimitOpt
 	{
 		x := &ast.HandlerStmt{
 			Tp:        ast.HandlerRead,
-			Table:     &ast.TableName{Name: model.NewCIStr($2)},
-			Direction: $4.(string),
+			Table:     syntaxTableName(syntaxName(syntaxIdent(yylex, $2, yyS[yypt-4].span))),
+			Direction: $4.(ast.HandlerReadDirection),
 			Limit:     $6.(*ast.Limit),
 		}
 		if $5 != nil {
 			x.Where = $5.(ast.ExprNode)
 		}
+		x.Alias, x.Index = lex.Ident{Span: loc.InvalidSpan()}, lex.Ident{Span: loc.InvalidSpan()}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 |	handler Identifier read Identifier HandlerRKeyFunction HandlerWhereOpt HandlerLimitOpt
 	{
 		x := &ast.HandlerStmt{
 			Tp:        ast.HandlerRead,
-			Table:     &ast.TableName{Name: model.NewCIStr($2)},
-			HasIndex:  true,
-			Index:     $4,
-			Direction: $5.(string),
+			Table:     syntaxTableName(syntaxName(syntaxIdent(yylex, $2, yyS[yypt-5].span))),
+			Alias:     lex.Ident{Span: loc.InvalidSpan()},
+			Index:     syntaxIdent(yylex, $4, yyS[yypt-3].span),
+			Direction: $5.(ast.HandlerReadDirection),
 			Limit:     $7.(*ast.Limit),
 		}
 		if $6 != nil {
 			x.Where = $6.(ast.ExprNode)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 |	handler Identifier read Identifier HandlerRKeyMode '(' ExpressionList ')' HandlerWhereOpt HandlerLimitOpt
 	{
 		x := &ast.HandlerStmt{
 			Tp:       ast.HandlerRead,
-			Table:    &ast.TableName{Name: model.NewCIStr($2)},
-			HasIndex: true,
-			Index:    $4,
-			Op:       $5.(string),
+			Table:    syntaxTableName(syntaxName(syntaxIdent(yylex, $2, yyS[yypt-8].span))),
+			Alias:    lex.Ident{Span: loc.InvalidSpan()},
+			Index:    syntaxIdent(yylex, $4, yyS[yypt-6].span),
+			Op:       $5.(pkast.Operator),
 			Values:   $7.([]ast.ExprNode),
 			Limit:    $10.(*ast.Limit),
 		}
 		if $9 != nil {
 			x.Where = $9.(ast.ExprNode)
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/handler.html */
 HandlerAliasOpt:
-	/* EMPTY */ { $$ = "" }
-|	Identifier { $$ = $1 }
-|	as Identifier { $$ = $2 }
+	/* EMPTY */ { $$ = lex.Ident{Span: loc.InvalidSpan()} }
+|	Identifier { $$ = syntaxIdent(yylex, $1, yyS[yypt].span) }
+|	as Identifier { $$ = syntaxIdent(yylex, $2, yyS[yypt].span) }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/handler.html */
 HandlerDirection:
-	first { $$ = "FIRST" }
-|	next  { $$ = "NEXT" }
+	first { $$ = ast.HandlerReadFirst }
+|	next  { $$ = ast.HandlerReadNext }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/handler.html */
 HandlerRKeyFunction:
-	first { $$ = "FIRST" }
-|	next  { $$ = "NEXT" }
-|	prev  { $$ = "PREV" }
-|	last  { $$ = "LAST" }
+	first { $$ = ast.HandlerReadFirst }
+|	next  { $$ = ast.HandlerReadNext }
+|	prev  { $$ = ast.HandlerReadPrev }
+|	last  { $$ = ast.HandlerReadLast }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/handler.html */
 HandlerRKeyMode:
-	eq    { $$ = "=" }
-|	ge    { $$ = ">=" }
-|	le    { $$ = "<=" }
-|	'>'   { $$ = ">" }
-|	'<'   { $$ = "<" }
+	eq    { $$ = pkast.OperatorEQ }
+|	ge    { $$ = pkast.OperatorGE }
+|	le    { $$ = pkast.OperatorLE }
+|	'>'   { $$ = pkast.OperatorGT }
+|	'<'   { $$ = pkast.OperatorLT }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/handler.html */
@@ -12905,15 +13255,21 @@ HandlerLimitOpt:
 	/* EMPTY */ { $$ = (*ast.Limit)(nil) }
 |	limit LimitOption
 	{
-		$$ = &ast.Limit{Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption ',' LimitOption
 	{
-		$$ = &ast.Limit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $2.(ast.ExprNode), Count: $4.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 |	limit LimitOption offset LimitOption
 	{
-		$$ = &ast.Limit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}
+		limit := &ast.Limit{BaseLimit: pkast.BaseLimit{Offset: $4.(ast.ExprNode), Count: $2.(ast.ExprNode)}}
+		limit.SetSpan(yyVAL.span)
+		$$ = limit
 	}
 
 
@@ -12930,57 +13286,55 @@ HandlerWhereOpt:
 CacheIndexStmt:
 	cache index CacheIndexTableList in CacheIndexName
 	{
-		x := $5.(*ast.CacheIndexStmt)
-		for _, table := range $3.([]*ast.LoadIndexTable) {
-			x.Tables = append(x.Tables, table.Table)
-			x.TableIndexes = append(x.TableIndexes, table.IndexNames)
-		}
+		x := &ast.CacheIndexStmt{Tables: $3.([]*ast.CacheIndexTable), Target: $5.(*ast.CacheIndexTarget)}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 |	cache index TableName AdminPartition CacheIndexListOpt in CacheIndexName
 	{
-		x := $7.(*ast.CacheIndexStmt)
 		table := $3.(*ast.TableName)
-		partitions := $4.([]model.CIStr)
+		partitions := $4.([]lex.Ident)
 		table.PartitionNames = partitions
-		x.PartitionAll = len(partitions) == 0
-		x.Tables = []*ast.TableName{table}
-		x.TableIndexes = [][]string{$5.([]string)}
+		table.SetSpan(loc.Cover(table.Span(), yyS[yypt-3].span))
+		entry := &ast.CacheIndexTable{Table: table, PartitionAll: len(partitions) == 0, IndexNames: $5.([]lex.Ident)}
+		entry.SetSpan(loc.Cover(table.Span(), yyS[yypt-2].span))
+		x := &ast.CacheIndexStmt{Tables: []*ast.CacheIndexTable{entry}, Target: $7.(*ast.CacheIndexTarget)}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 CacheIndexTableList:
-	CacheIndexTable { $$ = []*ast.LoadIndexTable{$1.(*ast.LoadIndexTable)} }
-|	CacheIndexTableList ',' CacheIndexTable { $$ = append($1.([]*ast.LoadIndexTable), $3.(*ast.LoadIndexTable)) }
+	CacheIndexTable { $$ = []*ast.CacheIndexTable{$1.(*ast.CacheIndexTable)} }
+|	CacheIndexTableList ',' CacheIndexTable { $$ = append($1.([]*ast.CacheIndexTable), $3.(*ast.CacheIndexTable)) }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 CacheIndexTable:
-	TableName CacheIndexListOpt { $$ = &ast.LoadIndexTable{Table: $1.(*ast.TableName), IndexNames: $2.([]string)} }
+	TableName CacheIndexListOpt { entry := &ast.CacheIndexTable{Table: $1.(*ast.TableName), IndexNames: $2.([]lex.Ident)}; entry.SetSpan(yyVAL.span); $$ = entry }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 /* https://dev.mysql.com/doc/refman/8.0/en/load-index.html */
 CacheIndexListOpt:
-	/* EMPTY */ { $$ = []string(nil) }
-|	KeyOrIndex '(' ')' { $$ = []string{} }
-|	KeyOrIndex '(' LoadIndexNameList ')' { $$ = $3.([]string) }
+	/* EMPTY */ { $$ = []lex.Ident(nil) }
+|	KeyOrIndex '(' ')' { $$ = []lex.Ident{} }
+|	KeyOrIndex '(' LoadIndexNameList ')' { $$ = $3.([]lex.Ident) }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 /* https://dev.mysql.com/doc/refman/8.0/en/load-index.html */
 AdminPartition:
-	partition '(' PartitionNameList ')' { $$ = $3.([]model.CIStr) }
-|	partition '(' all ')' { $$ = []model.CIStr{} }
+	partition '(' PartitionNameList ')' { $$ = $3.([]lex.Ident) }
+|	partition '(' all ')' { $$ = []lex.Ident{} }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/cache-index.html */
 CacheIndexName:
-	defaultKwd   { $$ = &ast.CacheIndexStmt{Target: ast.CacheIndexDefaultTarget} }
-|	Identifier   { $$ = &ast.CacheIndexStmt{Target: ast.CacheIndexIdentifierTarget, Name: $1} }
+	defaultKwd   { target := &ast.CacheIndexTarget{Kind: ast.CacheIndexDefaultTarget, Name: lex.Ident{Span: loc.InvalidSpan()}}; target.SetSpan(yyVAL.span); $$ = target }
+|	Identifier   { target := &ast.CacheIndexTarget{Kind: ast.CacheIndexIdentifierTarget, Name: syntaxIdent(yylex, $1, yyS[yypt].span)}; target.SetSpan(yyVAL.span); $$ = target }
 
 
 /* https://dev.mysql.com/doc/refman/8.0/en/load-index.html */
@@ -12988,19 +13342,24 @@ LoadIndexStmt:
 	load index into cache LoadIndexTableList
 	{
 		$$ = &ast.LoadIndexStmt{Tables: $5.([]*ast.LoadIndexTable)}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/load-index.html */
 |	load index into cache TableName AdminPartition CacheIndexListOpt LoadIndexIgnoreLeavesOpt
 	{
 		table := $5.(*ast.TableName)
-		partitions := $6.([]model.CIStr)
+		partitions := $6.([]lex.Ident)
 		table.PartitionNames = partitions
-		$$ = &ast.LoadIndexStmt{Tables: []*ast.LoadIndexTable{{
+		table.SetSpan(loc.Cover(table.Span(), yyS[yypt-2].span))
+		entry := &ast.LoadIndexTable{
 			Table: table,
 			PartitionAll: len(partitions) == 0,
-			IndexNames: $7.([]string),
+			IndexNames: $7.([]lex.Ident),
 			IgnoreLeaves: $8.(bool),
-		}}}
+		}
+		entry.SetSpan(loc.Span{Start: table.Span().Start, End: yyVAL.span.End})
+		$$ = &ast.LoadIndexStmt{Tables: []*ast.LoadIndexTable{entry}}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13020,7 +13379,8 @@ LoadIndexTableList:
 LoadIndexTable:
 	TableName CacheIndexListOpt LoadIndexIgnoreLeavesOpt
 	{
-		$$ = &ast.LoadIndexTable{Table: $1.(*ast.TableName), IndexNames: $2.([]string), IgnoreLeaves: $3.(bool)}
+		$$ = &ast.LoadIndexTable{Table: $1.(*ast.TableName), IndexNames: $2.([]lex.Ident), IgnoreLeaves: $3.(bool)}
+		$$.(*ast.LoadIndexTable).SetSpan(yyVAL.span)
 	}
 
 
@@ -13034,11 +13394,11 @@ LoadIndexIgnoreLeavesOpt:
 LoadIndexNameList:
 	LoadIndexName
 	{
-		$$ = []string{$1}
+		$$ = []lex.Ident{syntaxIdent(yylex, $1, yyS[yypt].span)}
 	}
 |	LoadIndexNameList ',' LoadIndexName
 	{
-		$$ = append($1.([]string), $3)
+		$$ = append($1.([]lex.Ident), syntaxIdent(yylex, $3, yyS[yypt].span))
 	}
 
 
@@ -13057,8 +13417,8 @@ LoadXMLStmt:
 		x.Path = $6
 		x.OnDuplicate = $7.(ast.OnDuplicateKeyHandlingType)
 		x.Table = $10.(*ast.TableName)
-		x.Table.PartitionNames = $11.([]model.CIStr)
-		x.Charset = $12.(string)
+		x.Table.PartitionNames = $11.([]lex.Ident)
+		x.Charset = charsetName($12.(lex.Ident))
 		x.ColumnsAndUserVars = $15.([]*ast.ColumnNameOrUserVar)
 		if $16 != nil {
 			x.ColumnAssignments = $16.([]*ast.Assignment)
@@ -13135,7 +13495,7 @@ RenameUserPair:
 ImportTableStmt:
 	import_ tableKwd from StringList
 	{
-		$$ = &ast.ImportTableStmt{Paths: $4.([]string)}
+		$$ = &ast.ImportTableStmt{Paths: typeStringValues($4.([]*pkast.BaseLiteralExpr))}
 	}
 
 
@@ -13143,7 +13503,8 @@ ImportTableStmt:
 InstallPluginStmt:
 	install plugin Identifier soname stringLit
 	{
-		$$ = &ast.InstallPluginStmt{Name: $3, Soname: $5}
+		$$ = &ast.InstallPluginStmt{Name: syntaxIdent(yylex, $3, yyS[yypt-2].span), Soname: $5}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13151,7 +13512,8 @@ InstallPluginStmt:
 UninstallPluginStmt:
 	uninstall plugin Identifier
 	{
-		$$ = &ast.UninstallPluginStmt{Name: $3}
+		$$ = &ast.UninstallPluginStmt{Name: syntaxIdent(yylex, $3, yyS[yypt].span)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13159,11 +13521,11 @@ UninstallPluginStmt:
 InstallComponentStmt:
 	install component StringList
 	{
-		$$ = &ast.InstallComponentStmt{URIs: $3.([]string)}
+		$$ = &ast.InstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr))}
 	}
 |	install component StringList set ComponentSetValueList
 	{
-		$$ = &ast.InstallComponentStmt{URIs: $3.([]string), SetValues: $5.([]*ast.ComponentSetValue)}
+		$$ = &ast.InstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr)), SetValues: $5.([]*ast.ComponentSetValue)}
 	}
 
 
@@ -13171,7 +13533,7 @@ InstallComponentStmt:
 UninstallComponentStmt:
 	uninstall component StringList
 	{
-		$$ = &ast.UninstallComponentStmt{URIs: $3.([]string)}
+		$$ = &ast.UninstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr))}
 	}
 
 
@@ -13337,9 +13699,9 @@ DiagnosticsConditionItemName:
 DiagnosticsTarget:
 	Identifier
 	{
-		$$ = &ast.DiagnosticsItem{Target: $1}
+		$$ = &ast.DiagnosticsItem{Target: syntaxVariableTarget(yylex, $1, yyS[yypt].span, ast.VariableTargetLocal, ast.VariablePrefixNone)}
 	}
 |	singleAtIdentifier
 	{
-		$$ = &ast.DiagnosticsItem{Target: strings.TrimPrefix($1, "@"), IsUserVar: true}
+		$$ = &ast.DiagnosticsItem{Target: syntaxAtVariableTarget(yylex, $1, yyS[yypt].span)}
 	}

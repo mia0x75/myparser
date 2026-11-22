@@ -11,14 +11,16 @@ import (
 	goatomic "sync/atomic"
 	"unicode"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/loc"
+
 	"github.com/mia0x75/myparser/errors"
 
 	"github.com/mia0x75/myparser/ast"
-	"github.com/mia0x75/myparser/charset"
+	"github.com/mia0x75/myparser/driver"
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/opcode"
 	"github.com/mia0x75/myparser/sqlerr"
-	"github.com/mia0x75/myparser/types"
 )
 
 const (
@@ -100,11 +102,8 @@ type parseState struct {
 	result     []ast.StmtNode
 	src        string
 	lexer      Scanner
-	joinGroups map[*ast.Join]bool
-	// charset and collation are the connection settings applied to plain
-	// string literals, resolved once per Parse call.
-	charset   string
-	collation string
+	joinGroups map[*ast.JoinExpr]bool
+	paramIndex int
 }
 
 var parseStatePool = sync.Pool{
@@ -119,6 +118,7 @@ type stmtTexter interface {
 
 type selectOptionState struct {
 	options     *ast.SelectStmtOpts
+	distinct    bool
 	distinctSet bool
 	prioritySet bool
 }
@@ -130,10 +130,10 @@ func newSelectOptionState() *selectOptionState {
 func applySelectOption(state *selectOptionState, option string) {
 	switch option {
 	case "ALL":
-		state.options.Distinct = false
+		state.distinct = false
 		state.distinctSet = true
 	case "DISTINCT":
-		state.options.Distinct = true
+		state.distinct = true
 		state.distinctSet = true
 	case "LOW_PRIORITY":
 		state.options.Priority = mysql.LowPriority
@@ -159,7 +159,7 @@ func applySelectOption(state *selectOptionState, option string) {
 
 func mergeSelectOptionStates(left, right *selectOptionState) *selectOptionState {
 	if right.distinctSet {
-		left.options.Distinct = right.options.Distinct
+		left.distinct = right.distinct
 		left.distinctSet = true
 	}
 	if right.prioritySet {
@@ -176,43 +176,18 @@ func mergeSelectOptionStates(left, right *selectOptionState) *selectOptionState 
 
 // New returns a Parser object.
 func New() *Parser {
-	if ast.NewValueExpr == nil ||
-		ast.NewParamMarkerExpr == nil ||
-		ast.NewHexLiteral == nil ||
-		ast.NewBitLiteral == nil {
-		panic("no parser driver")
-	}
-
 	return &Parser{}
 }
 
 // Parse parses a query string to raw ast.StmtNode.
-// The charset and collation arguments are the connection settings applied to
-// string literals. An empty argument selects the MySQL default.
+// Charset and collation are retained for API compatibility; syntax nodes do not
+// carry connection settings or inferred literal types.
 func (parser *Parser) Parse(sql, charset, collation string) (stmt []ast.StmtNode, warns []error, err error) {
 	return parser.parse(sql, charset, collation, DialectUnion)
 }
 
-// resolveLiteralCharset fills in the connection charset and collation that are
-// applied to plain string literals.
-func resolveLiteralCharset(charsetName, collation string) (string, string) {
-	if charsetName == "" {
-		charsetName = mysql.DefaultCharset
-	}
-	if collation == "" {
-		// An unknown charset keeps the default collation instead of failing
-		// the parse: callers may pass metadata such as "default".
-		if co, err := charset.GetDefaultCollation(charsetName); err == nil {
-			collation = co
-		} else {
-			collation = mysql.DefaultCollationName
-		}
-	}
-	return charsetName, collation
-}
-
 // parse parses the query for the given target dialect.
-func (parser *Parser) parse(sql, charset, collation string, target Dialect) (stmt []ast.StmtNode, warns []error, err error) {
+func (parser *Parser) parse(sql, _, _ string, target Dialect) (stmt []ast.StmtNode, warns []error, err error) {
 	st := parseStatePool.Get().(*parseState)
 	defer func() {
 		// Drop references to the input SQL and parsed statements so the pool
@@ -226,7 +201,7 @@ func (parser *Parser) parse(sql, charset, collation string, target Dialect) (stm
 	st.src = sql
 	st.result = nil
 	st.joinGroups = nil
-	st.charset, st.collation = resolveLiteralCharset(charset, collation)
+	st.paramIndex = 0
 	st.lexer.sqlMode = parser.sqlModeValue()
 	st.lexer.target = target
 	st.lexer.supportWindowFunc = parser.supportWindowFuncValue()
@@ -249,9 +224,6 @@ func (parser *Parser) parse(sql, charset, collation string, target Dialect) (stm
 			return nil, warns, errors.Trace(err)
 		}
 	}
-	for _, stmt := range st.result {
-		ast.SetFlag(stmt)
-	}
 	return st.result, warns, nil
 }
 
@@ -259,8 +231,10 @@ func (st *parseState) lastErrorAsWarn() {
 	if len(st.lexer.errs) == 0 {
 		return
 	}
-	st.lexer.warns = append(st.lexer.warns, st.lexer.errs[len(st.lexer.errs)-1])
-	st.lexer.errs = st.lexer.errs[:len(st.lexer.errs)-1]
+	i := len(st.lexer.errs) - 1
+	st.lexer.warns = append(st.lexer.warns, st.lexer.errs[i])
+	st.lexer.errs[i] = nil
+	st.lexer.errs = st.lexer.errs[:i]
 }
 
 // ParseOneStmt parses a query and returns an ast.StmtNode.
@@ -308,9 +282,10 @@ func ParseErrorWith(errstr string, lineno int) error {
 // field text was set from its offset to the end of the src string, update
 // the last field text.
 func (st *parseState) setLastSelectFieldText(stmt *ast.SelectStmt, lastEnd int) {
-	lastField := stmt.Fields.Fields[len(stmt.Fields.Fields)-1]
-	if lastField.Offset+len(lastField.Text()) >= len(st.src)-1 {
-		lastField.SetText(st.src[lastField.Offset:lastEnd])
+	lastField := stmt.Fields.Items[len(stmt.Fields.Items)-1]
+	start := int(lastField.Span().Start)
+	if start+len(lastField.Text()) >= len(st.src)-1 {
+		lastField.SetText(st.src[start:lastEnd])
 	}
 }
 
@@ -331,6 +306,12 @@ func (st *parseState) endOffset(v *yySymType) int {
 // only the yyLexer, so grammar actions resolve the owning state through it.
 func yyGetParser(l yyLexer) *parseState {
 	return l.(*Scanner).parser
+}
+
+func (st *parseState) newParamMarkerExpr(span loc.Span) *ast.ParamMarkerExpr {
+	param := ast.NewParamMarkerExprAt(span, st.paramIndex)
+	st.paramIndex++
+	return param
 }
 
 // yyErrorf builds a scanner-located error, mirroring the yyLexer.Errorf that the
@@ -380,7 +361,7 @@ func toInt(l *Scanner, lval *yySymType, str string) int {
 }
 
 func toDecimal(l *Scanner, lval *yySymType, str string) int {
-	dec, err := ast.NewDecimal(str)
+	dec, err := driver.NewDecimal(str)
 	if err != nil {
 		if sqlErr, ok := err.(*mysql.SQLError); ok && sqlErr.Code == mysql.ErrTruncatedWrongValue {
 			l.warns = append(l.warns, err)
@@ -406,7 +387,7 @@ func toFloat(l *Scanner, lval *yySymType, str string) int {
 
 // See https://dev.mysql.com/doc/refman/5.7/en/hexadecimal-literals.html
 func toHex(l *Scanner, lval *yySymType, str string) int {
-	h, err := ast.NewHexLiteral(str)
+	h, err := driver.NewHexLiteral(str)
 	if err != nil {
 		l.AppendError(l.Errorf("hex literal: %v", err))
 		return int(unicode.ReplacementChar)
@@ -417,7 +398,7 @@ func toHex(l *Scanner, lval *yySymType, str string) int {
 
 // See https://dev.mysql.com/doc/refman/5.7/en/bit-type.html
 func toBit(l *Scanner, lval *yySymType, str string) int {
-	b, err := ast.NewBitLiteral(str)
+	b, err := driver.NewBitLiteral(str)
 	if err != nil {
 		l.AppendError(l.Errorf("bit literal: %v", err))
 		return int(unicode.ReplacementChar)
@@ -456,7 +437,7 @@ func hexInteger(text string, allowQuoted bool) (uint64, error) {
 	return value, nil
 }
 
-func sequenceSignedInt(value interface{}, negative bool) (ast.ExprNode, error) {
+func sequenceSignedInt(l yyLexer, value interface{}, negative bool, span loc.Span) (ast.ExprNode, error) {
 	var magnitude uint64
 	switch v := value.(type) {
 	case int64:
@@ -478,31 +459,26 @@ func sequenceSignedInt(value interface{}, negative bool) (ast.ExprNode, error) {
 	}
 	if negative {
 		if magnitude == uint64(math.MaxInt64)+1 {
-			return ast.NewValueExpr(int64(math.MinInt64)), nil
+			return syntaxLiteral(l, pkast.LiteralInteger, strconv.FormatInt(math.MinInt64, 10), span), nil
 		}
-		return ast.NewValueExpr(-int64(magnitude)), nil
+		return syntaxLiteral(l, pkast.LiteralInteger, strconv.FormatInt(-int64(magnitude), 10), span), nil
 	}
-	return ast.NewValueExpr(int64(magnitude)), nil
+	return syntaxLiteral(l, pkast.LiteralInteger, strconv.FormatUint(magnitude, 10), span), nil
 }
 
 func makeSequenceOption(tp ast.SequenceOptionType, value ast.ExprNode) *ast.SequenceOption {
 	option := &ast.SequenceOption{Tp: tp, Value: value}
 	negative := false
-	if unary, ok := value.(*ast.UnaryOperationExpr); ok && (unary.Op == opcode.Plus || unary.Op == opcode.Minus) {
-		negative = unary.Op == opcode.Minus
-		value = unary.V
+	if unary, ok := value.(*ast.UnaryOperationExpr); ok && (unary.Op == pkast.Operator(opcode.Plus) || unary.Op == pkast.Operator(opcode.Minus)) {
+		negative = unary.Op == pkast.Operator(opcode.Minus)
+		value = unary.Expr
 	}
-	if literal, ok := value.(ast.ValueExpr); ok {
-		switch v := literal.GetValue().(type) {
-		case int64:
+	if literal, ok := value.(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralInteger {
+		if v, err := strconv.ParseInt(literal.Value, 10, 64); err == nil {
 			option.Val = v
-		case uint64:
-			if v <= math.MaxInt64 {
-				option.Val = int64(v)
-			} else if negative && v == uint64(math.MaxInt64)+1 {
-				option.Val = math.MinInt64
-				return option
-			}
+		} else if negative && literal.Value == "9223372036854775808" {
+			option.Val = math.MinInt64
+			return option
 		}
 	}
 	if negative {
@@ -511,90 +487,158 @@ func makeSequenceOption(tp ast.SequenceOptionType, value ast.ExprNode) *ast.Sequ
 	return option
 }
 
-func variableTargetNames(targets []*ast.VariableTarget) []string {
-	names := make([]string, len(targets))
-	for i, target := range targets {
-		names[i] = target.LegacyName()
-	}
-	return names
-}
-
 // explainIntoStmt builds the INTO clause of MySQL's EXPLAIN ... INTO @var.
 func explainIntoStmt(target *ast.VariableTarget) *ast.SelectIntoStatement {
 	return &ast.SelectIntoStatement{
 		Tp:      ast.SelectIntoVarList,
-		VarList: variableTargetNames([]*ast.VariableTarget{target}),
 		Targets: []*ast.VariableTarget{target},
 	}
 }
 
-func normalizeSetOprPrecedence(stmt *ast.SetOprStmt) {
-	if stmt == nil || stmt.SelectList == nil {
-		return
+func syntaxVariableTarget(l yyLexer, name string, span loc.Span, kind ast.VariableTargetKind, prefix ast.VariablePrefix) *ast.VariableTarget {
+	target := &ast.VariableTarget{
+		Name:   syntaxName(syntaxIdent(l, name, span)),
+		Kind:   kind,
+		Prefix: prefix,
 	}
-	stmt.SelectList.Selects = normalizeSetOprSelects(stmt.SelectList.Selects)
+	target.SetSpan(span)
+	return target
 }
 
-func normalizeSetOprSelects(selects []ast.Node) []ast.Node {
-	if len(selects) < 2 {
-		return selects
+func syntaxQualifiedVariableTarget(l yyLexer, left, right string, span, rightSpan loc.Span, kind ast.VariableTargetKind) *ast.VariableTarget {
+	target := &ast.VariableTarget{
+		Name: syntaxName(
+			syntaxIdent(l, left, loc.Span{Start: span.Start, End: rightSpan.Start - 1}),
+			syntaxIdent(l, right, rightSpan),
+		),
+		Kind: kind,
 	}
-	type setOprRun struct {
-		nodes []ast.Node
-		op    *ast.SetOprType
-	}
-	var runs []setOprRun
-	current := setOprRun{nodes: []ast.Node{selects[0]}}
-	for _, node := range selects[1:] {
-		op := nodeSetOpr(node)
-		if op != nil && (*op == ast.Intersect || *op == ast.IntersectAll) {
-			current.nodes = append(current.nodes, node)
-			continue
+	target.SetSpan(span)
+	return target
+}
+
+func syntaxAtVariableTarget(l yyLexer, raw string, span loc.Span) *ast.VariableTarget {
+	name := strings.TrimPrefix(raw, "@")
+	nameSpan := span
+	if span.Valid() {
+		nameSpan.Start++
+		source := yyGetParser(l).src[span.Start:span.End]
+		if len(source) >= 3 && (source[1] == '`' || source[1] == '\'' || source[1] == '"') && source[len(source)-1] == source[1] {
+			quote := source[1]
+			name = strings.ReplaceAll(source[2:len(source)-1], string([]byte{quote, quote}), string(quote))
 		}
-		runs = append(runs, current)
-		current = setOprRun{nodes: []ast.Node{node}, op: op}
 	}
-	runs = append(runs, current)
-	if len(runs) == 1 {
-		return selects
-	}
-	out := make([]ast.Node, 0, len(runs))
-	for _, run := range runs {
-		if len(run.nodes) == 1 {
-			setNodeSetOpr(run.nodes[0], run.op)
-			out = append(out, run.nodes[0])
-			continue
+	target := syntaxVariableTarget(l, name, nameSpan, ast.VariableTargetUser, ast.VariablePrefixAt)
+	target.SetSpan(span)
+	return target
+}
+
+func syntaxSystemVariableTarget(l yyLexer, raw string, span loc.Span) *ast.VariableTarget {
+	lower := strings.ToLower(raw)
+	name := strings.TrimPrefix(raw, "@@")
+	target := &ast.VariableTarget{Kind: ast.VariableTargetSystem, Prefix: ast.VariablePrefixDoubleAt}
+	target.ScopeExplicit = true
+	for _, scope := range []struct {
+		prefix string
+		scope  ast.VariableScope
+	}{
+		{prefix: "persist_only.", scope: ast.VariableScopePersistOnly},
+		{prefix: "persist.", scope: ast.VariableScopePersist},
+		{prefix: "global.", scope: ast.VariableScopeGlobal},
+		{prefix: "session.", scope: ast.VariableScopeSession},
+		{prefix: "local.", scope: ast.VariableScopeLocal},
+	} {
+		if strings.HasPrefix(lower, "@@"+scope.prefix) {
+			name = raw[len("@@")+len(scope.prefix):]
+			target.Scope = scope.scope
+			break
 		}
-		setNodeSetOpr(run.nodes[0], nil)
-		out = append(out, &ast.SetOprSelectList{
-			AfterSetOperator: run.op,
-			Selects:          run.nodes,
-		})
 	}
-	return out
+	if target.Scope == ast.VariableScopeImplicit {
+		target.ScopeExplicit = false
+	}
+	name = strings.ToLower(name)
+	nameStart := span.Start + 2
+	if span.Valid() && span.Within(len(yyGetParser(l).src)) {
+		// Recover the exact prefix from the source so quoted identifiers retain Raw.
+		source := yyGetParser(l).src[span.Start:span.End]
+		for _, prefix := range []string{"persist_only.", "persist.", "global.", "session.", "local."} {
+			if len(source) >= 2+len(prefix) && strings.EqualFold(source[2:2+len(prefix)], prefix) {
+				nameStart = span.Start + loc.ByteOffset(2+len(prefix))
+				break
+			}
+		}
+	}
+	nameSpan := loc.Span{Start: nameStart, End: span.End}
+	target.Name = syntaxName(syntaxIdent(l, name, nameSpan))
+	target.SetSpan(span)
+	return target
 }
 
-func nodeSetOpr(n ast.Node) *ast.SetOprType {
-	switch x := n.(type) {
-	case *ast.SelectStmt:
-		return x.AfterSetOperator
-	case *ast.ValuesStmt:
-		return x.AfterSetOperator
-	case *ast.SetOprSelectList:
-		return x.AfterSetOperator
-	}
-	return nil
+type setOprPart struct {
+	query    ast.QueryNode
+	operator ast.SetOprType
 }
 
-func setNodeSetOpr(n ast.Node, op *ast.SetOprType) {
-	switch x := n.(type) {
-	case *ast.SelectStmt:
-		x.AfterSetOperator = op
-	case *ast.ValuesStmt:
-		x.AfterSetOperator = op
-	case *ast.SetOprSelectList:
-		x.AfterSetOperator = op
+type setOprParts []setOprPart
+
+// setOprOperandsPaged reports per-operand ORDER BY/LIMIT on a bare SELECT.
+// Parenthesized operands arrive as QueryTailStmt, where paging is legal.
+func setOprOperandsPaged(parts setOprParts) bool {
+	for _, part := range parts {
+		if sel, ok := part.query.(*ast.SelectStmt); ok && sel != nil && (sel.OrderBy != nil || sel.Limit != nil) {
+			return true
+		}
 	}
+	return false
+}
+
+func setOprPrecedence(operator ast.SetOprType) int {
+	if operator == ast.Intersect || operator == ast.IntersectAll {
+		return 2
+	}
+	return 1
+}
+
+func reduceSetOpr(nodes []ast.QueryNode, operators []ast.SetOprType) ([]ast.QueryNode, []ast.SetOprType) {
+	right := nodes[len(nodes)-1]
+	left := nodes[len(nodes)-2]
+	operator := operators[len(operators)-1]
+	nodes = nodes[:len(nodes)-2]
+	operators = operators[:len(operators)-1]
+	operation := &ast.SetOprStmt{BaseSetOperation: pkast.BaseSetOperation{Left: left, Right: right, Operator: operator}}
+	operation.SetSpan(loc.Cover(left.Span(), right.Span()))
+	nodes = append(nodes, operation)
+	return nodes, operators
+}
+
+func buildSetOpr(parts setOprParts) *ast.SetOprStmt {
+	if len(parts) < 2 || parts[0].query == nil {
+		return nil
+	}
+	nodes := []ast.QueryNode{parts[0].query}
+	operators := make([]ast.SetOprType, 0, len(parts)-1)
+	for _, part := range parts[1:] {
+		if part.query == nil || part.operator == pkast.SetOperationUnknown {
+			return nil
+		}
+		for len(operators) > 0 && setOprPrecedence(operators[len(operators)-1]) >= setOprPrecedence(part.operator) {
+			nodes, operators = reduceSetOpr(nodes, operators)
+		}
+		nodes = append(nodes, part.query)
+		operators = append(operators, part.operator)
+	}
+	for len(operators) > 0 {
+		nodes, operators = reduceSetOpr(nodes, operators)
+	}
+	if len(nodes) != 1 {
+		return nil
+	}
+	operation, ok := nodes[0].(*ast.SetOprStmt)
+	if !ok {
+		return nil
+	}
+	return operation
 }
 
 type parenQueryTailShape struct {
@@ -604,15 +648,28 @@ type parenQueryTailShape struct {
 	Into    *ast.SelectIntoStatement
 }
 
+func (t parenQueryTailShape) pagination() pkast.BaseQueryTail {
+	var tail pkast.BaseQueryTail
+	if t.OrderBy != nil {
+		tail.OrderBy = t.OrderBy
+		tail.SetSpan(t.OrderBy.Span())
+	}
+	if t.Limit != nil {
+		tail.Limit = t.Limit
+		tail.SetSpan(loc.Cover(tail.Span(), t.Limit.Span()))
+	}
+	return tail
+}
+
 // Each tail keeps its query level so an outer LIMIT never replaces an inner one.
-func parenQueryTail(query ast.ResultSetNode, tail parenQueryTailShape) ast.ResultSetNode {
-	out := &ast.SetOprStmt{
-		SelectList: &ast.SetOprSelectList{Selects: []ast.Node{
-			setOprSelectListFromSubSelect(&ast.SubqueryExpr{Query: query}),
-		}},
-		OrderBy: tail.OrderBy,
-		Limit:   tail.Limit,
-		Into:    tail.Into,
+func parenQueryTail(query ast.QueryNode, tail parenQueryTailShape) *ast.QueryTailStmt {
+	out := &ast.QueryTailStmt{
+		BaseQueryTailStmt: pkast.BaseQueryTailStmt{
+			Query:         query,
+			Tail:          tail.pagination(),
+			Parenthesized: true,
+		},
+		Into: tail.Into,
 	}
 	if tail.Lock != nil {
 		out.LockTp = tail.Lock.Type
@@ -622,19 +679,50 @@ func parenQueryTail(query ast.ResultSetNode, tail parenQueryTailShape) ast.Resul
 	return out
 }
 
+func moveSelectPagination(set *ast.SetOprStmt, last *ast.SelectStmt) error {
+	var orderBy *ast.OrderByClause
+	if last.OrderBy != nil {
+		parsed, ok := last.OrderBy.(*ast.OrderByClause)
+		if !ok {
+			return fmt.Errorf("unexpected SELECT ORDER BY clause type %T", last.OrderBy)
+		}
+		orderBy = parsed
+	}
+	var limit *ast.Limit
+	if last.Limit != nil {
+		parsed, ok := last.Limit.(*ast.Limit)
+		if !ok {
+			return fmt.Errorf("unexpected SELECT LIMIT clause type %T", last.Limit)
+		}
+		limit = parsed
+	}
+	set.Tail = (parenQueryTailShape{OrderBy: orderBy, Limit: limit}).pagination()
+	last.OrderBy, last.Limit = nil, nil
+	return nil
+}
+
 // addCrossJoin inserts a conditionless join at the left-most leaf of the
 // right join tree, without crossing explicit parentheses.
 func (st *parseState) addCrossJoin(left, right ast.ResultSetNode) ast.ResultSetNode {
-	if j, ok := right.(*ast.Join); ok && !st.joinGroups[j] {
+	if j, ok := right.(*ast.JoinExpr); ok && !st.joinGroups[j] {
 		j.Left = st.addCrossJoin(left, j.Left)
+		j.SetSpan(loc.Cover(left.Span(), j.Span()))
 		return j
 	}
-	return &ast.Join{Left: left, Right: right, Tp: ast.CrossJoin}
+	return newJoinExpr(loc.Cover(left.Span(), right.Span()), pkast.BaseJoinExpr{
+		Left: left, Right: right, Type: pkast.JoinTypeInner,
+	})
+}
+
+func newJoinExpr(span loc.Span, base pkast.BaseJoinExpr) *ast.JoinExpr {
+	n := &ast.JoinExpr{BaseJoinExpr: base}
+	n.SetSpan(span)
+	return n
 }
 
 // withClauseSelect attaches the common table expression clause to the head
 // query of a WITH statement without duplicating the clause on a nested level.
-func withClauseSelect(clause *ast.WithClause, query ast.ResultSetNode) ast.ResultSetNode {
+func withClauseSelect(clause *ast.WithClause, query ast.QueryNode) ast.QueryNode {
 	switch target := query.(type) {
 	case *ast.SelectStmt:
 		if target.With == nil {
@@ -646,36 +734,35 @@ func withClauseSelect(clause *ast.WithClause, query ast.ResultSetNode) ast.Resul
 			target.With = clause
 			return target
 		}
+	case *ast.QueryTailStmt:
+		if target.With == nil {
+			target.With = clause
+			return target
+		}
 	}
-	outer := parenQueryTail(query, parenQueryTailShape{}).(*ast.SetOprStmt)
+	outer := parenQueryTail(query, parenQueryTailShape{})
 	outer.With = clause
 	return outer
 }
 
-// setOprSelectListFromSubSelect wraps a parenthesized subquery that appears as
-// an operand of a set operation (UNION/EXCEPT/INTERSECT) into a SetOprSelectList,
-// preserving its own limit/order by/with clause.
-func setOprSelectListFromSubSelect(sub *ast.SubqueryExpr) *ast.SetOprSelectList {
-	switch x := sub.Query.(type) {
-	case *ast.SelectStmt:
-		return &ast.SetOprSelectList{Selects: []ast.Node{x}}
-	case *ast.SetOprStmt:
-		return setOprSelectListFromSetOprStmt(x)
+// setOprQueryFromSubSelect preserves explicit grouping for a set-operation
+// operand without using a collection node as a fake one-operand query.
+func setOprQueryFromSubSelect(sub *ast.SubqueryExpr) ast.QueryNode {
+	if sub == nil {
+		return nil
 	}
-	return &ast.SetOprSelectList{}
+	query := sub.Query
+	group := &ast.QueryTailStmt{
+		BaseQueryTailStmt: pkast.BaseQueryTailStmt{Query: query, Parenthesized: true},
+	}
+	group.SetSpan(sub.Span())
+	return group
 }
 
-func setOprSelectListFromSetOprStmt(stmt *ast.SetOprStmt) *ast.SetOprSelectList {
-	// Flatten only tails the list can represent; keep other tails at their query level.
-	if stmt.Into != nil || stmt.LockTp != ast.SelectLockNone || stmt.ProcedureAnalyse != nil {
-		return &ast.SetOprSelectList{Selects: []ast.Node{stmt}}
-	}
-	return &ast.SetOprSelectList{
-		Selects: stmt.SelectList.Selects,
-		With:    stmt.With,
-		Limit:   stmt.Limit,
-		OrderBy: stmt.OrderBy,
-	}
+func newSubqueryExpr(query ast.QueryNode, span loc.Span) *ast.SubqueryExpr {
+	sub := &ast.SubqueryExpr{Query: query}
+	sub.SetSpan(span)
+	return sub
 }
 
 // validateFunctionCall applies argument rules that both pinned servers
@@ -688,21 +775,9 @@ func validateSourceFunctionCall(l yyLexer, offset int, name string, args []ast.E
 	return validateFunctionCall(name, args)
 }
 
-func temporalCastType(tp byte, precision string) *types.FieldType {
-	x := types.NewFieldType(tp)
-	x.Flen, x.Decimal = mysql.GetDefaultFieldLengthAndDecimalForCast(tp)
-	x.CastPrecision = precision
-	if precision != "" {
-		// CastPrecision is authoritative when the value cannot fit the legacy int fields.
-		if value, err := strconv.Atoi(precision); err == nil && value >= 0 && value <= math.MaxInt-20 {
-			x.Decimal = value
-			if value > 0 {
-				x.Flen += 1 + value
-			}
-		}
-	}
-	x.Charset, x.Collate = charset.CharsetBin, charset.CollationBin
-	x.Flag |= mysql.BinaryFlag
+func temporalCastType(tp byte, precision *pkast.BaseLiteralExpr) *ast.TypeName {
+	x := newSyntaxType(tp)
+	x.Modifiers = typeModifiers(precision)
 	return x
 }
 
@@ -742,19 +817,15 @@ func validateFunctionCall(name string, args []ast.ExprNode) error {
 		if len(args) != 1 {
 			return nil
 		}
-		value, ok := args[0].(ast.ValueExpr)
-		if !ok {
-			return fmt.Errorf("NOW precision must be a non-negative integer")
+		if literal, ok := args[0].(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralBoolean {
+			return nil
 		}
-		switch v := value.GetValue().(type) {
-		case int64:
-			if v < 0 {
-				return fmt.Errorf("NOW precision must be a non-negative integer")
+		if literal, ok := args[0].(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralInteger {
+			if _, err := strconv.ParseUint(literal.Value, 10, 64); err == nil {
+				return nil
 			}
-		case uint64:
-		default:
-			return fmt.Errorf("NOW precision must be a non-negative integer")
 		}
+		return fmt.Errorf("NOW precision must be a non-negative integer")
 	case "JSON_ARRAYAGG":
 		if len(args) != 1 {
 			return fmt.Errorf("JSON_ARRAYAGG requires one argument")
@@ -778,9 +849,6 @@ func setSelectInto(st *ast.SelectStmt, in interface{}) error {
 	}
 	x := in.(*ast.SelectIntoStatement)
 	st.Into = x
-	if x.Tp == ast.SelectIntoVarList {
-		st.IntoVars = x.VarList
-	}
 	return nil
 }
 
@@ -795,11 +863,14 @@ func validateQueryBoundaries(stmt ast.StmtNode) error {
 
 func newKillStmt(query bool, expr ast.ExprNode) *ast.KillStmt {
 	stmt := &ast.KillStmt{Query: query, Expr: expr}
-	if value, ok := expr.(ast.ValueExpr); ok {
-		switch id := value.GetValue().(type) {
-		case int64:
-			stmt.ConnectionID, stmt.Expr = uint64(id), nil
-		case uint64:
+	if literal, ok := expr.(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralBoolean {
+		if literal.Value == "true" {
+			stmt.ConnectionID = 1
+		}
+		stmt.Expr = nil
+	}
+	if literal, ok := expr.(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralInteger {
+		if id, err := strconv.ParseUint(literal.Value, 10, 64); err == nil {
 			stmt.ConnectionID, stmt.Expr = id, nil
 		}
 	}
@@ -816,7 +887,7 @@ func (v *queryBoundaryValidator) Enter(n ast.Node) (ast.Node, bool) {
 	}
 	switch x := n.(type) {
 	case *ast.FuncCastExpr:
-		if x.Tp != nil && x.Tp.Tp == mysql.TypeJSON {
+		if x.Type != nil && x.Type.Keyword() == "JSON" {
 			expr := x.Expr
 			for {
 				paren, ok := expr.(*ast.ParenthesesExpr)
@@ -825,16 +896,21 @@ func (v *queryBoundaryValidator) Enter(n ast.Node) (ast.Node, bool) {
 				}
 				expr = paren.Expr
 			}
-			if value, ok := expr.(ast.ValueExpr); ok {
-				// Empty JSON text is left to runtime validation.
-				if text, ok := value.GetValue().(string); ok && text != "" && !json.Valid([]byte(text)) {
-					v.err = fmt.Errorf("invalid JSON text in argument 1 to function cast_as_json")
-				}
+			// Empty JSON text is left to runtime validation.
+			if text, ok := literalStringValue(expr); ok && text != "" && !json.Valid([]byte(text)) {
+				v.err = fmt.Errorf("invalid JSON text in argument 1 to function cast_as_json")
 			}
 		}
 	case *ast.SetOprStmt:
-		v.err = validateSetOprBoundaries(x.SelectList)
+		v.err = validateSetOprBoundaries(x)
 		if v.err != nil {
+			return n, true
+		}
+	case *ast.QueryTailStmt:
+		if inner, ok := x.Query.(*ast.QueryTailStmt); ok && inner.Into != nil &&
+			(x.Into != nil || x.Tail.OrderBy != nil || x.Tail.Limit != nil ||
+				x.LockTp != ast.SelectLockNone || x.ProcedureAnalyse != nil) {
+			v.err = fmt.Errorf("a query tail cannot follow a parenthesized INTO clause")
 			return n, true
 		}
 	case *ast.SubqueryExpr:
@@ -842,8 +918,8 @@ func (v *queryBoundaryValidator) Enter(n ast.Node) (ast.Node, bool) {
 			v.err = fmt.Errorf("INTO is not allowed inside a subquery")
 			return n, true
 		}
-	case *ast.TableSource:
-		if queryHasTrailingInto(x.Source) {
+	case ast.TableSourceNode:
+		if core := x.TableSourceCore(); core != nil && queryHasTrailingInto(core.Source) {
 			v.err = fmt.Errorf("INTO is not allowed in a derived table")
 			return n, true
 		}
@@ -866,28 +942,43 @@ func (v *queryBoundaryValidator) Leave(n ast.Node) (ast.Node, bool) {
 // parenthesized operand may carry its own ORDER BY and LIMIT. MySQL also
 // accepts SELECT ... INTO ... FROM in the final parenthesized operand, while
 // both servers reject a query-tail INTO there; BeforeFrom distinguishes them.
-func validateSetOprBoundaries(list *ast.SetOprSelectList) error {
-	if list == nil {
+func validateSetOprBoundaries(stmt *ast.SetOprStmt) error {
+	if stmt == nil {
 		return nil
 	}
-	for i, operand := range list.Selects {
-		last := i == len(list.Selects)-1
-		switch x := operand.(type) {
-		case *ast.SelectStmt:
-			if !last && (x.OrderBy != nil || x.Limit != nil || x.LockTp != ast.SelectLockNone || queryHasTrailingInto(x)) {
-				return fmt.Errorf("ORDER BY, LIMIT, locking clauses, and INTO must follow the last set operation operand")
-			}
-		case *ast.SetOprSelectList:
-			if queryHasTrailingInto(x) {
-				return fmt.Errorf("INTO is not allowed in a parenthesized set operation operand")
-			}
-			if err := validateSetOprBoundaries(x); err != nil {
+	if stmt.Left == nil || stmt.Right == nil {
+		return fmt.Errorf("set operation contains a nil operand")
+	}
+	if err := validateSetOperand(stmt.Left, false); err != nil {
+		return err
+	}
+	if err := validateSetOperand(stmt.Right, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSetOperand(operand ast.QueryNode, last bool) error {
+	switch x := operand.(type) {
+	case *ast.SelectStmt:
+		if !last && (x.OrderBy != nil || x.Limit != nil || x.LockTp != ast.SelectLockNone || queryHasTrailingInto(x)) {
+			return fmt.Errorf("ORDER BY, LIMIT, locking clauses, and INTO must follow the last set operation operand")
+		}
+	case *ast.QueryTailStmt:
+		if queryHasTrailingInto(x) {
+			return fmt.Errorf("INTO is not allowed in a parenthesized set operation operand")
+		}
+		if nested, ok := x.Query.(*ast.SetOprStmt); ok {
+			if err := validateSetOprBoundaries(nested); err != nil {
 				return err
 			}
-		case *ast.SetOprStmt:
-			if x.Into != nil {
-				return fmt.Errorf("INTO cannot be followed by another query tail or set operation")
-			}
+		}
+	case *ast.SetOprStmt:
+		if x.Into != nil {
+			return fmt.Errorf("INTO cannot be followed by another query tail or set operation")
+		}
+		if err := validateSetOprBoundaries(x); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -898,12 +989,9 @@ func queryHasTrailingInto(node ast.Node) bool {
 	case *ast.SelectStmt:
 		return x.Into != nil && !x.Into.BeforeFrom
 	case *ast.SetOprStmt:
-		return x.Into != nil || queryHasTrailingInto(x.SelectList)
-	case *ast.SetOprSelectList:
-		if x == nil || len(x.Selects) == 0 {
-			return false
-		}
-		return queryHasTrailingInto(x.Selects[len(x.Selects)-1])
+		return x.Into != nil || queryHasTrailingInto(x.Left) || queryHasTrailingInto(x.Right)
+	case *ast.QueryTailStmt:
+		return x.Into != nil || queryHasTrailingInto(x.Query)
 	}
 	return false
 }
@@ -927,7 +1015,7 @@ func attachProcedureAnalyse(stmt ast.StmtNode, clause *ast.ProcedureAnalyseClaus
 		if x.ProcedureAnalyse != nil {
 			return fmt.Errorf("duplicate PROCEDURE ANALYSE clause")
 		}
-		if x.Into != nil || len(x.IntoVars) > 0 {
+		if x.Into != nil {
 			return fmt.Errorf("PROCEDURE ANALYSE cannot be combined with INTO")
 		}
 		if x.LockTp != ast.SelectLockNone {
@@ -946,8 +1034,8 @@ func attachProcedureAnalyse(stmt ast.StmtNode, clause *ast.ProcedureAnalyseClaus
 		if x.LockTp != ast.SelectLockNone {
 			return fmt.Errorf("a locking clause must follow PROCEDURE ANALYSE")
 		}
-		if trailing := trailingSetOprSelect(x.SelectList); trailing != nil {
-			if trailing.Into != nil || len(trailing.IntoVars) > 0 {
+		if trailing := trailingSetOprSelect(x); trailing != nil {
+			if trailing.Into != nil {
 				return fmt.Errorf("PROCEDURE ANALYSE cannot be combined with INTO")
 			}
 			if trailing.LockTp != ast.SelectLockNone {
@@ -962,17 +1050,21 @@ func attachProcedureAnalyse(stmt ast.StmtNode, clause *ast.ProcedureAnalyseClaus
 	}
 }
 
-func trailingSetOprSelect(list *ast.SetOprSelectList) *ast.SelectStmt {
-	if list == nil || len(list.Selects) == 0 {
+func trailingSetOprSelect(stmt *ast.SetOprStmt) *ast.SelectStmt {
+	if stmt == nil {
 		return nil
 	}
-	switch x := list.Selects[len(list.Selects)-1].(type) {
+	return trailingQuerySelect(stmt.Right)
+}
+
+func trailingQuerySelect(node ast.QueryNode) *ast.SelectStmt {
+	switch x := node.(type) {
 	case *ast.SelectStmt:
 		return x
-	case *ast.SetOprSelectList:
-		return trailingSetOprSelect(x)
 	case *ast.SetOprStmt:
-		return trailingSetOprSelect(x.SelectList)
+		return trailingQuerySelect(x.Right)
+	case *ast.QueryTailStmt:
+		return trailingQuerySelect(x.Query)
 	default:
 		return nil
 	}

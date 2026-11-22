@@ -1,16 +1,20 @@
 package ast_test
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/mia0x75/myparser/ast"
+	dformat "github.com/mia0x75/myparser/format"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 func TestDDLVisitorCover(t *testing.T) {
 	ce := &checkExpr{}
-	constraint := &Constraint{Keys: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, Refer: &ReferenceDef{}, Option: &IndexOption{}}
+	constraint := &Constraint{BaseConstraint: pkast.BaseConstraint{Keys: []pkast.IndexKeyPartNode{&IndexKeyPart{}, &IndexKeyPart{}}, Refer: &ReferenceDef{}}, Option: &IndexOption{}}
 
-	alterTableSpec := &AlterTableSpec{Constraint: constraint, Options: []*TableOption{{}}, NewTable: &TableName{}, NewColumns: []*ColumnDef{{Name: &ColumnName{}}}, OldColumnName: &ColumnName{}, Position: &ColumnPosition{RelativeColumn: &ColumnName{}}}
+	alterTableSpec := &AlterTableSpec{Constraint: constraint, Options: []*TableOption{{}}, NewTable: &TableName{}, NewColumns: []*ColumnDef{{Name: QualifiedName{Parts: nil}}}, OldColumnName: &QualifiedName{Parts: nil}, Position: &ColumnPosition{RelativeColumn: &QualifiedName{Parts: nil}}}
 
 	stmts := []struct {
 		node             Node
@@ -22,13 +26,13 @@ func TestDDLVisitorCover(t *testing.T) {
 		{&DropDatabaseStmt{}, 0, 0},
 		{&DropIndexStmt{Table: &TableName{}}, 0, 0},
 		{&DropTableStmt{Tables: []*TableName{{}, {}}}, 0, 0},
-		{&RenameTableStmt{OldTable: &TableName{}, NewTable: &TableName{}}, 0, 0},
+		{&RenameTableStmt{Renames: []*TableRename{{Table: &TableName{}, NewTable: &TableName{}}}}, 0, 0},
 		{&TruncateTableStmt{Table: &TableName{}}, 0, 0},
 
 		// TODO: cover children
 		{&AlterTableStmt{Table: &TableName{}, Specs: []*AlterTableSpec{alterTableSpec}}, 0, 0},
 		{&CreateIndexStmt{Table: &TableName{}}, 0, 0},
-		{&CreateTableStmt{Table: &TableName{}, ReferTable: &TableName{}}, 0, 0},
+		{&CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Table: &TableName{}}, ReferTable: &TableName{}}, 0, 0},
 		{&CreateViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
 		{&AlterViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
 		{&DropFunctionStmt{Name: &TableName{}}, 0, 0},
@@ -45,12 +49,12 @@ func TestDDLVisitorCover(t *testing.T) {
 		{&AlterEventStmt{Name: &TableName{}, RenameName: &TableName{}}, 0, 0},
 		{&ReturnStmt{Expr: ce}, 1, 1},
 		{&AlterTableSpec{}, 0, 0},
-		{&ColumnDef{Name: &ColumnName{}, Options: []*ColumnOption{{Expr: ce}}}, 1, 1},
+		{&ColumnDef{Name: QualifiedName{Parts: nil}, Options: []*ColumnOption{{Expr: ce}}}, 1, 1},
 		{&ColumnOption{Expr: ce}, 1, 1},
-		{&ColumnPosition{RelativeColumn: &ColumnName{}}, 0, 0},
-		{&Constraint{Keys: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, Refer: &ReferenceDef{}, Option: &IndexOption{}}, 0, 0},
-		{&IndexColName{Column: &ColumnName{}}, 0, 0},
-		{&ReferenceDef{Table: &TableName{}, IndexColNames: []*IndexColName{{Column: &ColumnName{}}, {Column: &ColumnName{}}}, OnDelete: &OnDeleteOpt{}, OnUpdate: &OnUpdateOpt{}}, 0, 0},
+		{&ColumnPosition{RelativeColumn: &QualifiedName{Parts: nil}}, 0, 0},
+		{&Constraint{BaseConstraint: pkast.BaseConstraint{Keys: []pkast.IndexKeyPartNode{&IndexKeyPart{}, &IndexKeyPart{}}, Refer: &ReferenceDef{}}, Option: &IndexOption{}}, 0, 0},
+		{&IndexKeyPart{}, 0, 0},
+		{&ReferenceDef{BaseReferenceDef: pkast.BaseReferenceDef{Table: &TableName{}, Columns: []pkast.IndexKeyPartNode{&IndexKeyPart{}, &IndexKeyPart{}}}, OnDelete: &OnDeleteOpt{}, OnUpdate: &OnUpdateOpt{}}, 0, 0},
 	}
 
 	for _, v := range stmts {
@@ -66,13 +70,13 @@ func TestDDLVisitorCover(t *testing.T) {
 	}
 }
 
-func TestDDLIndexColNameRestore(t *testing.T) {
+func TestDDLIndexKeyPartRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"world", "`world`"},
 		{"world(2)", "`world`(2)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateIndexStmt).IndexColNames[0]
+		return node.(*CreateIndexStmt).Keys[0]
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE INDEX idx ON t (%s) USING HASH", extractNodeFunc)
 }
@@ -85,7 +89,8 @@ func TestDDLOnDeleteRestore(t *testing.T) {
 		{"on delete no action", "ON DELETE NO ACTION"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateTableStmt).Constraints[1].Refer.OnDelete
+		ref := node.(*CreateTableStmt).Constraints[1].ConstraintCore().Refer
+		return ref.(*ReferenceDef).OnDelete
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) REFERENCES parent(id) %s)", extractNodeFunc)
 }
@@ -98,7 +103,8 @@ func TestDDLOnUpdateRestore(t *testing.T) {
 		{"on update no action", "ON UPDATE NO ACTION"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateTableStmt).Constraints[1].Refer.OnUpdate
+		ref := node.(*CreateTableStmt).Constraints[1].ConstraintCore().Refer
+		return ref.(*ReferenceDef).OnUpdate
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE child ( id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) REFERENCES parent(id) ON DELETE CASCADE %s )", extractNodeFunc)
 }
@@ -121,12 +127,12 @@ func TestDDLIndexOption(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "CREATE INDEX idx ON t (a) %s", extractNodeFunc)
 }
 
-func TestTableToTableRestore(t *testing.T) {
+func TestTableRenameRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"t1 to t2", "`t1` TO `t2`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*RenameTableStmt).TableToTables[0]
+		return node.(*RenameTableStmt).Renames[0]
 	}
 	RunNodeRestoreTest(t, testCases, "rename table %s", extractNodeFunc)
 }
@@ -143,7 +149,7 @@ func TestDDLReferenceDefRestore(t *testing.T) {
 		{"REFERENCES parent(id)", "REFERENCES `parent`(`id`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateTableStmt).Constraints[1].Refer
+		return node.(*CreateTableStmt).Constraints[1].ConstraintCore().Refer
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT, parent_id INT, INDEX par_ind (parent_id), FOREIGN KEY (parent_id) %s)", extractNodeFunc)
 }
@@ -197,7 +203,7 @@ func TestDDLColumnOptionRestore(t *testing.T) {
 		{"COLLATE utf8_bin", "COLLATE utf8_bin"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateTableStmt).Cols[0].Options[0]
+		return node.(*CreateTableStmt).Columns[0].(*ColumnDef).Options[0]
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE child (id INT %s)", extractNodeFunc)
 }
@@ -262,7 +268,7 @@ func TestDDLColumnDefRestore(t *testing.T) {
 		{"id INT(11) REFERENCES parent(id)", "`id` INT(11) REFERENCES `parent`(`id`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*CreateTableStmt).Cols[0]
+		return node.(*CreateTableStmt).Columns[0]
 	}
 	RunNodeRestoreTest(t, testCases, "CREATE TABLE t (%s)", extractNodeFunc)
 }
@@ -400,8 +406,8 @@ func TestAlterTableSpecRestore(t *testing.T) {
 		{"RENAME INDEX a TO b", "RENAME INDEX `a` TO `b`"},
 		{"ADD PARTITION", "ADD PARTITION"},
 		{"ADD PARTITION ( PARTITION P1 VALUES LESS THAN (2010))", "ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010))"},
-		{"ADD PARTITION ( PARTITION P2 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P2` VALUES LESS THAN (MAXVALUE))"},
-		{"ADD PARTITION (\nPARTITION P1 VALUES LESS THAN (2010),\nPARTITION P2 VALUES LESS THAN (2015),\nPARTITION P3 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010), PARTITION `P2` VALUES LESS THAN (2015), PARTITION `P3` VALUES LESS THAN (MAXVALUE))"},
+		{"ADD PARTITION ( PARTITION P2 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P2` VALUES LESS THAN MAXVALUE)"},
+		{"ADD PARTITION (\nPARTITION P1 VALUES LESS THAN (2010),\nPARTITION P2 VALUES LESS THAN (2015),\nPARTITION P3 VALUES LESS THAN MAXVALUE)", "ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010), PARTITION `P2` VALUES LESS THAN (2015), PARTITION `P3` VALUES LESS THAN MAXVALUE)"},
 		{"ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT 'AP_START \\' AP_END')", "ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'AP_START '' AP_END')"},
 		{"ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'xxx')", "ADD PARTITION (PARTITION `p5` VALUES LESS THAN (2010) COMMENT = 'xxx')"},
 		{"coalesce partition 3", "COALESCE PARTITION 3"},
@@ -412,6 +418,28 @@ func TestAlterTableSpecRestore(t *testing.T) {
 		return node.(*AlterTableStmt).Specs[0]
 	}
 	RunNodeRestoreTest(t, testCases, "ALTER TABLE t %s", extractNodeFunc)
+}
+
+// TestTableOptionAndDatabaseOptionRestore pins the option value spelling used
+// by DDL: charset/collation values are plain strings, and an unknown option
+// type is rejected instead of silently skipped.
+func TestTableOptionAndDatabaseOptionRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"create database d default charset utf8 collate utf8_bin", "CREATE DATABASE `d` CHARACTER SET = utf8 COLLATE = utf8_bin"},
+		{"create table t (a int) default charset utf8mb4 collate utf8mb4_bin", "CREATE TABLE `t` (`a` INT) DEFAULT CHARACTER SET = utf8mb4 DEFAULT COLLATE = utf8mb4_bin"},
+		{"create table t (a int) charset latin1", "CREATE TABLE `t` (`a` INT) DEFAULT CHARACTER SET = latin1"},
+	}
+	RunNodeRestoreTest(t, testCases, "%s", func(node Node) Node { return node })
+
+	for _, node := range []*TableOption{{Tp: TableOptionNone, StrValue: "utf8"}, {Tp: TableOptionNone}} {
+		var out strings.Builder
+		if err := node.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil || out.Len() != 0 {
+			t.Fatalf("TableOption.Restore(%+v) = %q, %v; want no output and an error", node, out.String(), err)
+		}
+	}
+	if err := (&DatabaseOption{Tp: DatabaseOptionNone, Value: "utf8"}).Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &strings.Builder{})); err == nil {
+		t.Fatal("DatabaseOption.None accepted")
+	}
 }
 
 func TestAlterViewRestore(t *testing.T) {
@@ -470,6 +498,30 @@ func TestCreateTriggerRestore(t *testing.T) {
 		return node
 	}
 	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+}
+
+func TestLoadIndexStmtRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"load index into cache t", "LOAD INDEX INTO CACHE `t`"},
+		{"load index into cache t1, t2", "LOAD INDEX INTO CACHE `t1`, `t2`"},
+		{"load index into cache t partition (all) index (k) ignore leaves", "LOAD INDEX INTO CACHE `t` PARTITION (ALL) INDEX (`k`) IGNORE LEAVES"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node
+	}
+	RunNodeRestoreTest(t, testCases, "%s", extractNodeFunc)
+
+	for _, node := range []*LoadIndexStmt{
+		{},
+		{Tables: []*LoadIndexTable{nil}},
+		{Tables: []*LoadIndexTable{{PartitionAll: true, IgnoreLeaves: true}}},
+		{Tables: []*LoadIndexTable{{Table: &TableName{}, IndexNames: []lex.Ident{{}}}}},
+	} {
+		var out strings.Builder
+		if err := node.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil {
+			t.Fatalf("LoadIndexStmt.Restore(%+v) succeeded: %q", node, out.String())
+		}
+	}
 }
 
 func TestCreateEventRestore(t *testing.T) {

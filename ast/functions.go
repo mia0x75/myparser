@@ -3,12 +3,14 @@ package ast
 import (
 	"fmt"
 	"io"
+	"strings"
+
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 
 	"github.com/mia0x75/myparser/errors"
 
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/model"
-	"github.com/mia0x75/myparser/types"
 )
 
 var (
@@ -309,72 +311,100 @@ const (
 
 // FuncCallExpr is for function expression.
 type FuncCallExpr struct {
-	funcNode
-	// FnName is the function name.
-	FnName model.CIStr
-	// Args is the function args.
-	Args []ExprNode
+	pkast.BaseCallExpr
 	// IntervalFirst preserves leading INTERVAL, whose unary-minus semantics differ by dialect.
 	IntervalFirst bool
+	// Charset preserves the charset in CONVERT(expr USING charset).
+	Charset lex.Ident
+	// Syntax modifiers are not evaluated arguments.
+	Unit           lex.Ident
+	FormatSelector lex.Ident
+	TrimDirection  TrimDirectionType
 }
+
+func (*FuncCallExpr) functionExpression() {}
 
 // Restore implements Node interface.
 func (n *FuncCallExpr) Restore(ctx *format.RestoreCtx) error {
+	if err := n.validateSyntaxArgs(); err != nil {
+		return err
+	}
 	if n.IntervalFirst {
-		ctx.WriteKeyWord("INTERVAL ")
+		ctx.WriteKeyword("INTERVAL ")
 		if err := n.Args[1].Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore FuncCallExpr interval")
 		}
 		ctx.WritePlain(" ")
-		ctx.WriteKeyWord(n.Args[2].(ValueExpr).GetString())
+		ctx.WriteKeyword(n.Unit.Name)
 		ctx.WritePlain(" + ")
 		return n.Args[0].Restore(ctx)
 	}
-	if isBuiltinFunc(n.FnName.L) {
-		ctx.WriteKeyWord(n.FnName.O)
+	if isBuiltinFunc(strings.ToLower(n.Name.Name)) {
+		ctx.WriteKeyword(n.Name.Name)
 	} else {
-		ctx.WritePlain(n.FnName.O)
+		ctx.WritePlain(n.Name.Name)
 	}
 	ctx.WritePlain("(")
-	switch n.FnName.L {
+	switch strings.ToLower(n.Name.Name) {
 	case "convert":
 		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCastExpr.Expr")
 		}
-		ctx.WriteKeyWord(" USING ")
-		ctx.WriteKeyWord(n.Args[1].GetType().Charset)
+		ctx.WriteKeyword(" USING ")
+		ctx.WriteKeyword(n.Charset.Name)
 	case "adddate", "subdate", "date_add", "date_sub":
 		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
 		ctx.WritePlain(", ")
-		ctx.WriteKeyWord("INTERVAL ")
+		ctx.WriteKeyword("INTERVAL ")
 		if err := n.Args[1].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
 		ctx.WritePlain(" ")
-		ctx.WriteKeyWord(n.Args[2].(ValueExpr).GetString())
+		ctx.WriteKeyword(n.Unit.Name)
 	case "extract":
-		ctx.WriteKeyWord(n.Args[0].(ValueExpr).GetString())
-		ctx.WriteKeyWord(" FROM ")
-		if err := n.Args[1].Restore(ctx); err != nil {
+		ctx.WriteKeyword(n.Unit.Name)
+		ctx.WriteKeyword(" FROM ")
+		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
 	case "get_format":
-		ctx.WriteKeyWord(n.Args[0].(ValueExpr).GetString())
+		ctx.WriteKeyword(n.FormatSelector.Name)
 		ctx.WritePlain(", ")
-		if err := n.Args[1].Restore(ctx); err != nil {
+		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
 	case "position":
 		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
-		ctx.WriteKeyWord(" IN ")
+		ctx.WriteKeyword(" IN ")
 		if err := n.Args[1].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 		}
 	case "trim":
+		if n.TrimDirection != TrimBothDefault {
+			switch n.TrimDirection {
+			case TrimBoth:
+				ctx.WriteKeyword("BOTH ")
+			case TrimLeading:
+				ctx.WriteKeyword("LEADING ")
+			case TrimTrailing:
+				ctx.WriteKeyword("TRAILING ")
+			}
+			if !isNullSyntaxArgument(n.Args[1]) {
+				if err := n.Args[1].Restore(ctx); err != nil {
+					return err
+				}
+				ctx.WritePlain(" ")
+			}
+			ctx.WriteKeyword("FROM ")
+			if err := n.Args[0].Restore(ctx); err != nil {
+				return err
+			}
+			break
+		}
 		switch len(n.Args) {
 		case 1:
 			if err := n.Args[0].Restore(ctx); err != nil {
@@ -384,38 +414,18 @@ func (n *FuncCallExpr) Restore(ctx *format.RestoreCtx) error {
 			if err := n.Args[1].Restore(ctx); err != nil {
 				return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 			}
-			ctx.WriteKeyWord(" FROM ")
-			if err := n.Args[0].Restore(ctx); err != nil {
-				return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
-			}
-		case 3:
-			switch fmt.Sprint(n.Args[2].(ValueExpr).GetValue()) {
-			case "3":
-				ctx.WriteKeyWord("TRAILING ")
-			case "2":
-				ctx.WriteKeyWord("LEADING ")
-			case "0", "1":
-				ctx.WriteKeyWord("BOTH ")
-			}
-			if n.Args[1].(ValueExpr).GetValue() != nil {
-				if err := n.Args[1].Restore(ctx); err != nil {
-					return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
-				}
-				ctx.WritePlain(" ")
-			}
-			ctx.WriteKeyWord("FROM ")
+			ctx.WriteKeyword(" FROM ")
 			if err := n.Args[0].Restore(ctx); err != nil {
 				return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 			}
 		}
 	case "timestampdiff", "timestampadd":
-		ctx.WriteKeyWord(n.Args[0].(ValueExpr).GetString())
-		for i := 1; i < len(n.Args); {
+		ctx.WriteKeyword(n.Unit.Name)
+		for i := 0; i < len(n.Args); i++ {
 			ctx.WritePlain(", ")
 			if err := n.Args[i].Restore(ctx); err != nil {
 				return errors.Annotatef(err, "An error occurred while restore FuncCallExpr")
 			}
-			i++
 		}
 	default:
 		for i, argv := range n.Args {
@@ -428,22 +438,26 @@ func (n *FuncCallExpr) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	ctx.WritePlain(")")
-	return nil
+	return ctx.Err()
 }
 
 // Format the ExprNode into a Writer.
 func (n *FuncCallExpr) Format(w io.Writer) {
-	if n.IntervalFirst {
-		_, _ = fmt.Fprint(w, "INTERVAL ")
-		n.Args[1].Format(w)
-		_, _ = fmt.Fprintf(w, " %s + ", n.Args[2].(ValueExpr).GetDatumString())
-		n.Args[0].Format(w)
+	if n.validateSyntaxArgs() != nil {
+		_, _ = fmt.Fprint(w, "<invalid function syntax>")
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%s(", n.FnName.L)
+	if n.IntervalFirst {
+		_, _ = fmt.Fprint(w, "INTERVAL ")
+		FormatExpr(n.Args[1], w)
+		_, _ = fmt.Fprintf(w, " %s + ", n.Unit.Name)
+		FormatExpr(n.Args[0], w)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s(", strings.ToLower(n.Name.Name))
 	if !n.specialFormatArgs(w) {
 		for i, arg := range n.Args {
-			arg.Format(w)
+			FormatExpr(arg, w)
 			if i != len(n.Args)-1 {
 				_, _ = fmt.Fprint(w, ", ")
 			}
@@ -454,36 +468,79 @@ func (n *FuncCallExpr) Format(w io.Writer) {
 
 // specialFormatArgs formats argument list for some special functions.
 func (n *FuncCallExpr) specialFormatArgs(w io.Writer) bool {
-	switch n.FnName.L {
+	switch strings.ToLower(n.Name.Name) {
+	case Extract:
+		_, _ = fmt.Fprintf(w, "%s FROM ", n.Unit.Name)
+		FormatExpr(n.Args[0], w)
+		return true
+	case GetFormat:
+		_, _ = fmt.Fprintf(w, "%s, ", n.FormatSelector.Name)
+		FormatExpr(n.Args[0], w)
+		return true
+	case "convert":
+		FormatExpr(n.Args[0], w)
+		_, _ = fmt.Fprint(w, " USING ", n.Charset.Name)
+		return true
 	case DateAdd, DateSub, AddDate, SubDate:
-		n.Args[0].Format(w)
+		FormatExpr(n.Args[0], w)
 		_, _ = fmt.Fprint(w, ", INTERVAL ")
-		n.Args[1].Format(w)
-		_, _ = fmt.Fprintf(w, " %s", n.Args[2].(ValueExpr).GetDatumString())
+		FormatExpr(n.Args[1], w)
+		_, _ = fmt.Fprintf(w, " %s", n.Unit.Name)
 		return true
 	case TimestampAdd, TimestampDiff:
-		_, _ = fmt.Fprintf(w, "%s, ", n.Args[0].(ValueExpr).GetDatumString())
-		n.Args[1].Format(w)
+		_, _ = fmt.Fprintf(w, "%s, ", n.Unit.Name)
+		FormatExpr(n.Args[0], w)
 		_, _ = fmt.Fprint(w, ", ")
-		n.Args[2].Format(w)
+		FormatExpr(n.Args[1], w)
 		return true
+	case Trim:
+		if n.TrimDirection != TrimBothDefault {
+			switch n.TrimDirection {
+			case TrimBoth:
+				_, _ = fmt.Fprint(w, "BOTH ")
+			case TrimLeading:
+				_, _ = fmt.Fprint(w, "LEADING ")
+			case TrimTrailing:
+				_, _ = fmt.Fprint(w, "TRAILING ")
+			}
+			if !isNullSyntaxArgument(n.Args[1]) {
+				FormatExpr(n.Args[1], w)
+				_, _ = fmt.Fprint(w, " ")
+			}
+			_, _ = fmt.Fprint(w, "FROM ")
+			FormatExpr(n.Args[0], w)
+			return true
+		}
+		if len(n.Args) == 2 {
+			FormatExpr(n.Args[1], w)
+			_, _ = fmt.Fprint(w, " FROM ")
+			FormatExpr(n.Args[0], w)
+			return true
+		}
 	}
 	return false
 }
 
 // Accept implements Node interface.
 func (n *FuncCallExpr) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*FuncCallExpr)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*FuncCallExpr](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
 	for i, val := range n.Args {
-		node, ok := val.Accept(v)
+		updated, ok := acceptNode[ExprNode](v, val)
 		if !ok {
 			return n, false
 		}
-		n.Args[i] = node.(ExprNode)
+		n.Args[i] = updated
 	}
 	return v.Leave(n)
 }
@@ -525,7 +582,7 @@ type WeightStringLevelRange struct {
 // WeightStringExpr is a WEIGHT_STRING expression, including its nonstandard
 // AS type and MariaDB LEVEL options.
 type WeightStringExpr struct {
-	funcNode
+	pkast.BaseExpr
 
 	Expr     ExprNode
 	CastType WeightStringCastType
@@ -544,14 +601,22 @@ type WeightStringExpr struct {
 	Reverse    bool
 }
 
+func (*WeightStringExpr) functionExpression() {}
+
 // Restore implements Node interface.
 func (n *WeightStringExpr) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("WEIGHT_STRING")
+	if n == nil || !nodePresent(n.Expr) {
+		return errors.New("restore WeightStringExpr: missing expression")
+	}
+	ctx.WriteKeyword("WEIGHT_STRING")
 	ctx.WritePlain("(")
 	if err := n.Expr.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore WeightStringExpr.Expr")
 	}
 	for i, param := range n.Params {
+		if !nodePresent(param) {
+			return errors.Errorf("restore WeightStringExpr.Params[%d]: missing parameter", i)
+		}
 		ctx.WritePlain(",")
 		if err := param.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore WeightStringExpr.Params[%d]", i)
@@ -559,14 +624,14 @@ func (n *WeightStringExpr) Restore(ctx *format.RestoreCtx) error {
 	}
 	switch n.CastType {
 	case WeightStringCastChar:
-		ctx.WriteKeyWord(" AS CHAR")
+		ctx.WriteKeyword(" AS CHAR")
 		ctx.WritePlainf("(%d)", n.Length)
 	case WeightStringCastBinary:
-		ctx.WriteKeyWord(" AS BINARY")
+		ctx.WriteKeyword(" AS BINARY")
 		ctx.WritePlainf("(%d)", n.Length)
 	}
 	if n.LevelRange != nil {
-		ctx.WriteKeyWord(" LEVEL ")
+		ctx.WriteKeyword(" LEVEL ")
 		ctx.WritePlainf("%d-%d", n.LevelRange.Start, n.LevelRange.End)
 	} else {
 		levels := n.Levels
@@ -574,7 +639,7 @@ func (n *WeightStringExpr) Restore(ctx *format.RestoreCtx) error {
 			levels = []WeightStringLevel{{Number: n.Level, Order: n.LevelOrder, Reverse: n.Reverse}}
 		}
 		if len(levels) > 0 {
-			ctx.WriteKeyWord(" LEVEL ")
+			ctx.WriteKeyword(" LEVEL ")
 		}
 		for i, level := range levels {
 			if i > 0 {
@@ -583,26 +648,26 @@ func (n *WeightStringExpr) Restore(ctx *format.RestoreCtx) error {
 			ctx.WritePlainf("%d", level.Number)
 			switch level.Order {
 			case WeightStringLevelOrderAsc:
-				ctx.WriteKeyWord(" ASC")
+				ctx.WriteKeyword(" ASC")
 			case WeightStringLevelOrderDesc:
-				ctx.WriteKeyWord(" DESC")
+				ctx.WriteKeyword(" DESC")
 			}
 			if level.Reverse {
-				ctx.WriteKeyWord(" REVERSE")
+				ctx.WriteKeyword(" REVERSE")
 			}
 		}
 	}
 	ctx.WritePlain(")")
-	return nil
+	return ctx.Err()
 }
 
 // Format formats the expression into a writer.
 func (n *WeightStringExpr) Format(w io.Writer) {
 	_, _ = fmt.Fprint(w, "WEIGHT_STRING(")
-	n.Expr.Format(w)
+	FormatExpr(n.Expr, w)
 	for _, param := range n.Params {
 		_, _ = fmt.Fprint(w, ",")
-		param.Format(w)
+		FormatExpr(param, w)
 	}
 	switch n.CastType {
 	case WeightStringCastChar:
@@ -641,22 +706,29 @@ func (n *WeightStringExpr) Format(w io.Writer) {
 
 // Accept implements Node interface.
 func (n *WeightStringExpr) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*WeightStringExpr)
-	node, ok := n.Expr.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*WeightStringExpr](newNode)
 	if !ok {
 		return n, false
 	}
-	n.Expr = node.(ExprNode)
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
+	updated, ok := acceptNode[ExprNode](v, n.Expr)
+	if !ok {
+		return n, false
+	}
+	n.Expr = updated
 	for i, param := range n.Params {
-		node, ok := param.Accept(v)
+		updated, ok = acceptNode[ExprNode](v, param)
 		if !ok {
 			return n, false
 		}
-		n.Params[i] = node.(ExprNode)
+		n.Params[i] = updated
 	}
 	return v.Leave(n)
 }
@@ -682,58 +754,73 @@ type CastTimeZone struct {
 // FuncCastExpr is the cast function converting value to another type, e.g, cast(expr AS signed).
 // See https://dev.mysql.com/doc/refman/5.7/en/cast-functions.html
 type FuncCastExpr struct {
-	funcNode
+	pkast.BaseExpr
 	// Expr is the expression to be converted.
 	Expr ExprNode
-	// Tp is the conversion type.
-	Tp *types.FieldType
+	// Type is the conversion type.
+	Type *TypeName
 	// FunctionType is either Cast, Convert or Binary.
 	FunctionType CastFunctionType
 	// TimeZone is only valid for CAST(... AS DATETIME[(fsp)]).
 	TimeZone *CastTimeZone
 }
 
+func (*FuncCastExpr) functionExpression() {}
+
 // Restore implements Node interface.
 func (n *FuncCastExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil || !nodePresent(n.Expr) {
+		return errors.New("restore FuncCastExpr: missing expression")
+	}
+	if n.FunctionType != CastBinaryOperator && n.Type == nil {
+		return errors.New("restore FuncCastExpr: missing type")
+	}
+	if n.TimeZone != nil && !n.TimeZone.Local && !nodePresent(n.TimeZone.Expr) {
+		return errors.New("restore FuncCastExpr: missing time zone expression")
+	}
 	switch n.FunctionType {
 	case CastFunction:
-		ctx.WriteKeyWord("CAST")
+		ctx.WriteKeyword("CAST")
 		ctx.WritePlain("(")
 		if err := n.Expr.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCastExpr.Expr")
 		}
 		if n.TimeZone != nil {
 			if n.TimeZone.Local {
-				ctx.WriteKeyWord(" AT LOCAL")
+				ctx.WriteKeyword(" AT LOCAL")
 			} else {
-				ctx.WriteKeyWord(" AT TIME ZONE ")
+				ctx.WriteKeyword(" AT TIME ZONE ")
 				if n.TimeZone.Interval {
-					ctx.WriteKeyWord("INTERVAL ")
+					ctx.WriteKeyword("INTERVAL ")
 				}
 				if err := n.TimeZone.Expr.Restore(ctx); err != nil {
 					return errors.Annotate(err, "An error occurred while restore FuncCastExpr.TimeZone.Expr")
 				}
 			}
 		}
-		ctx.WriteKeyWord(" AS ")
-		n.Tp.RestoreAsCastType(ctx)
+		ctx.WriteKeyword(" AS ")
+		if err := n.Type.RestoreAsCastType(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore FuncCastExpr.Type")
+		}
 		ctx.WritePlain(")")
 	case CastConvertFunction:
-		ctx.WriteKeyWord("CONVERT")
+		ctx.WriteKeyword("CONVERT")
 		ctx.WritePlain("(")
 		if err := n.Expr.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCastExpr.Expr")
 		}
 		ctx.WritePlain(", ")
-		n.Tp.RestoreAsCastType(ctx)
+		if err := n.Type.RestoreAsCastType(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore FuncCastExpr.Type")
+		}
 		ctx.WritePlain(")")
 	case CastBinaryOperator:
-		ctx.WriteKeyWord("BINARY ")
+		ctx.WriteKeyword("BINARY ")
 		if err := n.Expr.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCastExpr.Expr")
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Format the ExprNode into a Writer.
@@ -741,7 +828,7 @@ func (n *FuncCastExpr) Format(w io.Writer) {
 	switch n.FunctionType {
 	case CastFunction:
 		_, _ = fmt.Fprint(w, "CAST(")
-		n.Expr.Format(w)
+		FormatExpr(n.Expr, w)
 		if n.TimeZone != nil {
 			if n.TimeZone.Local {
 				_, _ = fmt.Fprint(w, " AT LOCAL")
@@ -750,42 +837,56 @@ func (n *FuncCastExpr) Format(w io.Writer) {
 				if n.TimeZone.Interval {
 					_, _ = fmt.Fprint(w, "INTERVAL ")
 				}
-				n.TimeZone.Expr.Format(w)
+				FormatExpr(n.TimeZone.Expr, w)
 			}
 		}
 		_, _ = fmt.Fprint(w, " AS ")
-		n.Tp.FormatAsCastType(w)
+		n.Type.FormatAsCastType(w)
 		_, _ = fmt.Fprint(w, ")")
 	case CastConvertFunction:
 		_, _ = fmt.Fprint(w, "CONVERT(")
-		n.Expr.Format(w)
+		FormatExpr(n.Expr, w)
 		_, _ = fmt.Fprint(w, ", ")
-		n.Tp.FormatAsCastType(w)
+		n.Type.FormatAsCastType(w)
 		_, _ = fmt.Fprint(w, ")")
 	case CastBinaryOperator:
 		_, _ = fmt.Fprint(w, "BINARY ")
-		n.Expr.Format(w)
+		FormatExpr(n.Expr, w)
 	}
 }
 
 // Accept implements Node Accept interface.
 func (n *FuncCastExpr) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*FuncCastExpr)
-	node, ok := n.Expr.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*FuncCastExpr](newNode)
 	if !ok {
 		return n, false
 	}
-	n.Expr = node.(ExprNode)
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
+	updated, ok := acceptNode[ExprNode](v, n.Expr)
+	if !ok {
+		return n, false
+	}
+	n.Expr = updated
 	if n.TimeZone != nil && n.TimeZone.Expr != nil {
-		node, ok = n.TimeZone.Expr.Accept(v)
+		updated, ok = acceptNode[ExprNode](v, n.TimeZone.Expr)
 		if !ok {
 			return n, false
 		}
-		n.TimeZone.Expr = node.(ExprNode)
+		n.TimeZone.Expr = updated
+	}
+	if n.Type != nil {
+		updatedType, ok := acceptNode[*TypeName](v, n.Type)
+		if !ok {
+			return n, false
+		}
+		n.Type = updatedType
 	}
 	return v.Leave(n)
 }
@@ -851,11 +952,7 @@ const (
 
 // AggregateFuncExpr represents aggregate function expression.
 type AggregateFuncExpr struct {
-	funcNode
-	// F is the function name.
-	F string
-	// Args is the function args.
-	Args []ExprNode
+	pkast.BaseCallExpr
 	// Distinct is true, function hence only aggregate distinct values.
 	// For example, column c1 values are "1", "2", "2",  "sum(c1)" is "5",
 	// but "sum(distinct c1)" is "3".
@@ -864,20 +961,63 @@ type AggregateFuncExpr struct {
 	// nil when the clause was not written, in which case the server default
 	// separator applies.
 	Separator ExprNode
+	// Star preserves the bare star of COUNT(*); it is set only for that
+	// call and Args remains empty so star arguments are not evaluated.
+	Star bool
 	// OrderBy is the optional ORDER BY clause of an ordered-set aggregate.
 	OrderBy *OrderByClause
 	// Limit is the optional LIMIT clause of an aggregate function.
 	Limit *Limit
 }
 
+func (*AggregateFuncExpr) functionExpression() {}
+
+func restoreFunctionName(ctx *format.RestoreCtx, name lex.Ident) error {
+	if !name.Present() || name.Quote == lex.QuoteUnquoted && name.Name == "" {
+		return errors.New("function name is missing")
+	}
+	if name.Quote != lex.QuoteUnquoted {
+		ctx.WriteIdent(name)
+		return ctx.Err()
+	}
+	// Bare function names must not terminate the token in hand-built ASTs.
+	for i := 0; i < len(name.Name); i++ {
+		c := name.Name[i]
+		valid := c >= 0x80 || c == '_' || c == '$' ||
+			c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+		if !valid {
+			return errors.New("invalid unquoted function name")
+		}
+	}
+	ctx.WriteKeyword(name.Name)
+	return ctx.Err()
+}
+
 // Restore implements Node interface.
 func (n *AggregateFuncExpr) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord(n.F)
+	if n == nil {
+		return errors.New("aggregate function name is missing")
+	}
+	if n.Star && !strings.EqualFold(n.Name.Name, AggFuncCount) {
+		return errors.Errorf("star is only valid for %s, got %s", AggFuncCount, n.Name.Name)
+	}
+	if n.Star && (n.Distinct || len(n.Args) != 0) {
+		return errors.New("star cannot be combined with DISTINCT or aggregate arguments")
+	}
+	if err := restoreFunctionName(ctx, n.Name); err != nil {
+		return err
+	}
 	ctx.WritePlain("(")
 	if n.Distinct {
-		ctx.WriteKeyWord("DISTINCT ")
+		ctx.WriteKeyword("DISTINCT ")
+	}
+	if n.Star {
+		ctx.WritePlain("*")
 	}
 	for i, argv := range n.Args {
+		if !nodePresent(argv) {
+			return errors.Errorf("AggregateFuncExpr.Args[%d] is nil", i)
+		}
 		if i != 0 {
 			ctx.WritePlain(", ")
 		}
@@ -892,7 +1032,10 @@ func (n *AggregateFuncExpr) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	if n.Separator != nil {
-		ctx.WriteKeyWord(" SEPARATOR ")
+		if !nodePresent(n.Separator) {
+			return errors.New("AggregateFuncExpr.Separator is nil")
+		}
+		ctx.WriteKeyword(" SEPARATOR ")
 		if err := n.Separator.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore AggregateFuncExpr.Separator")
 		}
@@ -904,7 +1047,7 @@ func (n *AggregateFuncExpr) Restore(ctx *format.RestoreCtx) error {
 		}
 	}
 	ctx.WritePlain(")")
-	return nil
+	return ctx.Err()
 }
 
 // Format the ExprNode into a Writer.
@@ -914,38 +1057,67 @@ func (n *AggregateFuncExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *AggregateFuncExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	entered, ok := newNode.(*AggregateFuncExpr)
+	if !ok || entered == nil {
+		return n, false
+	}
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*AggregateFuncExpr)
+	n = entered
 	for i, val := range n.Args {
+		if !nodePresent(val) {
+			return n, false
+		}
 		node, ok := val.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Args[i] = node.(ExprNode)
+		next, ok := node.(ExprNode)
+		if !ok || !nodePresent(next) {
+			return n, false
+		}
+		n.Args[i] = next
 	}
 	if n.Separator != nil {
+		if !nodePresent(n.Separator) {
+			return n, false
+		}
 		node, ok := n.Separator.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Separator = node.(ExprNode)
+		next, ok := node.(ExprNode)
+		if !ok || !nodePresent(next) {
+			return n, false
+		}
+		n.Separator = next
 	}
 	if n.OrderBy != nil {
 		node, ok := n.OrderBy.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.OrderBy = node.(*OrderByClause)
+		next, ok := node.(*OrderByClause)
+		if !ok || next == nil {
+			return n, false
+		}
+		n.OrderBy = next
 	}
 	if n.Limit != nil {
 		node, ok := n.Limit.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Limit = node.(*Limit)
+		next, ok := node.(*Limit)
+		if !ok || next == nil {
+			return n, false
+		}
+		n.Limit = next
 	}
 	return v.Leave(n)
 }
@@ -977,12 +1149,7 @@ const (
 
 // WindowFuncExpr represents window function expression.
 type WindowFuncExpr struct {
-	funcNode
-
-	// F is the function name.
-	F string
-	// Args is the function args.
-	Args []ExprNode
+	pkast.BaseCallExpr
 	// Distinct cannot be true for most window functions, except `max` and `min`.
 	// We need to raise error if it is not allowed to be true.
 	Distinct bool
@@ -996,42 +1163,89 @@ type WindowFuncExpr struct {
 	Spec WindowSpec
 	// WithinGroup is the ordering clause of an ordered-set aggregate.
 	WithinGroup *OrderByClause
+	// Star preserves the bare star of COUNT(*); it is set only for that
+	// call and Args remains empty so star arguments are not evaluated.
+	Star bool
+	// OrderBy, Separator, and Limit preserve GROUP_CONCAT tails on window calls.
+	OrderBy   *OrderByClause
+	Separator ExprNode
+	Limit     *Limit
 }
+
+func (*WindowFuncExpr) functionExpression() {}
 
 // Restore implements Node interface.
 func (n *WindowFuncExpr) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord(n.F)
+	if n == nil {
+		return errors.New("window function name is missing")
+	}
+	if n.Star && !strings.EqualFold(n.Name.Name, AggFuncCount) {
+		return errors.Errorf("star is only valid for %s, got %s", AggFuncCount, n.Name.Name)
+	}
+	if n.Star && (n.Distinct || len(n.Args) != 0) {
+		return errors.New("star cannot be combined with DISTINCT or window arguments")
+	}
+	if err := restoreFunctionName(ctx, n.Name); err != nil {
+		return err
+	}
 	ctx.WritePlain("(")
+	if n.Star {
+		ctx.WritePlain("*")
+	}
 	for i, v := range n.Args {
+		if !nodePresent(v) {
+			return errors.Errorf("WindowFuncExpr.Args[%d] is nil", i)
+		}
 		if i != 0 {
 			ctx.WritePlain(", ")
 		} else if n.Distinct {
-			ctx.WriteKeyWord("DISTINCT ")
+			ctx.WriteKeyword("DISTINCT ")
 		}
 		if err := v.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore WindowFuncExpr.Args[%d]", i)
 		}
 	}
+	if n.OrderBy != nil {
+		ctx.WritePlain(" ")
+		if err := n.OrderBy.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore WindowFuncExpr.OrderBy")
+		}
+	}
+	if n.Separator != nil {
+		if !nodePresent(n.Separator) {
+			return errors.New("WindowFuncExpr.Separator is nil")
+		}
+		ctx.WriteKeyword(" SEPARATOR ")
+		if err := n.Separator.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore WindowFuncExpr.Separator")
+		}
+	}
+	if n.Limit != nil {
+		ctx.WritePlain(" ")
+		if err := n.Limit.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore WindowFuncExpr.Limit")
+		}
+	}
 	ctx.WritePlain(")")
 	if n.WithinGroup != nil {
-		ctx.WriteKeyWord(" WITHIN GROUP (")
+		ctx.WriteKeyword(" WITHIN GROUP (")
 		if err := n.WithinGroup.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore WindowFuncExpr.WithinGroup")
 		}
 		ctx.WritePlain(")")
 	}
 	if n.FromLast {
-		ctx.WriteKeyWord(" FROM LAST")
+		ctx.WriteKeyword(" FROM LAST")
 	}
 	if n.IgnoreNull {
-		ctx.WriteKeyWord(" IGNORE NULLS")
+		ctx.WriteKeyword(" IGNORE NULLS")
 	}
-	ctx.WriteKeyWord(" OVER ")
+	ctx.WriteKeyword(" OVER ")
 	if err := n.Spec.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore WindowFuncExpr.Spec")
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // Format formats the window function expression into a Writer.
@@ -1041,29 +1255,87 @@ func (n *WindowFuncExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *WindowFuncExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return n, false
+	}
 	newNode, skipChildren := v.Enter(n)
+	entered, ok := newNode.(*WindowFuncExpr)
+	if !ok || entered == nil {
+		return n, false
+	}
 	if skipChildren {
 		return v.Leave(newNode)
 	}
-	n = newNode.(*WindowFuncExpr)
+	n = entered
 	for i, val := range n.Args {
+		if !nodePresent(val) {
+			return n, false
+		}
 		node, ok := val.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.Args[i] = node.(ExprNode)
+		next, ok := node.(ExprNode)
+		if !ok || !nodePresent(next) {
+			return n, false
+		}
+		n.Args[i] = next
+	}
+	if n.Separator != nil {
+		if !nodePresent(n.Separator) {
+			return n, false
+		}
+		node, ok := n.Separator.Accept(v)
+		if !ok {
+			return n, false
+		}
+		next, ok := node.(ExprNode)
+		if !ok || !nodePresent(next) {
+			return n, false
+		}
+		n.Separator = next
+	}
+	if n.OrderBy != nil {
+		node, ok := n.OrderBy.Accept(v)
+		if !ok {
+			return n, false
+		}
+		next, ok := node.(*OrderByClause)
+		if !ok || next == nil {
+			return n, false
+		}
+		n.OrderBy = next
+	}
+	if n.Limit != nil {
+		node, ok := n.Limit.Accept(v)
+		if !ok {
+			return n, false
+		}
+		next, ok := node.(*Limit)
+		if !ok || next == nil {
+			return n, false
+		}
+		n.Limit = next
 	}
 	if n.WithinGroup != nil {
 		node, ok := n.WithinGroup.Accept(v)
 		if !ok {
 			return n, false
 		}
-		n.WithinGroup = node.(*OrderByClause)
+		next, ok := node.(*OrderByClause)
+		if !ok || next == nil {
+			return n, false
+		}
+		n.WithinGroup = next
 	}
 	node, ok := n.Spec.Accept(v)
 	if !ok {
 		return n, false
 	}
-	n.Spec = *node.(*WindowSpec)
+	spec, ok := node.(*WindowSpec)
+	if !ok || spec == nil {
+		return n, false
+	}
+	n.Spec = *spec
 	return v.Leave(n)
 }

@@ -1,18 +1,22 @@
 package ast_test
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
-	driver "github.com/mia0x75/myparser/driver"
+	dformat "github.com/mia0x75/myparser/format"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 )
 
 func TestFunctionsVisitorCover(t *testing.T) {
-	valueExpr := NewValueExpr(42)
+	valueExpr := &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "42"}}
 	stmts := []Node{
-		&AggregateFuncExpr{Args: []ExprNode{valueExpr}},
-		&FuncCallExpr{Args: []ExprNode{valueExpr}},
+		&AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Args: []ExprNode{valueExpr}}},
+		&FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Args: []ExprNode{valueExpr}}},
 		&FuncCastExpr{Expr: valueExpr},
 		&WindowFuncExpr{Spec: WindowSpec{}},
 	}
@@ -62,9 +66,102 @@ func TestFuncCallExprRestore(t *testing.T) {
 		{"bit_and(all c1)", "BIT_AND(`c1`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
+}
+
+func TestFuncCallNameKeepsSourceSyntax(t *testing.T) {
+	parser := myparser.New()
+	for _, tc := range []struct {
+		name         string
+		sql          string
+		functionName string
+		raw          string
+		quote        lex.QuoteStyle
+	}{
+		{name: "unquoted", sql: "select MiXeD_fn(1)", functionName: "MiXeD_fn", raw: "MiXeD_fn"},
+		{name: "backtick", sql: "select `MiXeD_fn`(1)", functionName: "MiXeD_fn", raw: "`MiXeD_fn`", quote: lex.QuoteBacktick},
+		{name: "keyword", sql: "SELECT NOW()", functionName: "NOW", raw: "NOW"},
+		{name: "canonical alias", sql: "SELECT CURRENT_TIMESTAMP", functionName: "CURRENT_TIMESTAMP", raw: "CURRENT_TIMESTAMP"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := stmt.(*SelectStmt).Fields.Items[0].Expr.(*FuncCallExpr)
+			if call.Name.Name != tc.functionName || call.Name.Quote != tc.quote {
+				t.Fatalf("function name = %#v", call.Name)
+			}
+			if got, err := call.Name.Span.Slice(tc.sql); err != nil || got != tc.raw || call.Name.Raw != got {
+				t.Fatalf("function name syntax = raw %q, span %q, err %v", call.Name.Raw, got, err)
+			}
+		})
+	}
+}
+
+func TestFuncCallExprFormatRejectsMissingCharset(t *testing.T) {
+	expr := &FuncCallExpr{
+		BaseCallExpr: pkast.BaseCallExpr{
+			Name: lex.Ident{Name: "convert"},
+			Args: []ExprNode{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "value"}}},
+		},
+	}
+
+	var formatted strings.Builder
+	expr.Format(&formatted)
+	if got, want := formatted.String(), "<invalid function syntax>"; got != want {
+		t.Fatalf("Format() = %q, want %q", got, want)
+	}
+}
+
+func TestFuncCallExprRestoreRejectsInvalidCharset(t *testing.T) {
+	expr := &FuncCallExpr{
+		BaseCallExpr: pkast.BaseCallExpr{
+			Name: lex.Ident{Name: "convert"},
+			Args: []ExprNode{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "value"}}},
+		},
+		Charset: lex.Ident{Name: "utf8; DROP TABLE users; --"},
+	}
+	var out strings.Builder
+	err := expr.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out))
+	if err == nil || out.Len() != 0 {
+		t.Fatalf("Restore wrote %q, error = %v; want no output and an error", out.String(), err)
+	}
+}
+
+func TestAggregateFuncStarRestore(t *testing.T) {
+	restore := func(expr ExprNode) string {
+		var out strings.Builder
+		if err := expr.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err != nil {
+			t.Fatalf("Restore: %v", err)
+		}
+		return out.String()
+	}
+	star := &AggregateFuncExpr{
+		BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "count"}},
+		Star:         true,
+	}
+	if got, want := restore(star), "COUNT(*)"; got != want {
+		t.Fatalf("COUNT(*) = %q, want %q", got, want)
+	}
+	if len(star.Args) != 0 {
+		t.Fatalf("star argument = %#v, want none", star.Args)
+	}
+	// Star is only valid for COUNT; other aggregates must reject it.
+	aggStar := &AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "sum"}}, Star: true}
+	if err := aggStar.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &strings.Builder{})); err == nil {
+		t.Fatal("aggregate star restored without error")
+	}
+	for _, invalid := range []*AggregateFuncExpr{
+		{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "count"}, Args: []ExprNode{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}}}}, Star: true},
+		{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "count"}}, Distinct: true, Star: true},
+	} {
+		if err := invalid.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &strings.Builder{})); err == nil {
+			t.Fatal("invalid COUNT(*) combination restored without error")
+		}
+	}
 }
 
 func TestFuncCastExprRestore(t *testing.T) {
@@ -75,7 +172,7 @@ func TestFuncCastExprRestore(t *testing.T) {
 		{"BINARY 'New York'", "BINARY 'New York'"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -88,7 +185,7 @@ func TestAggregateFuncExprRestore(t *testing.T) {
 		{"BIT_OR(test_score)", "BIT_OR(`test_score`)"},
 		{"BIT_XOR(test_score)", "BIT_XOR(`test_score`)"},
 		{"COUNT(test_score)", "COUNT(`test_score`)"},
-		{"COUNT(*)", "COUNT(1)"},
+		{"COUNT(*)", "COUNT(*)"},
 		{"COUNT(DISTINCT scores, results)", "COUNT(DISTINCT `scores`, `results`)"},
 		{"GROUP_CONCAT(a,b)", "GROUP_CONCAT(`a`, `b`)"},
 		{"GROUP_CONCAT(DISTINCT a,b ORDER BY a DESC,b SEPARATOR '|' LIMIT 2 OFFSET 1)", "GROUP_CONCAT(DISTINCT `a`, `b` ORDER BY `a` DESC,`b` SEPARATOR '|' LIMIT 1,2)"},
@@ -110,7 +207,7 @@ func TestAggregateFuncExprRestore(t *testing.T) {
 		{"VARIANCE(test_score)", "VAR_POP(`test_score`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -120,7 +217,7 @@ func TestAggregateFuncExprTailVisitor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := stmt.(*SelectStmt).Fields.Fields[0].Expr.(*AggregateFuncExpr)
+	agg := stmt.(*SelectStmt).Fields.Items[0].Expr.(*AggregateFuncExpr)
 	if len(agg.Args) != 2 || agg.Separator == nil || agg.OrderBy == nil || agg.Limit == nil {
 		t.Fatalf("aggregate tails = %#v", agg)
 	}
@@ -128,7 +225,7 @@ func TestAggregateFuncExprTailVisitor(t *testing.T) {
 	if _, ok := agg.Accept(checker); !ok {
 		t.Fatal("visitor aborted")
 	}
-	for _, node := range []Node{agg.Separator, agg.OrderBy, agg.OrderBy.Items[0].Expr, agg.Limit, agg.Limit.Count, agg.Limit.Offset} {
+	for _, node := range []Node{agg.Separator, agg.OrderBy, agg.OrderBy.Items[0].OrderItemCore().Expr, agg.Limit, agg.Limit.Count, agg.Limit.Offset} {
 		if !checker.seen[node] {
 			t.Fatalf("visitor missed %T", node)
 		}
@@ -145,6 +242,97 @@ func (v *aggregateTailVisitor) Enter(n Node) (Node, bool) {
 }
 
 func (v *aggregateTailVisitor) Leave(n Node) (Node, bool) { return n, true }
+
+func TestCallCarriersVisitorBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		new  func(pkast.BaseCallExpr) ExprNode
+	}{
+		{"aggregate", func(call pkast.BaseCallExpr) ExprNode { return &AggregateFuncExpr{BaseCallExpr: call} }},
+		{"window", func(call pkast.BaseCallExpr) ExprNode { return &WindowFuncExpr{BaseCallExpr: call} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := &sharedPureExpr{}
+			root := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ExprNode{child}})
+			replacement := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "g"}, Args: []ExprNode{child}})
+			var entered []Node
+			got, ok := root.Accept(operatorVisitor{
+				enter: func(n Node) (Node, bool) {
+					entered = append(entered, n)
+					if n == root {
+						return replacement, false
+					}
+					return n, false
+				},
+				leave: func(n Node) (Node, bool) { return n, true },
+			})
+			if !ok || got != replacement || len(entered) < 2 || entered[0] != root || entered[1] != child {
+				t.Fatalf("outer identity lost: %T %v %v", got, ok, entered)
+			}
+			if _, ok := root.Accept(&sharedVisitor{replacement: &BeginStmt{}}); ok {
+				t.Fatal("statement replaced a call argument")
+			}
+			for _, bad := range []Node{&BeginStmt{}, nil} {
+				if _, ok := root.Accept(operatorVisitor{
+					enter: func(n Node) (Node, bool) { return bad, true },
+					leave: func(n Node) (Node, bool) { return n, true },
+				}); ok {
+					t.Fatal("Enter accepted a different outer role")
+				}
+			}
+			for _, control := range []struct {
+				name string
+				v    *sharedVisitor
+				ok   bool
+			}{
+				{"skip", &sharedVisitor{skipRoot: true}, true},
+				{"stop", &sharedVisitor{stop: true}, false},
+			} {
+				t.Run(control.name, func(t *testing.T) {
+					if _, ok := root.Accept(control.v); ok != control.ok {
+						t.Fatalf("Accept=%v, want %v", ok, control.ok)
+					}
+					if control.v.skipRoot && len(control.v.entered) != 1 {
+						t.Fatal("skipped call still visited children")
+					}
+				})
+			}
+			if _, ok := root.Accept(&sharedVisitor{replacement: pureLiteral("7")}); !ok {
+				t.Fatal("same-role expression replacement failed")
+			}
+			failing := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ExprNode{&sharedPureExpr{restoreErr: true}}})
+			var output strings.Builder
+			var marker *pureRestoreError
+			if err := failing.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &output)); !errors.As(err, &marker) {
+				t.Fatalf("argument error chain lost: %v", err)
+			}
+			for _, empty := range []ExprNode{nil, (*LiteralExpr)(nil)} {
+				missing := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ExprNode{empty}})
+				if err := missing.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &output)); err == nil {
+					t.Fatal("nil argument restored without error")
+				}
+				if _, ok := missing.Accept(&sharedVisitor{}); ok {
+					t.Fatal("nil argument visited without failure")
+				}
+			}
+			root = tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ExprNode{child}})
+			if _, ok := root.Accept(&sharedVisitor{replacement: (*LiteralExpr)(nil)}); ok {
+				t.Fatal("typed-nil argument replacement was accepted")
+			}
+		})
+	}
+}
+
+func TestAggregateTypedNilSeparator(t *testing.T) {
+	root := &AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "group_concat"}}, Separator: (*LiteralExpr)(nil)}
+	var output strings.Builder
+	if err := root.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &output)); err == nil {
+		t.Fatal("typed-nil separator restored without error")
+	}
+	if _, ok := root.Accept(&sharedVisitor{}); ok {
+		t.Fatal("typed-nil separator visited without failure")
+	}
+}
 
 func TestConvert(t *testing.T) {
 	// Test case for CONVERT(expr USING transcoding_name).
@@ -173,9 +361,8 @@ func TestConvert(t *testing.T) {
 		}
 
 		st := stmt.(*SelectStmt)
-		expr := st.Fields.Fields[0].Expr.(*FuncCallExpr)
-		charsetArg := expr.Args[1].(*driver.ValueExpr)
-		if got := charsetArg.GetString(); got != testCase.CharsetName {
+		expr := st.Fields.Items[0].Expr.(*FuncCallExpr)
+		if got := expr.Charset.Name; got != testCase.CharsetName {
 			t.Fatalf("got %#v, want %#v", got, testCase.CharsetName)
 		}
 	}
@@ -208,9 +395,12 @@ func TestChar(t *testing.T) {
 		}
 
 		st := stmt.(*SelectStmt)
-		expr := st.Fields.Fields[0].Expr.(*FuncCallExpr)
-		charsetArg := expr.Args[1].(*driver.ValueExpr)
-		if got := charsetArg.GetString(); got != testCase.CharsetName {
+		expr := st.Fields.Items[0].Expr.(*FuncCallExpr)
+		charsetArg, ok := expr.Args[1].(*LiteralExpr)
+		if !ok || charsetArg.Kind != pkast.LiteralString {
+			t.Fatalf("charset argument = %T, want syntax string literal", expr.Args[1])
+		}
+		if got := charsetArg.Value; got != testCase.CharsetName {
 			t.Fatalf("got %#v, want %#v", got, testCase.CharsetName)
 		}
 	}
@@ -225,13 +415,95 @@ func TestWindowFuncExprRestore(t *testing.T) {
 		{"MAX(DISTINCTROW a) OVER (PARTITION BY a)", "MAX(DISTINCT `a`) OVER (PARTITION BY `a`)"},
 		{"MAX(DISTINCT ALL a) OVER (PARTITION BY a)", "MAX(DISTINCT `a`) OVER (PARTITION BY `a`)"},
 		{"MAX(ALL a) OVER (PARTITION BY a)", "MAX(`a`) OVER (PARTITION BY `a`)"},
+		{"COUNT(*) OVER (PARTITION BY a)", "COUNT(*) OVER (PARTITION BY `a`)"},
 		{"FIRST_VALUE(val) IGNORE NULLS OVER (w)", "FIRST_VALUE(`val`) IGNORE NULLS OVER (`w`)"},
 		{"FIRST_VALUE(val) RESPECT NULLS OVER w", "FIRST_VALUE(`val`) OVER `w`"},
 		{"NTH_VALUE(val, 233) FROM LAST IGNORE NULLS OVER w", "NTH_VALUE(`val`, 233) FROM LAST IGNORE NULLS OVER `w`"},
 		{"NTH_VALUE(val, 233) FROM FIRST IGNORE NULLS OVER (w)", "NTH_VALUE(`val`, 233) IGNORE NULLS OVER (`w`)"},
+		{"GROUP_CONCAT(a ORDER BY b LIMIT 2) OVER w", "GROUP_CONCAT(`a` ORDER BY `b` LIMIT 2) OVER `w`"},
+		{"GROUP_CONCAT(a,b ORDER BY b SEPARATOR '|' LIMIT 2,3) OVER w", "GROUP_CONCAT(`a`, `b` ORDER BY `b` SEPARATOR '|' LIMIT 2,3) OVER `w`"},
+		{"COUNT(*) OVER w", "COUNT(*) OVER `w`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s from t", extractNodeFunc)
+}
+
+// TestCallTailsRestoreAndAccept covers COUNT(*) and window aggregate tails
+// independently of parser construction.
+func TestCallTailsRestoreAndAccept(t *testing.T) {
+	restore := func(expr ExprNode) string {
+		var out strings.Builder
+		if err := expr.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err != nil {
+			t.Fatalf("Restore: %v", err)
+		}
+		return out.String()
+	}
+	star := &AggregateFuncExpr{
+		BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "count"}},
+		Star:         true,
+	}
+	if got, want := restore(star), "COUNT(*)"; got != want {
+		t.Fatalf("COUNT(*) = %q, want %q", got, want)
+	}
+	if len(star.Args) != 0 {
+		t.Fatalf("star argument = %#v, want none", star.Args)
+	}
+	aggStar := &AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "sum"}}, Star: true}
+	if err := aggStar.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &strings.Builder{})); err == nil {
+		t.Fatal("aggregate star restored without error")
+	}
+}
+
+// TestWindowTailsRestoreAndAccept covers GROUP_CONCAT tails on window calls.
+func TestWindowTailsRestoreAndAccept(t *testing.T) {
+	tails := &WindowFuncExpr{
+		BaseCallExpr: pkast.BaseCallExpr{
+			Name: lex.Ident{Name: "group_concat"},
+			Args: []ExprNode{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "a"}}, &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "b"}}},
+		},
+		OrderBy:   &OrderByClause{BaseOrderByClause: pkast.BaseOrderByClause{Items: []OrderItemNode{&OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "b"}}}}}}},
+		Separator: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "|"}},
+		Limit:     &Limit{BaseLimit: pkast.BaseLimit{Count: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "2"}}}},
+	}
+	// Hand-built node with valid tails restores cleanly; ORDER BY / SEPARATOR
+	// / LIMIT appear after the window function argument list and before OVER.
+	var out strings.Builder
+	if err := tails.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err != nil {
+		t.Fatalf("restore valid tails: %v", err)
+	}
+	if got, want := out.String(), "GROUP_CONCAT('a', 'b' ORDER BY 'b' SEPARATOR '|' LIMIT 2) OVER ()"; got != want {
+		t.Fatalf("tails restore = %q, want %q", got, want)
+	}
+	// Same-role tail replacement through Accept keeps the structure valid.
+	_, ok := tails.Accept(operatorVisitor{
+		enter: func(n Node) (Node, bool) {
+			switch n {
+			case tails.Separator:
+				return &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: ";"}}, false
+			case tails.Limit:
+				return &Limit{BaseLimit: pkast.BaseLimit{Count: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "5"}}}}, false
+			case tails.OrderBy:
+				return &OrderByClause{BaseOrderByClause: pkast.BaseOrderByClause{Items: []OrderItemNode{&OrderItem{BaseOrderItem: pkast.BaseOrderItem{Expr: &LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "z"}}}}}}}, false
+			}
+			return n, false
+		},
+		leave: func(n Node) (Node, bool) { return n, true },
+	})
+	if !ok {
+		t.Fatal("same-role tail replacement was rejected")
+	}
+	// A same-role visitor that replaces the outer call with a statement must fail.
+	if _, ok := tails.Accept(operatorVisitor{
+		enter: func(n Node) (Node, bool) {
+			if n == tails {
+				return &BeginStmt{}, true
+			}
+			return n, false
+		},
+		leave: func(n Node) (Node, bool) { return n, true },
+	}); ok {
+		t.Fatal("statement replaced a window call")
+	}
 }

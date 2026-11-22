@@ -6,17 +6,19 @@ import (
 	"strconv"
 	"strings"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+	"github.com/mia0x75/parserkit/loc"
+
 	"github.com/mia0x75/myparser/ast"
-	"github.com/mia0x75/myparser/model"
-	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/opcode"
 	"github.com/mia0x75/myparser/types"
 )
 
-func newReplicationOption(name string, value ast.ExprNode) *ast.Assignment {
-	return &ast.Assignment{
-		Column: &ast.ColumnName{Name: model.NewCIStr(strings.ToUpper(name))},
-		Expr:   value,
+func newReplicationOption(name lex.Ident, value ast.ExprNode) *ast.ReplicationOption {
+	return &ast.ReplicationOption{
+		Name: name,
+		Expr: value,
 	}
 }
 
@@ -49,8 +51,15 @@ const (
 // MariaDB-only options and DEFAULT/boolean values must still form a MariaDB statement.
 // https://dev.mysql.com/doc/refman/8.0/en/change-master-to.html
 // https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to
-func replicationOptionDialects(option *ast.Assignment) replicationDialect {
-	name := option.Column.Name.O
+func replicationOptionName(option *ast.ReplicationOption) string {
+	if !option.Name.Present() {
+		return ""
+	}
+	return strings.ToUpper(option.Name.Name)
+}
+
+func replicationOptionDialects(option *ast.ReplicationOption) replicationDialect {
+	name := replicationOptionName(option)
 	dialects := replicationBoth
 	if strings.HasPrefix(name, "SOURCE_") {
 		dialects = replicationMySQL
@@ -74,15 +83,13 @@ func replicationOptionDialects(option *ast.Assignment) replicationDialect {
 		// MariaDB uses ulonglong_num here, which does not accept HEX_NUM.
 		dialects &= replicationMySQL
 	}
-	if value, ok := option.Expr.(ast.ValueExpr); ok {
-		if str, ok := value.GetValue().(string); ok {
-			if strings.Contains(str, "\n") && name != "MASTER_COMPRESSION_ALGORITHMS" && name != "SOURCE_COMPRESSION_ALGORITHMS" && name != "SQL_BEFORE_GTIDS" && name != "SQL_AFTER_GTIDS" {
-				// MySQL's TEXT_STRING_sys_nonewline excludes linefeed characters.
-				dialects &= replicationMariaDB
-			}
-			if (name == "MASTER_PASSWORD" || name == "SOURCE_PASSWORD") && len(str) > 32 {
-				dialects &= replicationMariaDB
-			}
+	if str, ok := literalStringValue(option.Expr); ok {
+		if strings.Contains(str, "\n") && name != "MASTER_COMPRESSION_ALGORITHMS" && name != "SOURCE_COMPRESSION_ALGORITHMS" && name != "SQL_BEFORE_GTIDS" && name != "SQL_AFTER_GTIDS" {
+			// MySQL's TEXT_STRING_sys_nonewline excludes linefeed characters.
+			dialects &= replicationMariaDB
+		}
+		if (name == "MASTER_PASSWORD" || name == "SOURCE_PASSWORD") && len(str) > 32 {
+			dialects &= replicationMariaDB
 		}
 	}
 	if name == "MASTER_HEARTBEAT_PERIOD" || name == "SOURCE_HEARTBEAT_PERIOD" {
@@ -96,9 +103,9 @@ func replicationMariaDBOnlyValue(value ast.ExprNode) bool {
 	case *ast.DefaultExpr:
 		return true
 	case *ast.UnaryOperationExpr:
-		return value.Op == opcode.Plus
-	case ast.ValueExpr:
-		return value.GetType().Flag&mysql.IsBooleanFlag != 0
+		return value.Op == pkast.Operator(opcode.Plus)
+	case *ast.LiteralExpr:
+		return value.Kind == pkast.LiteralBoolean
 	case *ast.ReplicationOptionValue:
 		if slices.ContainsFunc(value.Values, replicationMariaDBOnlyValue) {
 			return true
@@ -124,16 +131,16 @@ func validateChangeMaster(stmt *ast.ChangeMasterStmt) error {
 	useGTID := false
 	for _, option := range stmt.Options {
 		dialects &= replicationOptionDialects(option)
-		if option.Column.Name.O == "MASTER_DELAY" || option.Column.Name.O == "SOURCE_DELAY" {
+		if replicationOptionName(option) == "MASTER_DELAY" || replicationOptionName(option) == "SOURCE_DELAY" {
 			value := option.Expr
 			if unary, ok := value.(*ast.UnaryOperationExpr); ok {
-				value = unary.V
+				value = unary.Expr
 			}
-			if replicationUint(value.(ast.ValueExpr)) > 1<<31-1 {
-				return fmt.Errorf("%s exceeds the maximum delay of 2147483647", option.Column.Name.O)
+			if replicationUint(value) > 1<<31-1 {
+				return fmt.Errorf("%s exceeds the maximum delay of 2147483647", replicationOptionName(option))
 			}
 		}
-		if option.Column.Name.O == "MASTER_USE_GTID" {
+		if replicationOptionName(option) == "MASTER_USE_GTID" {
 			if useGTID {
 				return fmt.Errorf("duplicate MASTER_USE_GTID option")
 			}
@@ -160,10 +167,10 @@ func replicaUntilDialects(suffix *ast.ReplicaSuffix) replicationDialect {
 // UNTIL selects exactly one stopping condition; file and position are required together.
 // https://dev.mysql.com/doc/refman/8.4/en/start-replica.html
 // https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/start-replica
-func validateReplicaUntilFiles(options []*ast.Assignment) error {
+func validateReplicaUntilFiles(options []*ast.ReplicationOption) error {
 	var coordinates uint8
 	for _, option := range options {
-		switch option.Column.Name.O {
+		switch replicationOptionName(option) {
 		case "MASTER_LOG_FILE", "SOURCE_LOG_FILE":
 			coordinates |= 1
 		case "MASTER_LOG_POS", "SOURCE_LOG_POS":
@@ -215,37 +222,48 @@ func validateReplicaStart(suffix *ast.ReplicaSuffix) error {
 
 func replicationBinaryValue(value ast.ExprNode) bool {
 	if unary, ok := value.(*ast.UnaryOperationExpr); ok {
-		return unary.Op == opcode.Plus && replicationBinaryValue(unary.V)
+		return unary.Op == pkast.Operator(opcode.Plus) && replicationBinaryValue(unary.Expr)
 	}
-	literal, ok := value.(ast.ValueExpr)
+	literal, ok := value.(*ast.LiteralExpr)
 	if !ok {
 		return false
 	}
-	switch value := literal.GetValue().(type) {
-	case int64:
-		return value == 0 || value == 1
-	case uint64:
-		return value == 0 || value == 1
-	case float64:
-		return value == 0 || value == 1
-	case *types.MyDecimal:
-		return value.Compare(types.NewDecFromInt(0)) == 0 || value.Compare(types.NewDecFromInt(1)) == 0
+	switch literal.Kind {
+	case pkast.LiteralInteger:
+		n, err := strconv.ParseUint(literal.Value, 10, 64)
+		return err == nil && n <= 1
+	case pkast.LiteralFloat:
+		n, err := strconv.ParseFloat(literal.Value, 64)
+		return err == nil && (n == 0 || n == 1)
+	case pkast.LiteralDecimal:
+		var n types.MyDecimal
+		if err := n.FromString([]byte(literal.Value)); err != nil {
+			return false
+		}
+		return n.Compare(types.NewDecFromInt(0)) == 0 || n.Compare(types.NewDecFromInt(1)) == 0
 	}
 	return false
 }
 
-func replicationUint(value ast.ValueExpr) uint64 {
-	return getUint64FromNUM(value.GetValue())
+func replicationUint(value ast.ExprNode) uint64 {
+	literal, ok := value.(*ast.LiteralExpr)
+	if !ok || literal.Kind != pkast.LiteralInteger {
+		return 0
+	}
+	n, _ := strconv.ParseUint(literal.Value, 10, 64)
+	return n
 }
 
 // The official ulong_num/ulonglong_num actions read the integer prefix and saturate
 // at uint64 on overflow, rather than evaluating the fraction or exponent.
 // https://github.com/mysql/mysql-server/blob/8.4/sql/sql_yacc.yy
 // https://github.com/MariaDB/server/blob/12.3/sql/sql_yacc.yy
-func replicationUnsignedNumber(text string) ast.ExprNode {
+func replicationUnsignedNumber(text string, span loc.Span) ast.ExprNode {
 	number, _ := replicationUnsignedPrefix(text) // The saturated value is intentional.
 	value := replicationIntegerValue(number)
 	value.SetText(text)
+	value.Raw = text
+	value.SetSpan(span)
 	return value
 }
 
@@ -281,11 +299,8 @@ func replicationUnsignedPrefix(text string) (number uint64, overflow bool) {
 	return number, overflow
 }
 
-func replicationIntegerValue(number uint64) ast.ExprNode {
-	if number <= 1<<63-1 {
-		return ast.NewValueExpr(int64(number))
-	}
-	return ast.NewValueExpr(number)
+func replicationIntegerValue(number uint64) *ast.LiteralExpr {
+	return &ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: strconv.FormatUint(number, 10)}}
 }
 
 func replicationHeartbeatDialects(value ast.ExprNode) replicationDialect {
@@ -293,15 +308,32 @@ func replicationHeartbeatDialects(value ast.ExprNode) replicationDialect {
 		return replicationMariaDB
 	}
 	if unary, ok := value.(*ast.UnaryOperationExpr); ok {
-		value = unary.V
+		value = unary.Expr
+	}
+	literal, ok := value.(*ast.LiteralExpr)
+	if !ok {
+		return 0
 	}
 	dialects := replicationBoth
 	var number float64
-	switch value := value.(ast.ValueExpr).GetValue().(type) {
-	case int64:
-		number = float64(value)
-	case uint64:
-		number = float64(value)
+	var native interface{}
+	switch literal.Kind {
+	case pkast.LiteralInteger, pkast.LiteralFloat:
+		converted, err := strconv.ParseFloat(literal.Value, 64)
+		if err != nil {
+			return 0
+		}
+		native = converted
+	case pkast.LiteralDecimal:
+		decimal := new(types.MyDecimal)
+		if err := decimal.FromString([]byte(literal.Value)); err != nil {
+			return 0
+		}
+		native = decimal
+	default:
+		return 0
+	}
+	switch value := native.(type) {
 	case float64:
 		number = value
 	case *types.MyDecimal:
@@ -329,7 +361,7 @@ func replicationHeartbeatDialects(value ast.ExprNode) replicationDialect {
 	return dialects
 }
 
-func replicationHexNumber(value interface{}, text string) (ast.ExprNode, error) {
+func replicationHexNumber(value interface{}, text string, span loc.Span) (ast.ExprNode, error) {
 	if !strings.HasPrefix(strings.ToLower(text), "0x") {
 		return nil, fmt.Errorf("replication numbers require 0x hexadecimal notation, not X'...' string literals")
 	}
@@ -351,6 +383,8 @@ func replicationHexNumber(value interface{}, text string) (ast.ExprNode, error) 
 	}
 	numeric := replicationIntegerValue(number)
 	numeric.SetText(text)
+	numeric.Raw = text
+	numeric.SetSpan(span)
 	return numeric, nil
 }
 

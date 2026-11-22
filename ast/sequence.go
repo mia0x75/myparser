@@ -3,7 +3,6 @@ package ast
 import (
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/types"
 )
 
 var (
@@ -42,34 +41,40 @@ type SequenceOption struct {
 	// literals. Restore prefers it to Val when it is populated.
 	Value ExprNode
 	// Type is the integer type of an AS option.
-	Type *types.FieldType
+	Type *TypeName
 }
 
 // Restore implements Node interface.
 func (n *SequenceOption) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return errors.New("restore SequenceOption: nil option")
+	}
 	switch n.Tp {
 	case SequenceOptionIncrement:
-		ctx.WriteKeyWord("INCREMENT BY ")
+		ctx.WriteKeyword("INCREMENT BY ")
 	case SequenceOptionMinValue:
-		ctx.WriteKeyWord("MINVALUE ")
+		ctx.WriteKeyword("MINVALUE ")
 	case SequenceOptionNoMinValue:
-		ctx.WriteKeyWord("NO MINVALUE")
+		ctx.WriteKeyword("NO MINVALUE")
 	case SequenceOptionMaxValue:
-		ctx.WriteKeyWord("MAXVALUE ")
+		ctx.WriteKeyword("MAXVALUE ")
 	case SequenceOptionNoMaxValue:
-		ctx.WriteKeyWord("NO MAXVALUE")
+		ctx.WriteKeyword("NO MAXVALUE")
 	case SequenceOptionStart:
-		ctx.WriteKeyWord("START WITH ")
+		ctx.WriteKeyword("START WITH ")
 	case SequenceOptionCache:
-		ctx.WriteKeyWord("CACHE ")
+		ctx.WriteKeyword("CACHE ")
 	case SequenceOptionNoCache:
-		ctx.WriteKeyWord("NOCACHE")
+		ctx.WriteKeyword("NOCACHE")
 	case SequenceOptionCycle:
-		ctx.WriteKeyWord("CYCLE")
+		ctx.WriteKeyword("CYCLE")
 	case SequenceOptionNoCycle:
-		ctx.WriteKeyWord("NO CYCLE")
+		ctx.WriteKeyword("NO CYCLE")
 	case SequenceOptionAs:
-		ctx.WriteKeyWord("AS ")
+		if n.Type == nil {
+			return errors.New("restore SequenceOption: missing AS type")
+		}
+		ctx.WriteKeyword("AS ")
 		if err := n.Type.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore SequenceOption.Type")
 		}
@@ -79,6 +84,9 @@ func (n *SequenceOption) Restore(ctx *format.RestoreCtx) error {
 	switch n.Tp {
 	case SequenceOptionIncrement, SequenceOptionMinValue, SequenceOptionMaxValue, SequenceOptionStart, SequenceOptionCache:
 		if n.Value != nil {
+			if !nodePresent(n.Value) {
+				return errors.New("restore SequenceOption: nil value")
+			}
 			if err := n.Value.Restore(ctx); err != nil {
 				return errors.Annotate(err, "An error occurred while restore SequenceOption.Value")
 			}
@@ -86,22 +94,36 @@ func (n *SequenceOption) Restore(ctx *format.RestoreCtx) error {
 			ctx.WritePlainf("%d", n.Val)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *SequenceOption) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*SequenceOption)
-	if n.Value != nil {
-		node, ok := n.Value.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*SequenceOption](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
+	if n.Type != nil {
+		updatedType, ok := acceptNode[*TypeName](v, n.Type)
 		if !ok {
 			return n, false
 		}
-		n.Value = node.(ExprNode)
+		n.Type = updatedType
+	}
+	if n.Value != nil {
+		updated, ok := acceptNode[ExprNode](v, n.Value)
+		if !ok {
+			return n, false
+		}
+		n.Value = updated
 	}
 	return v.Leave(n)
 }
@@ -120,16 +142,19 @@ type CreateSequenceStmt struct {
 
 // Restore implements Node interface.
 func (n *CreateSequenceStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("CREATE ")
+	if n == nil || n.Name == nil {
+		return errors.New("restore CreateSequenceStmt: missing name")
+	}
+	ctx.WriteKeyword("CREATE ")
 	if n.OrReplace {
-		ctx.WriteKeyWord("OR REPLACE ")
+		ctx.WriteKeyword("OR REPLACE ")
 	}
 	if n.Temporary {
-		ctx.WriteKeyWord("TEMPORARY ")
+		ctx.WriteKeyword("TEMPORARY ")
 	}
-	ctx.WriteKeyWord("SEQUENCE ")
+	ctx.WriteKeyword("SEQUENCE ")
 	if n.IfNotExists {
-		ctx.WriteKeyWord("IF NOT EXISTS ")
+		ctx.WriteKeyword("IF NOT EXISTS ")
 	}
 	if err := n.Name.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while splicing CreateSequenceStmt Name")
@@ -140,27 +165,34 @@ func (n *CreateSequenceStmt) Restore(ctx *format.RestoreCtx) error {
 			return errors.Annotate(err, "An error occurred while splicing CreateSequenceStmt Option")
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *CreateSequenceStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*CreateSequenceStmt)
-	node, ok := n.Name.Accept(v)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*CreateSequenceStmt](newNode)
 	if !ok {
 		return n, false
 	}
-	n.Name = node.(*TableName)
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
+	updated, ok := acceptNode[*TableName](v, n.Name)
+	if !ok {
+		return n, false
+	}
+	n.Name = updated
 	for i, opt := range n.Options {
-		node, ok := opt.Accept(v)
+		updated, ok := acceptNode[*SequenceOption](v, opt)
 		if !ok {
 			return n, false
 		}
-		n.Options[i] = node.(*SequenceOption)
+		n.Options[i] = updated
 	}
 	return v.Leave(n)
 }
@@ -176,11 +208,17 @@ type DropSequenceStmt struct {
 
 // Restore implements Node interface.
 func (n *DropSequenceStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("DROP SEQUENCE ")
+	if n == nil {
+		return errors.New("restore DropSequenceStmt: nil statement")
+	}
+	ctx.WriteKeyword("DROP SEQUENCE ")
 	if n.IfExists {
-		ctx.WriteKeyWord("IF EXISTS ")
+		ctx.WriteKeyword("IF EXISTS ")
 	}
 	for i, name := range n.Names {
+		if name == nil {
+			return errors.Errorf("restore DropSequenceStmt.Names[%d]: missing name", i)
+		}
 		if i > 0 {
 			ctx.WritePlain(", ")
 		}
@@ -188,22 +226,29 @@ func (n *DropSequenceStmt) Restore(ctx *format.RestoreCtx) error {
 			return errors.Annotatef(err, "An error occurred while splicing DropSequenceStmt Names[%d]", i)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *DropSequenceStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*DropSequenceStmt)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*DropSequenceStmt](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
 	for i, name := range n.Names {
-		node, ok := name.Accept(v)
+		updated, ok := acceptNode[*TableName](v, name)
 		if !ok {
 			return n, false
 		}
-		n.Names[i] = node.(*TableName)
+		n.Names[i] = updated
 	}
 	return v.Leave(n)
 }

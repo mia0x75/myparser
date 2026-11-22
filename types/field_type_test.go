@@ -1,9 +1,12 @@
 package types
 
 import (
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/mia0x75/myparser/charset"
+	"github.com/mia0x75/myparser/format"
 	"github.com/mia0x75/myparser/mysql"
 )
 
@@ -200,5 +203,68 @@ func TestFieldType(t *testing.T) {
 	ft.Decimal = 2
 	if ft.String() != "year(2)" { // Note: Invalid year.
 		t.Fatalf("got %#v, want %#v", ft.String(), "year(2)")
+	}
+}
+
+// failingWriter rejects every write to exercise the restore error path.
+// A short write reports no bytes and no error, which the restore writer
+// must turn into io.ErrShortWrite.
+type failingWriter struct {
+	err   error
+	short bool
+	calls int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.calls++
+	if w.short {
+		return 0, nil
+	}
+	return 0, w.err
+}
+
+func TestFieldTypeRestoreError(t *testing.T) {
+	writeErr := errors.New("write failed")
+	testCases := []struct {
+		name    string
+		restore func(ctx *format.RestoreCtx) error
+		short   bool
+		wantErr error
+	}{
+		{
+			name: "varchar",
+			restore: func(ctx *format.RestoreCtx) error {
+				ft := NewFieldType(mysql.TypeVarchar)
+				ft.Flen = 10
+				return ft.Restore(ctx)
+			},
+			wantErr: writeErr,
+		},
+		{
+			name: "varchar short write",
+			restore: func(ctx *format.RestoreCtx) error {
+				ft := NewFieldType(mysql.TypeVarchar)
+				ft.Flen = 10
+				return ft.Restore(ctx)
+			},
+			short:   true,
+			wantErr: io.ErrShortWrite,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &failingWriter{err: writeErr, short: tc.short}
+			ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, w)
+			err := tc.restore(ctx)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got error %v, want %v", err, tc.wantErr)
+			}
+			if err != ctx.Err() {
+				t.Fatalf("got error %v, want ctx error %v", err, ctx.Err())
+			}
+			if w.calls != 1 {
+				t.Fatalf("got %d writer calls, want 1", w.calls)
+			}
+		})
 	}
 }

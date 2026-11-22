@@ -29,19 +29,25 @@ type TableMaintenanceStmt struct {
 
 // Restore implements Node interface.
 func (n *TableMaintenanceStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return errors.New("restore TableMaintenanceStmt: nil statement")
+	}
 	switch n.Tp {
 	case TableMaintenanceCheck:
-		ctx.WriteKeyWord("CHECK TABLE ")
+		ctx.WriteKeyword("CHECK TABLE ")
 	case TableMaintenanceRepair:
-		ctx.WriteKeyWord("REPAIR TABLE ")
+		ctx.WriteKeyword("REPAIR TABLE ")
 	case TableMaintenanceOptimize:
-		ctx.WriteKeyWord("OPTIMIZE TABLE ")
+		ctx.WriteKeyword("OPTIMIZE TABLE ")
 	case TableMaintenanceChecksum:
-		ctx.WriteKeyWord("CHECKSUM TABLE ")
+		ctx.WriteKeyword("CHECKSUM TABLE ")
 	default:
 		return errors.New("An error occurred while splicing TableMaintenanceStmt")
 	}
 	for i, table := range n.Tables {
+		if table == nil {
+			return errors.Errorf("restore TableMaintenanceStmt.Tables[%d]: missing table", i)
+		}
 		if i != 0 {
 			ctx.WritePlain(", ")
 		}
@@ -51,24 +57,31 @@ func (n *TableMaintenanceStmt) Restore(ctx *format.RestoreCtx) error {
 	}
 	for _, opt := range n.Options {
 		ctx.WritePlain(" ")
-		ctx.WriteKeyWord(opt)
+		ctx.WriteKeyword(opt)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // Accept implements Node Accept interface.
 func (n *TableMaintenanceStmt) Accept(v Visitor) (Node, bool) {
-	newNode, skipChildren := v.Enter(n)
-	if skipChildren {
-		return v.Leave(newNode)
+	if n == nil {
+		return n, false
 	}
-	n = newNode.(*TableMaintenanceStmt)
+	newNode, skipChildren := v.Enter(n)
+	entered, ok := nodeAs[*TableMaintenanceStmt](newNode)
+	if !ok {
+		return n, false
+	}
+	if skipChildren {
+		return v.Leave(entered)
+	}
+	n = entered
 	for i, table := range n.Tables {
-		node, ok := table.Accept(v)
+		updated, ok := acceptNode[*TableName](v, table)
 		if !ok {
 			return n, false
 		}
-		n.Tables[i] = node.(*TableName)
+		n.Tables[i] = updated
 	}
 	return v.Leave(n)
 }

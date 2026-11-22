@@ -7,17 +7,19 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode"
 
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/charset"
-	driver "github.com/mia0x75/myparser/driver"
 	"github.com/mia0x75/myparser/errors"
 	. "github.com/mia0x75/myparser/format"
 	"github.com/mia0x75/myparser/model"
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/opcode"
 	"github.com/mia0x75/myparser/sqlerr"
-	"github.com/mia0x75/myparser/types"
+	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
+	"github.com/mia0x75/parserkit/loc"
 )
 
 func TestSelectSharedRejections(t *testing.T) {
@@ -95,8 +97,8 @@ func TestSelectMariaDBExpressionTargets(t *testing.T) {
 		})
 	}
 	stmt := mustParseOne(t, "SELECT VALUE(t.a)").(*ast.SelectStmt)
-	value := stmt.Fields.Fields[0].Expr.(*ast.ValuesExpr)
-	if !value.Singular || value.Column.Name.Table.O != "t" {
+	value := stmt.Fields.Items[0].Expr.(*ast.ValuesExpr)
+	if !value.Singular || value.Column == nil || len(value.Column.Name.Parts) != 2 || value.Column.Name.Parts[0].Name != "t" {
 		t.Fatalf("VALUE AST: %#v", value)
 	}
 	for _, precision := range []string{"0", "6"} {
@@ -104,9 +106,9 @@ func TestSelectMariaDBExpressionTargets(t *testing.T) {
 			sql := "SELECT CAST(1 AS " + target + "(" + precision + "))"
 			t.Run(sql, func(t *testing.T) {
 				stmt := mustParseOne(t, sql)
-				cast := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.FuncCastExpr)
-				if cast.Tp.CastPrecision != precision {
-					t.Fatalf("precision lost: %#v", cast.Tp)
+				cast := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.FuncCastExpr)
+				if len(cast.Type.Modifiers) != 1 || cast.Type.Modifiers[0].(*ast.LiteralExpr).Value != precision {
+					t.Fatalf("precision lost: %#v", cast.Type)
 				}
 				if restored := restoreStmt(t, stmt); restored != sql {
 					t.Fatalf("got %s, want %s", restored, sql)
@@ -278,14 +280,14 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	if len(is.Lists) != 1 {
-		t.Fatalf("got len %d, want %d", len(is.Lists), 1)
+	if len(is.Values) != 1 {
+		t.Fatalf("got len %d, want %d", len(is.Values), 1)
 	}
-	if len(is.Lists[0]) != 1 {
-		t.Fatalf("got len %d, want %d", len(is.Lists[0]), 1)
+	if len(is.Values[0]) != 1 {
+		t.Fatalf("got len %d, want %d", len(is.Values[0]), 1)
 	}
-	if is.Lists[0][0].(ast.ValueExpr).GetDatumString() != "/*! truncated */" {
-		t.Fatalf("got %#v, want %#v", is.Lists[0][0].(ast.ValueExpr).GetDatumString(), "/*! truncated */")
+	if lit := is.Values[0][0].(*ast.LiteralExpr); lit.Kind != pkast.LiteralString || lit.Value != "/*! truncated */" {
+		t.Fatalf("got %#v, want %#v", lit, "/*! truncated */")
 	}
 
 	// Testcase for CONVERT(expr,type)
@@ -298,10 +300,10 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	if len(ss.Fields.Fields) != 1 {
-		t.Fatalf("got %#v, want %#v", len(ss.Fields.Fields), 1)
+	if len(ss.Fields.Items) != 1 {
+		t.Fatalf("got %#v, want %#v", len(ss.Fields.Items), 1)
 	}
-	cv, ok := ss.Fields.Fields[0].Expr.(*ast.FuncCastExpr)
+	cv, ok := ss.Fields.Items[0].Expr.(*ast.FuncCastExpr)
 	if !ok {
 		t.Fatalf("expected true")
 	}
@@ -337,14 +339,15 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	if len(cs.Cols) != 1 {
-		t.Fatalf("got len %d, want %d", len(cs.Cols), 1)
+	if len(cs.Columns) != 1 {
+		t.Fatalf("got len %d, want %d", len(cs.Columns), 1)
 	}
-	if len(cs.Cols[0].Options) != 1 {
-		t.Fatalf("got len %d, want %d", len(cs.Cols[0].Options), 1)
+	options := cs.Columns[0].(*ast.ColumnDef).Options
+	if len(options) != 1 {
+		t.Fatalf("got len %d, want %d", len(options), 1)
 	}
-	if cs.Cols[0].Options[0].Tp != ast.ColumnOptionPrimaryKey {
-		t.Fatalf("got %#v, want %#v", cs.Cols[0].Options[0].Tp, ast.ColumnOptionPrimaryKey)
+	if options[0].Tp != ast.ColumnOptionPrimaryKey {
+		t.Fatalf("got %#v, want %#v", options[0].Tp, ast.ColumnOptionPrimaryKey)
 	}
 
 	src = "create table t1(a NVARCHAR(100));"
@@ -411,9 +414,9 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	for _, col := range ct.Cols {
-		if col.Tp.Flag&mysql.UnsignedFlag != uint(0) {
-			t.Fatalf("got %#v, want %#v", col.Tp.Flag&mysql.UnsignedFlag, uint(0))
+	for _, col := range ct.Columns {
+		if typ := col.ColumnDefCore().Type.(*ast.TypeName); typ.Unsigned {
+			t.Fatalf("got %#v, want false", typ.Unsigned)
 		}
 	}
 
@@ -432,10 +435,13 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	expr := sel.Fields.Fields[0]
-	vExpr := expr.Expr.(*driver.ValueExpr)
-	if vExpr.Kind() != types.KindInt64 {
-		t.Fatalf("got %#v, want %#v", vExpr.Kind(), types.KindInt64)
+	expr := sel.Fields.Items[0]
+	literal, ok := expr.Expr.(*ast.LiteralExpr)
+	if !ok {
+		t.Fatalf("got %T, want *ast.LiteralExpr", expr.Expr)
+	}
+	if literal.Kind != literalIntegerKind || literal.Value != "9223372036854775807" {
+		t.Fatalf("got %#v, want the integer literal 9223372036854775807", literal)
 	}
 	src = "SELECT 9223372036854775808;"
 	st, err = parser.ParseOneStmt(src, "", "")
@@ -446,10 +452,13 @@ func TestSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	expr = sel.Fields.Fields[0]
-	vExpr = expr.Expr.(*driver.ValueExpr)
-	if vExpr.Kind() != types.KindUint64 {
-		t.Fatalf("got %#v, want %#v", vExpr.Kind(), types.KindUint64)
+	expr = sel.Fields.Items[0]
+	literal, ok = expr.Expr.(*ast.LiteralExpr)
+	if !ok {
+		t.Fatalf("got %T, want *ast.LiteralExpr", expr.Expr)
+	}
+	if literal.Kind != literalIntegerKind || literal.Value != "9223372036854775808" {
+		t.Fatalf("got %#v, want the integer literal 9223372036854775808", literal)
 	}
 }
 
@@ -568,6 +577,8 @@ func RunRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 		}
 		CleanNodeText(stmt)
 		CleanNodeText(restoreStmt)
+		normalizeTestSyntaxMetadata(stmt)
+		normalizeTestSyntaxMetadata(restoreStmt)
 		if !reflect.DeepEqual(restoreStmt, stmt) {
 			t.Fatalf("%s: got %#v, want %#v", comment, restoreStmt, stmt)
 		}
@@ -581,6 +592,99 @@ func RunRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 		t.Fatalf("%s: got %#v, want %#v", comment, restoreSQLs, expectSQLs)
 	}
 }
+
+func normalizeTestSyntaxMetadata(node ast.Node) {
+	node.Accept(testSyntaxMetadataNormalizer{})
+}
+
+type testSyntaxMetadataNormalizer struct{}
+
+func (testSyntaxMetadataNormalizer) Enter(node ast.Node) (ast.Node, bool) {
+	clearIdent := func(ident *lex.Ident) {
+		ident.Name = strings.ToUpper(ident.Name)
+		ident.Raw = ""
+		ident.Quote = lex.QuoteUnquoted
+		ident.Span = loc.InvalidSpan()
+	}
+	switch node := node.(type) {
+	case *ast.VariableTarget:
+		normalizeTestName(&node.Name)
+		if node.Kind == ast.VariableTargetSystem {
+			node.Prefix = ast.VariablePrefixDoubleAt
+			if node.Scope == ast.VariableScopeImplicit || node.Scope == ast.VariableScopeLocal {
+				node.Scope = ast.VariableScopeSession
+			}
+			node.ScopeExplicit = true
+		}
+	case *ast.BeginEndStmt:
+		normalizeTestIdent(&node.Label)
+	case *ast.ForStmt:
+		normalizeTestIdent(&node.Label)
+		normalizeTestIdent(&node.Variable)
+	case *ast.WhileStmt:
+		normalizeTestIdent(&node.Label)
+	case *ast.RepeatStmt:
+		normalizeTestIdent(&node.Label)
+	case *ast.LoopStmt:
+		normalizeTestIdent(&node.Label)
+	case *ast.FuncCallExpr:
+		clearIdent(&node.Unit)
+		clearIdent(&node.FormatSelector)
+	case *ast.AggregateFuncExpr:
+		clearIdent(&node.Name)
+	case *ast.WindowFuncExpr:
+		clearIdent(&node.Name)
+	case *ast.Constraint:
+		clearIdent(&node.Name)
+		clearIdent(&node.IndexName)
+	case *ast.CreateIndexStmt:
+		clearIdent(&node.IndexName)
+	case *ast.DropIndexStmt:
+		clearIdent(&node.IndexName)
+	case *ast.CreateDatabaseStmt:
+		clearIdent(&node.Name)
+	case *ast.AlterDatabaseStmt:
+		clearIdent(&node.Name)
+	case *ast.DropDatabaseStmt:
+		clearIdent(&node.Name)
+	case *ast.FrameBound:
+		clearIdent(&node.Unit)
+	case *ast.TableName:
+		normalizeTestIdents(node.PartitionNames)
+	case *ast.TableSource:
+		for _, hint := range node.IndexHints {
+			normalizeTestIdents(hint.IndexNames)
+			hint.Span = loc.InvalidSpan()
+		}
+	case *ast.PartitionDefinition:
+		normalizeTestIdent(&node.Name)
+	case *ast.PeriodDefinition:
+		clearIdent(&node.Name)
+	case *ast.AlterTableSpec:
+		normalizeTestIdents(node.PartitionNames)
+		clearIdent(&node.Name)
+		clearIdent(&node.FromKey)
+		clearIdent(&node.ToKey)
+	case *ast.AnalyzeTableStmt:
+		normalizeTestIdents(node.PartitionNames)
+		normalizeTestIdents(node.IndexNames)
+	case *ast.PrepareStmt:
+		clearIdent(&node.Name)
+	case *ast.DeallocateStmt:
+		clearIdent(&node.Name)
+	case *ast.ExecuteStmt:
+		clearIdent(&node.Name)
+	case *ast.RollbackStmt:
+		clearIdent(&node.SavepointName)
+	case *ast.SavepointStmt:
+		clearIdent(&node.Name)
+	case *ast.ReleaseSavepointStmt:
+		clearIdent(&node.Name)
+	}
+	return node, false
+}
+
+func (testSyntaxMetadataNormalizer) Leave(node ast.Node) (ast.Node, bool) { return node, true }
 
 func RunErrMsgTest(t *testing.T, table []testErrMsgCase) {
 	parser := New()
@@ -1043,11 +1147,11 @@ func TestFlushTable(t *testing.T) {
 	if flushTable.Tp != ast.FlushTables {
 		t.Fatalf("got %#v, want %#v", flushTable.Tp, ast.FlushTables)
 	}
-	if flushTable.Tables[0].Name.L != "tbl1" {
-		t.Fatalf("got %#v, want %#v", flushTable.Tables[0].Name.L, "tbl1")
+	if flushTable.Tables[0].Name.Parts[0].Name != "tbl1" {
+		t.Fatalf("got %#v, want %#v", flushTable.Tables[0].Name.Parts, "tbl1")
 	}
-	if flushTable.Tables[1].Name.L != "tbl2" {
-		t.Fatalf("got %#v, want %#v", flushTable.Tables[1].Name.L, "tbl2")
+	if flushTable.Tables[1].Name.Parts[0].Name != "tbl2" {
+		t.Fatalf("got %#v, want %#v", flushTable.Tables[1].Name.Parts, "tbl2")
 	}
 	if !flushTable.NoWriteToBinLog {
 		t.Fatalf("expected true")
@@ -1103,6 +1207,7 @@ func TestExpression(t *testing.T) {
 
 		// The ODBC escape syntax is not supported: it is reported as a syntax error.
 		// See: https://dev.mysql.com/doc/refman/5.7/en/date-and-time-literals.html
+		{"select * from { OJ t1 left join t2 on t1.id=t2.id }", false, ""},
 		{"select {ts '1989-09-10 11:11:11'}", false, ""},
 		{"select {d '1989-09-10'}", false, ""},
 		{"select {t '00:00:00.111'}", false, ""},
@@ -1696,7 +1801,7 @@ func TestBuiltin(t *testing.T) {
 		{`select count(c1) from t;`, true, "SELECT COUNT(`c1`) FROM `t`"},
 		{`select count(distinct *) from t;`, false, ""},
 		{`select count(distinctrow *) from t;`, false, ""},
-		{`select count(*) from t;`, true, "SELECT COUNT(1) FROM `t`"},
+		{`select count(*) from t;`, true, "SELECT COUNT(*) FROM `t`"},
 		{`select count(distinct c1, c2) from t;`, true, "SELECT COUNT(DISTINCT `c1`, `c2`) FROM `t`"},
 		{`select count(distinctrow c1, c2) from t;`, true, "SELECT COUNT(DISTINCT `c1`, `c2`) FROM `t`"},
 		{`select count(c1, c2) from t;`, false, ""},
@@ -1886,7 +1991,7 @@ func TestDDL(t *testing.T) {
 		// partition option
 		{"CREATE TABLE t (id int) ENGINE = INNDB PARTITION BY RANGE (id) (PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN (20));", true, "CREATE TABLE `t` (`id` INT) ENGINE = INNDB PARTITION BY RANGE (`id`) (PARTITION `p0` VALUES LESS THAN (10),PARTITION `p1` VALUES LESS THAN (20))"},
 		{"create table t (c int) PARTITION BY HASH (c) PARTITIONS 32;", true, "CREATE TABLE `t` (`c` INT) PARTITION BY HASH (`c`) PARTITIONS 32"}, {"create table t (c int) PARTITION BY HASH (Year(VDate)) (PARTITION p1980 VALUES LESS THAN (1980) ENGINE = MyISAM, PARTITION p1990 VALUES LESS THAN (1990) ENGINE = MyISAM, PARTITION pothers VALUES LESS THAN MAXVALUE ENGINE = MyISAM)", false, ""},
-		{"create table t (c int) PARTITION BY RANGE (Year(VDate)) (PARTITION p1980 VALUES LESS THAN (1980) ENGINE = MyISAM, PARTITION p1990 VALUES LESS THAN (1990) ENGINE = MyISAM, PARTITION pothers VALUES LESS THAN MAXVALUE ENGINE = MyISAM)", true, "CREATE TABLE `t` (`c` INT) PARTITION BY RANGE (YEAR(`VDate`)) (PARTITION `p1980` VALUES LESS THAN (1980) ENGINE = MyISAM,PARTITION `p1990` VALUES LESS THAN (1990) ENGINE = MyISAM,PARTITION `pothers` VALUES LESS THAN (MAXVALUE) ENGINE = MyISAM)"},
+		{"create table t (c int) PARTITION BY RANGE (Year(VDate)) (PARTITION p1980 VALUES LESS THAN (1980) ENGINE = MyISAM, PARTITION p1990 VALUES LESS THAN (1990) ENGINE = MyISAM, PARTITION pothers VALUES LESS THAN MAXVALUE ENGINE = MyISAM)", true, "CREATE TABLE `t` (`c` INT) PARTITION BY RANGE (YEAR(`VDate`)) (PARTITION `p1980` VALUES LESS THAN (1980) ENGINE = MyISAM,PARTITION `p1990` VALUES LESS THAN (1990) ENGINE = MyISAM,PARTITION `pothers` VALUES LESS THAN MAXVALUE ENGINE = MyISAM)"},
 		{"create table t (c int, `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '') PARTITION BY RANGE (UNIX_TIMESTAMP(create_time)) (PARTITION p201610 VALUES LESS THAN(1477929600), PARTITION p201611 VALUES LESS THAN(1480521600),PARTITION p201612 VALUES LESS THAN(1483200000),PARTITION p201701 VALUES LESS THAN(1485878400),PARTITION p201702 VALUES LESS THAN(1488297600),PARTITION p201703 VALUES LESS THAN(1490976000))", true, "CREATE TABLE `t` (`c` INT,`create_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP() COMMENT '') PARTITION BY RANGE (UNIX_TIMESTAMP(`create_time`)) (PARTITION `p201610` VALUES LESS THAN (1477929600),PARTITION `p201611` VALUES LESS THAN (1480521600),PARTITION `p201612` VALUES LESS THAN (1483200000),PARTITION `p201701` VALUES LESS THAN (1485878400),PARTITION `p201702` VALUES LESS THAN (1488297600),PARTITION `p201703` VALUES LESS THAN (1490976000))"},
 		{"CREATE TABLE `md_product_shop` (`shopCode` varchar(4) DEFAULT NULL COMMENT '地点') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 /*!50100 PARTITION BY KEY (shopCode) PARTITIONS 19 */;", true, "CREATE TABLE `md_product_shop` (`shopCode` VARCHAR(4) DEFAULT NULL COMMENT '地点') ENGINE = InnoDB DEFAULT CHARACTER SET = utf8mb4 PARTITION BY KEY (`shopCode`) PARTITIONS 19"},
 		{"CREATE TABLE `payinfo1` (`id` bigint(20) NOT NULL AUTO_INCREMENT, `oderTime` datetime NOT NULL) ENGINE=InnoDB AUTO_INCREMENT=641533032 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=8 /*!50500 PARTITION BY RANGE COLUMNS(oderTime) (PARTITION P2011 VALUES LESS THAN ('2012-01-01 00:00:00') ENGINE = InnoDB, PARTITION P1201 VALUES LESS THAN ('2012-02-01 00:00:00') ENGINE = InnoDB, PARTITION PMAX VALUES LESS THAN (MAXVALUE) ENGINE = InnoDB)*/;", true, "CREATE TABLE `payinfo1` (`id` BIGINT(20) NOT NULL AUTO_INCREMENT,`oderTime` DATETIME NOT NULL) ENGINE = InnoDB AUTO_INCREMENT = 641533032 DEFAULT CHARACTER SET = utf8 ROW_FORMAT = COMPRESSED KEY_BLOCK_SIZE = 8 PARTITION BY RANGE COLUMNS(`oderTime`) (PARTITION `P2011` VALUES LESS THAN ('2012-01-01 00:00:00') ENGINE = InnoDB,PARTITION `P1201` VALUES LESS THAN ('2012-02-01 00:00:00') ENGINE = InnoDB,PARTITION `PMAX` VALUES LESS THAN (MAXVALUE) ENGINE = InnoDB)"}, {`CREATE TABLE app_channel_daily_report (id bigint(20) NOT NULL AUTO_INCREMENT, app_version varchar(32) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'default', gmt_create datetime NOT NULL COMMENT '创建时间', PRIMARY KEY (id)) ENGINE=InnoDB AUTO_INCREMENT=33703438 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci
@@ -2027,7 +2132,7 @@ func TestDDL(t *testing.T) {
 		{"create table test (create_date TIMESTAMP NOT NULL COMMENT '创建日期 create date' DEFAULT now());", true, "CREATE TABLE `test` (`create_date` TIMESTAMP NOT NULL COMMENT '创建日期 create date' DEFAULT CURRENT_TIMESTAMP())"},
 		{"create table ts (t int, v timestamp(3) default CURRENT_TIMESTAMP(3));", true, "CREATE TABLE `ts` (`t` INT,`v` TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3))"}, //TODO: The number yacc in parentheses has not been implemented yet.
 		// Create table with primary key name.
-		{"create table if not exists `t` (`id` int not null auto_increment comment '消息ID', primary key `pk_id` (`id`) );", true, "CREATE TABLE IF NOT EXISTS `t` (`id` INT NOT NULL AUTO_INCREMENT COMMENT '消息ID',PRIMARY KEY(`id`))"},
+		{"create table if not exists `t` (`id` int not null auto_increment comment '消息ID', primary key `pk_id` (`id`) );", true, "CREATE TABLE IF NOT EXISTS `t` (`id` INT NOT NULL AUTO_INCREMENT COMMENT '消息ID',PRIMARY KEY `pk_id`(`id`))"},
 		// Create table with like.
 		{"create table a like b", true, "CREATE TABLE `a` LIKE `b`"},
 		{"create table a (like b)", true, "CREATE TABLE `a` LIKE `b`"},
@@ -2097,11 +2202,11 @@ func TestDDL(t *testing.T) {
 		{"ALTER TABLE t ADD COLUMN a SMALLINT UNSIGNED AFTER b", true, "ALTER TABLE `t` ADD COLUMN `a` SMALLINT UNSIGNED AFTER `b`"},
 		{"ALTER TABLE employees ADD PARTITION", true, "ALTER TABLE `employees` ADD PARTITION"},
 		{"ALTER TABLE employees ADD PARTITION ( PARTITION P1 VALUES LESS THAN (2010))", true, "ALTER TABLE `employees` ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010))"},
-		{"ALTER TABLE employees ADD PARTITION ( PARTITION P2 VALUES LESS THAN MAXVALUE)", true, "ALTER TABLE `employees` ADD PARTITION (PARTITION `P2` VALUES LESS THAN (MAXVALUE))"},
+		{"ALTER TABLE employees ADD PARTITION ( PARTITION P2 VALUES LESS THAN MAXVALUE)", true, "ALTER TABLE `employees` ADD PARTITION (PARTITION `P2` VALUES LESS THAN MAXVALUE)"},
 		{`ALTER TABLE employees ADD PARTITION (
 				PARTITION P1 VALUES LESS THAN (2010),
 				PARTITION P2 VALUES LESS THAN (2015),
-				PARTITION P3 VALUES LESS THAN MAXVALUE)`, true, "ALTER TABLE `employees` ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010), PARTITION `P2` VALUES LESS THAN (2015), PARTITION `P3` VALUES LESS THAN (MAXVALUE))"},
+				PARTITION P3 VALUES LESS THAN MAXVALUE)`, true, "ALTER TABLE `employees` ADD PARTITION (PARTITION `P1` VALUES LESS THAN (2010), PARTITION `P2` VALUES LESS THAN (2015), PARTITION `P3` VALUES LESS THAN MAXVALUE)"},
 		// For drop table partition statement.
 		{"alter table t drop partition p1;", true, "ALTER TABLE `t` DROP PARTITION `p1`"},
 		{"alter table t drop partition p2;", true, "ALTER TABLE `t` DROP PARTITION `p2`"},
@@ -2109,8 +2214,8 @@ func TestDDL(t *testing.T) {
 		{"alter table employees add partition partitions 2;", true, "ALTER TABLE `employees` ADD PARTITION PARTITIONS 2"},
 		{"alter table clients coalesce partition 3;", true, "ALTER TABLE `clients` COALESCE PARTITION 3"},
 		{"alter table clients coalesce partition 4;", true, "ALTER TABLE `clients` COALESCE PARTITION 4"},
-		{"ALTER TABLE t DISABLE KEYS", true, "ALTER TABLE `t`  /* AlterTableType(0) is not supported */ "},
-		{"ALTER TABLE t ENABLE KEYS", true, "ALTER TABLE `t`  /* AlterTableType(0) is not supported */ "},
+		{"ALTER TABLE t DISABLE KEYS", true, "ALTER TABLE `t` DISABLE KEYS"},
+		{"ALTER TABLE t ENABLE KEYS", true, "ALTER TABLE `t` ENABLE KEYS"},
 		{"ALTER TABLE t MODIFY COLUMN a varchar(255)", true, "ALTER TABLE `t` MODIFY COLUMN `a` VARCHAR(255)"},
 		{"ALTER TABLE t CHANGE COLUMN a b varchar(255)", true, "ALTER TABLE `t` CHANGE COLUMN `a` `b` VARCHAR(255)"},
 		{"ALTER TABLE t CHANGE COLUMN a b varchar(255) CHARACTER SET utf8 BINARY", true, "ALTER TABLE `t` CHANGE COLUMN `a` `b` VARCHAR(255) BINARY CHARACTER SET utf8"},
@@ -2342,12 +2447,14 @@ func TestDecimalLiteralOverflow(t *testing.T) {
 		})
 	}
 	t.Run("constructor_error", func(t *testing.T) {
-		constructor := ast.NewDecimal
-		defer func() { ast.NewDecimal = constructor }()
-		ast.NewDecimal = func(string) (interface{}, error) { return nil, errors.New("invalid decimal") }
-		_, warns, err := parser.Parse("SELECT 1.0", "", "")
-		if err == nil || len(warns) != 0 {
-			t.Fatalf("constructor error must remain fatal: warnings=%v, error=%v", warns, err)
+		var scanner Scanner
+		var value yySymType
+		token := toDecimal(&scanner, &value, "invalid decimal")
+		if token != int(unicode.ReplacementChar) {
+			t.Fatalf("constructor error token=%d, want %d", token, unicode.ReplacementChar)
+		}
+		if len(scanner.errs) != 1 || len(scanner.warns) != 0 {
+			t.Fatalf("constructor error must remain fatal: warnings=%v, errors=%v", scanner.warns, scanner.errs)
 		}
 	})
 }
@@ -2906,33 +3013,49 @@ func TestUnionOrderBy(t *testing.T) {
 		}
 		switch x := stmt[0].(type) {
 		case *ast.SetOprStmt:
-			var i int
-			for _, s := range x.SelectList.Selects {
-				var orderBy *ast.OrderByClause
-				switch n := s.(type) {
+			var got []bool
+			var visit func(ast.QueryNode)
+			visit = func(node ast.QueryNode) {
+				switch n := node.(type) {
 				case *ast.SelectStmt:
-					orderBy = n.OrderBy
-				case *ast.SetOprSelectList:
-					orderBy = n.OrderBy
-					if len(n.Selects) == 1 {
-						if one, ok := n.Selects[0].(*ast.SelectStmt); ok {
-							orderBy = one.OrderBy
-						}
-					}
+					got = append(got, n.OrderBy != nil)
+				case *ast.QueryTailStmt:
+					got = append(got, queryHasOrderBy(n))
+				case *ast.SetOprStmt:
+					visit(n.Left)
+					visit(n.Right)
+					got = append(got, n.Tail.OrderBy != nil)
 				}
-				if (orderBy != nil) != tt.hasOrderBy[i] {
-					t.Fatalf("got %#v, want %#v", orderBy != nil, tt.hasOrderBy[i])
-				}
-				i++
 			}
-			if (x.OrderBy != nil) != tt.hasOrderBy[i] {
-				t.Fatalf("got %#v, want %#v", x.OrderBy != nil, tt.hasOrderBy[i])
+			visit(x.Left)
+			visit(x.Right)
+			got = append(got, x.Tail.OrderBy != nil)
+			if len(got) != len(tt.hasOrderBy) {
+				t.Fatalf("order by slots = %v, want %v", got, tt.hasOrderBy)
+			}
+			for i := range got {
+				if got[i] != tt.hasOrderBy[i] {
+					t.Fatalf("order by slots = %v, want %v", got, tt.hasOrderBy)
+				}
 			}
 		case *ast.SelectStmt:
 			if (x.OrderBy != nil) != tt.hasOrderBy[0] {
 				t.Fatalf("got %#v, want %#v", x.OrderBy != nil, tt.hasOrderBy[0])
 			}
 		}
+	}
+}
+
+func queryHasOrderBy(node ast.QueryNode) bool {
+	switch n := node.(type) {
+	case *ast.SelectStmt:
+		return n.OrderBy != nil
+	case *ast.QueryTailStmt:
+		return n.Tail.OrderBy != nil || (n.Query != nil && queryHasOrderBy(n.Query))
+	case *ast.SetOprStmt:
+		return n.Tail.OrderBy != nil || queryHasOrderBy(n.Left) || queryHasOrderBy(n.Right)
+	default:
+		return false
 	}
 }
 
@@ -3191,14 +3314,14 @@ func TestView(t *testing.T) {
 	if v.Definer.Hostname != "localhost" {
 		t.Fatalf("got %#v, want %#v", v.Definer.Hostname, "localhost")
 	}
-	if v.Cols[0] != model.NewCIStr("a") {
-		t.Fatalf("got %#v, want %#v", v.Cols[0], model.NewCIStr("a"))
+	if v.Columns[0].Name != "a" {
+		t.Fatalf("got %#v, want name %q", v.Columns[0], "a")
 	}
-	if v.Cols[1] != model.NewCIStr("b") {
-		t.Fatalf("got %#v, want %#v", v.Cols[1], model.NewCIStr("b"))
+	if v.Columns[1].Name != "b" {
+		t.Fatalf("got %#v, want name %q", v.Columns[1], "b")
 	}
-	if v.Cols[2] != model.NewCIStr("c") {
-		t.Fatalf("got %#v, want %#v", v.Cols[2], model.NewCIStr("c"))
+	if v.Columns[2].Name != "c" {
+		t.Fatalf("got %#v, want name %q", v.Columns[2], "c")
 	}
 	if v.Select.Text() != "select c,d,e from t" {
 		t.Fatalf("got %#v, want %#v", v.Select.Text(), "select c,d,e from t")
@@ -3276,8 +3399,8 @@ func TestAlterView(t *testing.T) {
 	if v.Definer.Hostname != "localhost" {
 		t.Fatalf("got %#v, want %#v", v.Definer.Hostname, "localhost")
 	}
-	if !reflect.DeepEqual(v.Cols, []model.CIStr{model.NewCIStr("a"), model.NewCIStr("b"), model.NewCIStr("c")}) {
-		t.Fatalf("got %#v, want %#v", v.Cols, []model.CIStr{model.NewCIStr("a"), model.NewCIStr("b"), model.NewCIStr("c")})
+	if len(v.Columns) != 3 || v.Columns[0].Name != "a" || v.Columns[1].Name != "b" || v.Columns[2].Name != "c" {
+		t.Fatalf("got %#v, want column names a, b, c", v.Columns)
 	}
 	if v.Select.Text() != "select c,d,e from t" {
 		t.Fatalf("got %#v, want %#v", v.Select.Text(), "select c,d,e from t")
@@ -3405,22 +3528,22 @@ func TestDropRoutineObjects(t *testing.T) {
 			if tc.typ != "DROP FUNCTION" {
 				t.Fatalf("got %#v, want %#v", tc.typ, "DROP FUNCTION")
 			}
-			gotIfExists, gotName = x.IfExists, x.Name.Name.O
+			gotIfExists, gotName = x.IfExists, tableNameBareName(x.Name)
 		case *ast.DropProcedureStmt:
 			if tc.typ != "DROP PROCEDURE" {
 				t.Fatalf("got %#v, want %#v", tc.typ, "DROP PROCEDURE")
 			}
-			gotIfExists, gotName = x.IfExists, x.Name.Name.O
+			gotIfExists, gotName = x.IfExists, tableNameBareName(x.Name)
 		case *ast.DropTriggerStmt:
 			if tc.typ != "DROP TRIGGER" {
 				t.Fatalf("got %#v, want %#v", tc.typ, "DROP TRIGGER")
 			}
-			gotIfExists, gotName = x.IfExists, x.Name.Name.O
+			gotIfExists, gotName = x.IfExists, tableNameBareName(x.Name)
 		case *ast.DropEventStmt:
 			if tc.typ != "DROP EVENT" {
 				t.Fatalf("got %#v, want %#v", tc.typ, "DROP EVENT")
 			}
-			gotIfExists, gotName = x.IfExists, x.Name.Name.O
+			gotIfExists, gotName = x.IfExists, tableNameBareName(x.Name)
 		default:
 			t.Fatalf("unexpected stmt type %T for %v", st, tc.src)
 		}
@@ -3485,16 +3608,16 @@ func TestCreateFunction(t *testing.T) {
 	if fn.Definer.Username != "root" || fn.Definer.Hostname != "%" {
 		t.Fatalf("got %#v, want %#v", fn.Definer, "root@%")
 	}
-	if fn.Name.Schema.O != "db" || fn.Name.Name.O != "f" {
+	if fn.Name.Name.Parts[0].Name != "db" || fn.Name.Name.Parts[1].Name != "f" {
 		t.Fatalf("got %#v, want %#v", fn.Name, "db.f")
 	}
 	if len(fn.Params) != 2 {
 		t.Fatalf("got %#v, want %#v", len(fn.Params), 2)
 	}
-	if fn.Params[0].Name != "a" || fn.Params[0].Dir != ast.FuncParamDirIn {
+	if fn.Params[0].Name.Name != "a" || fn.Params[0].Dir != ast.FuncParamDirIn {
 		t.Fatalf("got %#v, want %#v", fn.Params[0], "a IN")
 	}
-	if fn.Params[1].Name != "b" || fn.Params[1].Dir != ast.FuncParamDirOut {
+	if fn.Params[1].Name.Name != "b" || fn.Params[1].Dir != ast.FuncParamDirOut {
 		t.Fatalf("got %#v, want %#v", fn.Params[1], "b OUT")
 	}
 	if !fn.Characteristics.DeterministicSpecified || !fn.Characteristics.Deterministic {
@@ -3577,11 +3700,12 @@ func TestCreateTrigger(t *testing.T) {
 	if trg.Time != "AFTER" || trg.Event != "UPDATE" {
 		t.Fatalf("got %#v, want %#v", trg.Time+" "+trg.Event, "AFTER UPDATE")
 	}
-	if len(trg.UpdateColumns) != 2 || trg.UpdateColumns[0].Name.O != "a" || trg.UpdateColumns[1].Name.O != "b" {
+	if len(trg.UpdateColumns) != 2 || len(trg.UpdateColumns[0].Parts) != 1 || trg.UpdateColumns[0].Parts[0].Name != "a" ||
+		len(trg.UpdateColumns[1].Parts) != 1 || trg.UpdateColumns[1].Parts[0].Name != "b" {
 		t.Fatalf("got %#v, want columns a, b", trg.UpdateColumns)
 	}
-	if trg.Order != "FOLLOWS" || trg.OtherTriggerName != "other" {
-		t.Fatalf("got %#v, want %#v", trg.Order+" "+trg.OtherTriggerName, "FOLLOWS other")
+	if trg.Order != "FOLLOWS" || trg.OtherTriggerName.Name != "other" {
+		t.Fatalf("got %#v, want %#v", trg.Order+" "+trg.OtherTriggerName.Name, "FOLLOWS other")
 	}
 }
 
@@ -3768,7 +3892,7 @@ func TestTimestampDiffUnit(t *testing.T) {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	ss := stmt[0].(*ast.SelectStmt)
-	fields := ss.Fields.Fields
+	fields := ss.Fields.Items
 	if len(fields) != 2 {
 		t.Fatalf("got %#v, want %#v", len(fields), 2)
 	}
@@ -3777,8 +3901,8 @@ func TestTimestampDiffUnit(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	if f.Args[0].(ast.ValueExpr).GetDatumString() != "MONTH" {
-		t.Fatalf("got %#v, want %#v", f.Args[0].(ast.ValueExpr).GetDatumString(), "MONTH")
+	if f.Unit.Name != "MONTH" || len(f.Args) != 2 {
+		t.Fatalf("got unit %q and %d args, want MONTH and 2 args", f.Unit.Name, len(f.Args))
 	}
 
 	expr = fields[1].Expr
@@ -3786,8 +3910,8 @@ func TestTimestampDiffUnit(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected true")
 	}
-	if f.Args[0].(ast.ValueExpr).GetDatumString() != "MONTH" {
-		t.Fatalf("got %#v, want %#v", f.Args[0].(ast.ValueExpr).GetDatumString(), "MONTH")
+	if f.Unit.Name != "MONTH" || len(f.Args) != 2 {
+		t.Fatalf("got unit %q and %d args, want MONTH and 2 args", f.Unit.Name, len(f.Args))
 	}
 
 	// Test Illegal TimeUnit for TimestampDiff
@@ -3846,7 +3970,7 @@ func TestSQLModeANSIQuotes(t *testing.T) {
 
 func TestDDLStatements(t *testing.T) {
 	parser := New()
-	// Tests that whatever the charset it is define, we always assign utf8 charset and utf8_bin collate.
+	// Binary modifiers are syntax; intrinsic binary types need no resolved charset.
 	createTableStr := `CREATE TABLE t (
 		a varchar(64) binary,
 		b char(10) charset utf8 collate utf8_general_ci,
@@ -3856,11 +3980,11 @@ func TestDDLStatements(t *testing.T) {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	stmt := stmts[0].(*ast.CreateTableStmt)
-	if !mysql.HasBinaryFlag(stmt.Cols[0].Tp.Flag) {
+	if !stmt.Columns[0].ColumnDefCore().Type.(*ast.TypeName).Binary {
 		t.Fatalf("expected true")
 	}
-	for _, colDef := range stmt.Cols[1:] {
-		if mysql.HasBinaryFlag(colDef.Tp.Flag) {
+	for _, colDef := range stmt.Columns[1:] {
+		if colDef.ColumnDefCore().Type.(*ast.TypeName).Binary {
 			t.Fatalf("expected false")
 		}
 	}
@@ -3885,15 +4009,20 @@ func TestDDLStatements(t *testing.T) {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	stmt = stmts[0].(*ast.CreateTableStmt)
-	for _, colDef := range stmt.Cols {
-		if colDef.Tp.Charset != charset.CharsetBin {
-			t.Fatalf("got %#v, want %#v", colDef.Tp.Charset, charset.CharsetBin)
+	for i, colDef := range stmt.Columns {
+		typ := colDef.ColumnDefCore().Type.(*ast.TypeName)
+		if want := []string{"VARBINARY", "BINARY", "BLOB"}[i]; typ.Keyword() != want {
+			t.Fatalf("got %q, want %q", typ.Keyword(), want)
 		}
-		if colDef.Tp.Collate != charset.CollationBin {
-			t.Fatalf("got %#v, want %#v", colDef.Tp.Collate, charset.CollationBin)
+		if typ.Charset.Name != "" || typ.Collation.Name != "" || typ.Binary {
+			t.Fatalf("intrinsic binary type contains implicit metadata: %#v", typ)
 		}
-		if !mysql.HasBinaryFlag(colDef.Tp.Flag) {
-			t.Fatalf("expected true")
+		if i < 2 {
+			if len(typ.Modifiers) != 1 || typ.Modifiers[0].(*ast.LiteralExpr).Value != []string{"64", "10"}[i] {
+				t.Fatalf("binary width lost: %#v", typ)
+			}
+		} else if len(typ.Modifiers) != 0 {
+			t.Fatalf("bare BLOB has a modifier: %#v", typ)
 		}
 	}
 	// Test set collate for all column types
@@ -3962,8 +4091,8 @@ func TestGeneratedColumn(t *testing.T) {
 				t.Fatalf("expected nil, got %#v", err)
 			}
 			stmtNode := stmtNodes[0]
-			for _, col := range stmtNode.(*ast.CreateTableStmt).Cols {
-				for _, opt := range col.Options {
+			for _, col := range stmtNode.(*ast.CreateTableStmt).Columns {
+				for _, opt := range col.(*ast.ColumnDef).Options {
 					if opt.Tp == ast.ColumnOptionGenerated {
 						if opt.Expr.Text() != tt.expr {
 							t.Fatalf("got %#v, want %#v", opt.Expr.Text(), tt.expr)
@@ -4007,17 +4136,17 @@ func TestSetTransaction(t *testing.T) {
 		}
 		setStmt := stmt1.(*ast.SetStmt)
 		vars := setStmt.Variables[0]
-		if vars.Name != "tx_isolation" {
-			t.Fatalf("got %#v, want %#v", vars.Name, "tx_isolation")
+		if vars.Target == nil || len(vars.Target.Name.Parts) != 1 || vars.Target.Name.Parts[0].Name != "tx_isolation" {
+			t.Fatalf("got %#v, want tx_isolation target", vars.Target)
 		}
-		if vars.IsGlobal != tt.isGlobal {
-			t.Fatalf("got %#v, want %#v", vars.IsGlobal, tt.isGlobal)
+		if vars.Target.Scope != map[bool]ast.VariableScope{false: ast.VariableScopeSession, true: ast.VariableScopeGlobal}[tt.isGlobal] || !vars.Target.ScopeExplicit {
+			t.Fatalf("got %#v, want explicit transaction scope", vars.Target)
 		}
-		if vars.IsSystem != true {
-			t.Fatalf("got %#v, want %#v", vars.IsSystem, true)
+		if vars.Target.Kind != ast.VariableTargetSystem {
+			t.Fatalf("got %#v, want system target", vars.Target)
 		}
-		if vars.Value.(ast.ValueExpr).GetValue() != tt.value {
-			t.Fatalf("got %#v, want %#v", vars.Value.(ast.ValueExpr).GetValue(), tt.value)
+		if lit := vars.Value.(*ast.LiteralExpr); lit.Kind != pkast.LiteralString || lit.Value != tt.value {
+			t.Fatalf("got %#v, want %#v", lit, tt.value)
 		}
 	}
 }
@@ -4047,7 +4176,7 @@ func TestTablePartition(t *testing.T) {
 		partitions 3
 		(partition x1 values less than (5),
 		 partition x2 values less than (10),
-		 partition x3 values less than maxvalue);`, true, "CREATE TABLE `t1` (`a` INT NOT NULL,`b` INT NOT NULL,`c` INT NOT NULL,PRIMARY KEY(`a`, `b`)) PARTITION BY RANGE (`a`) PARTITIONS 3 (PARTITION `x1` VALUES LESS THAN (5),PARTITION `x2` VALUES LESS THAN (10),PARTITION `x3` VALUES LESS THAN (MAXVALUE))"},
+		 partition x3 values less than maxvalue);`, true, "CREATE TABLE `t1` (`a` INT NOT NULL,`b` INT NOT NULL,`c` INT NOT NULL,PRIMARY KEY(`a`, `b`)) PARTITION BY RANGE (`a`) PARTITIONS 3 (PARTITION `x1` VALUES LESS THAN (5),PARTITION `x2` VALUES LESS THAN (10),PARTITION `x3` VALUES LESS THAN MAXVALUE)"},
 		{"CREATE TABLE t1 (a int not null) partition by range (a) (partition x1 values less than (5) tablespace ts1)", true, "CREATE TABLE `t1` (`a` INT NOT NULL) PARTITION BY RANGE (`a`) (PARTITION `x1` VALUES LESS THAN (5) TABLESPACE = `ts1`)"},
 		{`create table t (a int) partition by range (a)
 		  (PARTITION p0 VALUES LESS THAN (63340531200) ENGINE = MyISAM,
@@ -4078,15 +4207,44 @@ ENGINE=INNODB PARTITION BY LINEAR HASH (a) PARTITIONS 1;`, true, "CREATE TABLE `
 	}
 	RunTest(t, table, false)
 
-	// Check comment content.
+	// Check comment content through the options list.
 	parser := New()
 	stmt, err := parser.ParseOneStmt("create table t (id int) partition by range (id) (partition p0 values less than (10) comment 'check')", "", "")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	createTable := stmt.(*ast.CreateTableStmt)
-	if createTable.Partition.Definitions[0].Comment != "check" {
-		t.Fatalf("got %#v, want %#v", createTable.Partition.Definitions[0].Comment, "check")
+	options := createTable.Partition.Definitions[0].Options
+	if len(options) != 1 || options[0].Tp != ast.TableOptionComment || options[0].StrValue != "check" {
+		t.Fatalf("got options %#v, want one COMMENT option", options)
+	}
+}
+
+func TestParsePartitionSpansAndValues(t *testing.T) {
+	for _, tc := range []struct{ name, suffix, want string }{
+		{name: "bare maxvalue with comment", suffix: "VALUES LESS THAN MAXVALUE COMMENT 'c'", want: "VALUES LESS THAN MAXVALUE COMMENT = 'c'"},
+		{name: "bare maxvalue with engine", suffix: "VALUES LESS THAN MAXVALUE ENGINE=InnoDB", want: "VALUES LESS THAN MAXVALUE ENGINE = InnoDB"},
+		{name: "parenthesized maxvalue", suffix: "VALUES LESS THAN (MAXVALUE)", want: "VALUES LESS THAN (MAXVALUE)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sql := "CREATE TABLE t(a INT) PARTITION BY RANGE(a) (PARTITION p " + tc.suffix + ")"
+			stmt, err := New().ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			partition := stmt.(*ast.CreateTableStmt).Partition
+			definition := partition.Definitions[0]
+			if got, err := definition.Span().Slice(sql); err != nil || got != "PARTITION p "+tc.suffix {
+				t.Fatalf("definition span = %q, err=%v", got, err)
+			}
+			var out strings.Builder
+			if err := stmt.Restore(NewRestoreCtx(DefaultRestoreFlags, &out)); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("restore = %q, want suffix %q", out.String(), tc.want)
+			}
+		})
 	}
 }
 
@@ -4103,7 +4261,7 @@ func TestTablePartitionNameList(t *testing.T) {
 		}
 
 		sel := stmt[0].(*ast.SelectStmt)
-		source, ok := sel.From.TableRefs.Left.(*ast.TableSource)
+		source, ok := sel.From.FromClauseCore().Table.(*ast.JoinExpr).Left.(*ast.TableSource)
 		if !ok {
 			t.Fatalf("expected true")
 		}
@@ -4114,11 +4272,11 @@ func TestTablePartitionNameList(t *testing.T) {
 		if len(tableName.PartitionNames) != 2 {
 			t.Fatalf("got %#v, want %#v", len(tableName.PartitionNames), 2)
 		}
-		if tableName.PartitionNames[0] != (model.CIStr{O: "p0", L: "p0"}) {
-			t.Fatalf("got %#v, want %#v", tableName.PartitionNames[0], model.CIStr{O: "p0", L: "p0"})
-		}
-		if tableName.PartitionNames[1] != (model.CIStr{O: "p1", L: "p1"}) {
-			t.Fatalf("got %#v, want %#v", tableName.PartitionNames[1], model.CIStr{O: "p1", L: "p1"})
+		for i, want := range []string{"p0", "p1"} {
+			name := tableName.PartitionNames[i]
+			if name.Name != want || name.Raw != want || name.Quote != lex.QuoteUnquoted {
+				t.Fatalf("partition name = %#v, want unquoted %q", name, want)
+			}
 		}
 	}
 }
@@ -4199,7 +4357,7 @@ func TestWindowFunctions(t *testing.T) {
 		{`SELECT BIT_XOR(profit) OVER() AS country_profit FROM sales;`, true, "SELECT BIT_XOR(`profit`) OVER () AS `country_profit` FROM `sales`"},
 		{`SELECT COUNT(profit) OVER() AS country_profit FROM sales;`, true, "SELECT COUNT(`profit`) OVER () AS `country_profit` FROM `sales`"},
 		{`SELECT COUNT(ALL profit) OVER() AS country_profit FROM sales;`, true, "SELECT COUNT(`profit`) OVER () AS `country_profit` FROM `sales`"},
-		{`SELECT COUNT(*) OVER() AS country_profit FROM sales;`, true, "SELECT COUNT(1) OVER () AS `country_profit` FROM `sales`"},
+		{`SELECT COUNT(*) OVER() AS country_profit FROM sales;`, true, "SELECT COUNT(*) OVER () AS `country_profit` FROM `sales`"},
 		{`SELECT MAX(profit) OVER() AS country_profit FROM sales;`, true, "SELECT MAX(`profit`) OVER () AS `country_profit` FROM `sales`"},
 		{`SELECT MIN(profit) OVER() AS country_profit FROM sales;`, true, "SELECT MIN(`profit`) OVER () AS `country_profit` FROM `sales`"},
 		{`SELECT SUM(profit) OVER() AS country_profit FROM sales;`, true, "SELECT SUM(`profit`) OVER () AS `country_profit` FROM `sales`"},
@@ -4245,18 +4403,14 @@ type windowFrameBoundChecker struct {
 	fb         *ast.FrameBound
 	exprRc     int
 	timeUnitRc int
-	t          *testing.T
 }
 
 // Enter implements ast.Visitor interface.
 func (wfc *windowFrameBoundChecker) Enter(inNode ast.Node) (outNode ast.Node, skipChildren bool) {
 	if _, ok := inNode.(*ast.FrameBound); ok {
 		wfc.fb = inNode.(*ast.FrameBound)
-		if wfc.fb.Unit != nil {
-			_, ok := wfc.fb.Expr.(ast.ValueExpr)
-			if ok {
-				wfc.t.Fatalf("expected false")
-			}
+		if wfc.fb.Unit.Present() {
+			wfc.timeUnitRc++
 		}
 	}
 
@@ -4272,8 +4426,6 @@ func (wfc *windowFrameBoundChecker) Leave(inNode ast.Node) (node ast.Node, ok bo
 		switch inNode {
 		case wfc.fb.Expr:
 			wfc.exprRc++
-		case wfc.fb.Unit:
-			wfc.timeUnitRc++
 		}
 	}
 	return inNode, true
@@ -4296,7 +4448,7 @@ func TestVisitFrameBound(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
-		checker := windowFrameBoundChecker{t: t}
+		checker := windowFrameBoundChecker{}
 		stmt.Accept(&checker)
 		if checker.exprRc != tt.exprRc {
 			t.Fatalf("got %#v, want %#v", checker.exprRc, tt.exprRc)
@@ -4320,62 +4472,30 @@ func TestQuotedSystemVariables(t *testing.T) {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	ss := st.(*ast.SelectStmt)
-	expected := []*ast.VariableExpr{
-		{
-			Name:          "sql_mode",
-			IsGlobal:      false,
-			IsSystem:      true,
-			ExplicitScope: false,
-		},
-		{
-			Name:          "sql_mode",
-			IsGlobal:      false,
-			IsSystem:      true,
-			ExplicitScope: false,
-		},
-		{
-			Name:          "sql_mode",
-			IsGlobal:      false,
-			IsSystem:      true,
-			ExplicitScope: true,
-		},
-		{
-			Name:          "s ql`mode",
-			IsGlobal:      true,
-			IsSystem:      true,
-			ExplicitScope: true,
-		},
-		{
-			Name:          "sql\nmode",
-			IsGlobal:      false,
-			IsSystem:      true,
-			ExplicitScope: true,
-		},
-		{
-			Name:          `sql"mode`,
-			IsGlobal:      false,
-			IsSystem:      true,
-			ExplicitScope: true,
-		},
+	expected := []struct {
+		name     string
+		scope    ast.VariableScope
+		explicit bool
+	}{
+		{"sql_mode", ast.VariableScopeImplicit, false},
+		{"sql_mode", ast.VariableScopeImplicit, false},
+		{"sql_mode", ast.VariableScopeSession, true},
+		{"s ql`mode", ast.VariableScopeGlobal, true},
+		{"sql\nmode", ast.VariableScopeSession, true},
+		{`sql"mode`, ast.VariableScopeLocal, true},
 	}
 
-	if len(ss.Fields.Fields) != len(expected) {
-		t.Fatalf("got %#v, want %#v", len(ss.Fields.Fields), len(expected))
+	if len(ss.Fields.Items) != len(expected) {
+		t.Fatalf("got %#v, want %#v", len(ss.Fields.Items), len(expected))
 	}
-	for i, field := range ss.Fields.Fields {
+	for i, field := range ss.Fields.Items {
 		ve := field.Expr.(*ast.VariableExpr)
 		cmt := fmt.Sprintf("field %d, ve = %v", i, ve)
-		if ve.Name != expected[i].Name {
-			t.Fatalf("%s: got %#v, want %#v", cmt, ve.Name, expected[i].Name)
+		if ve.Target == nil || len(ve.Target.Name.Parts) != 1 || ve.Target.Name.Parts[0].Name != expected[i].name {
+			t.Fatalf("%s: got %#v, want %#v", cmt, ve.Target, expected[i].name)
 		}
-		if ve.IsGlobal != expected[i].IsGlobal {
-			t.Fatalf("%s: got %#v, want %#v", cmt, ve.IsGlobal, expected[i].IsGlobal)
-		}
-		if ve.IsSystem != expected[i].IsSystem {
-			t.Fatalf("%s: got %#v, want %#v", cmt, ve.IsSystem, expected[i].IsSystem)
-		}
-		if ve.ExplicitScope != expected[i].ExplicitScope {
-			t.Fatalf("%s: got %#v, want %#v", cmt, ve.ExplicitScope, expected[i].ExplicitScope)
+		if ve.Target.Kind != ast.VariableTargetSystem || ve.Target.Scope != expected[i].scope || ve.Target.ScopeExplicit != expected[i].explicit {
+			t.Fatalf("%s: got target %#v, want scope=%v explicit=%v", cmt, ve.Target, expected[i].scope, expected[i].explicit)
 		}
 	}
 }
@@ -4406,10 +4526,10 @@ func TestQuotedVariableColumnName(t *testing.T) {
 		"@",
 	}
 
-	if len(ss.Fields.Fields) != len(expected) {
-		t.Fatalf("got %#v, want %#v", len(ss.Fields.Fields), len(expected))
+	if len(ss.Fields.Items) != len(expected) {
+		t.Fatalf("got %#v, want %#v", len(ss.Fields.Items), len(expected))
 	}
-	for i, field := range ss.Fields.Fields {
+	for i, field := range ss.Fields.Items {
 		if field.Text() != expected[i] {
 			t.Fatalf("got %#v, want %#v", field.Text(), expected[i])
 		}
@@ -4431,7 +4551,13 @@ type nodeTextCleaner struct {
 // Enter implements Visitor interface.
 func (checker *nodeTextCleaner) Enter(in ast.Node) (out ast.Node, skipChildren bool) {
 	in.SetText("")
+	normalizeTestNameMetadata(in)
+	normalizeTestTypeMetadata(in)
 	switch node := in.(type) {
+	case *ast.SetOprStmt:
+		node.Tail.SetSpan(loc.InvalidSpan())
+	case *ast.QueryTailStmt:
+		node.Tail.SetSpan(loc.InvalidSpan())
 	case *ast.CreateTableStmt:
 		for _, opt := range node.Options {
 			switch opt.Tp {
@@ -4441,23 +4567,18 @@ func (checker *nodeTextCleaner) Enter(in ast.Node) (out ast.Node, skipChildren b
 				opt.StrValue = strings.ToUpper(opt.StrValue)
 			}
 		}
-		for _, col := range node.Cols {
-			col.Tp.Charset = strings.ToUpper(col.Tp.Charset)
-			col.Tp.Collate = strings.ToUpper(col.Tp.Collate)
+		for _, column := range node.Columns {
+			col := column.(*ast.ColumnDef)
+			if typ, ok := col.Type.(*ast.TypeName); ok {
+				typ.Charset.Name = strings.ToUpper(typ.Charset.Name)
+				typ.Collation.Name = strings.ToUpper(typ.Collation.Name)
+			}
 
 			for i, option := range col.Options {
 				if option.Tp == 0 && option.Expr == nil && option.Stored == false && option.Refer == nil {
 					col.Options = append(col.Options[:i], col.Options[i+1:]...)
 				}
 			}
-		}
-	case *ast.DeleteStmt:
-		for _, tableHint := range node.TableHints {
-			tableHint.HintName.O = ""
-		}
-	case *ast.UpdateStmt:
-		for _, tableHint := range node.TableHints {
-			tableHint.HintName.O = ""
 		}
 	case *ast.Constraint:
 		if node.Option != nil {
@@ -4466,33 +4587,33 @@ func (checker *nodeTextCleaner) Enter(in ast.Node) (out ast.Node, skipChildren b
 			}
 		}
 	case *ast.FuncCallExpr:
-		node.FnName.O = strings.ToLower(node.FnName.O)
+		node.Name.Name = strings.ToLower(node.Name.Name)
+		node.Name.Raw = ""
+		node.Name.Quote = lex.QuoteUnquoted
+		node.Name.Span = loc.InvalidSpan()
 	case *ast.CollateExpr:
 		node.Collation = strings.ToLower(node.Collation)
 	case *ast.AggregateFuncExpr:
-		node.F = strings.ToLower(node.F)
+		node.Name.Name = strings.ToLower(node.Name.Name)
+		normalizeTestIdent(&node.Name)
 	case *ast.WindowFuncExpr:
-		node.F = strings.ToLower(node.F)
-	case *ast.SelectField:
-		node.Offset = 0
+		node.Name.Name = strings.ToLower(node.Name.Name)
+		normalizeTestIdent(&node.Name)
+	case *ast.SelectItem:
+		normalizeTestSelectItem(node)
 	case *ast.TableName:
-		node.NameOffset = 0
+		normalizeTestName(&node.Name)
+		node.SetSpan(loc.InvalidSpan())
 	case *ast.PeriodDefinition:
-		node.Offset = 0
+		normalizeTestIdent(&node.Name)
 	case *ast.PartitionDefinition:
-		node.NameOffset = 0
-	case *ast.IndexColName:
-		node.ExprOffset = 0
+		normalizeTestIdent(&node.Name)
 	case *ast.ValuesStmt:
 		node.ValuesKeywordOffset = 0
 	case *ast.FrameClause:
 		node.TypeOffset, node.ExclusionOffset = 0, 0
 	case *ast.FrameBound:
 		node.ExprOffset = 0
-	case *driver.ValueExpr:
-		if node.Kind() == types.KindMysqlDecimal {
-			_ = node.GetMysqlDecimal().FromString(node.GetMysqlDecimal().ToString())
-		}
 	case *ast.GrantStmt:
 		var privs []*ast.PrivElem
 		for _, v := range node.Privs {
@@ -4516,6 +4637,16 @@ func (checker *nodeTextCleaner) Enter(in ast.Node) (out ast.Node, skipChildren b
 // Leave implements Visitor interface.
 func (checker *nodeTextCleaner) Leave(in ast.Node) (out ast.Node, ok bool) {
 	return in, true
+}
+
+// normalizeTestSelectItem mirrors ast.normalizeSelectItem, but keeps the
+// decoded name parts while cleaning spelling metadata.
+func normalizeTestSelectItem(item *ast.SelectItem) {
+	item.SetSpan(loc.InvalidSpan())
+	if wildcard, ok := item.Expr.(*ast.WildcardExpr); ok {
+		normalizeTestName(&wildcard.Qualifier)
+	}
+	normalizeTestIdent(&item.Alias)
 }
 
 func TestSelectIntervalSyntax(t *testing.T) {
@@ -4568,12 +4699,12 @@ func TestSelectIntervalPrecedence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fn, ok := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.FuncCallExpr)
+			fn, ok := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.FuncCallExpr)
 			if !ok || !fn.IntervalFirst {
-				t.Fatalf("lost leading INTERVAL: %T", stmt.(*ast.SelectStmt).Fields.Fields[0].Expr)
+				t.Fatalf("lost leading INTERVAL: %T", stmt.(*ast.SelectStmt).Fields.Items[0].Expr)
 			}
 			operand, ok := fn.Args[0].(*ast.BinaryOperationExpr)
-			if !ok || operand.Op != tt.op {
+			if !ok || opcode.Op(operand.Op) != tt.op {
 				t.Fatalf("wrong date operand: %#v", fn.Args[0])
 			}
 		})
@@ -4582,12 +4713,12 @@ func TestSelectIntervalPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	or, ok := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.BinaryOperationExpr)
-	if !ok || or.Op != opcode.LogicOr {
-		t.Fatalf("OR must remain outside INTERVAL: %#v", stmt.(*ast.SelectStmt).Fields.Fields[0].Expr)
+	or, ok := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.BinaryOperationExpr)
+	if !ok || opcode.Op(or.Op) != opcode.LogicOr {
+		t.Fatalf("OR must remain outside INTERVAL: %#v", stmt.(*ast.SelectStmt).Fields.Items[0].Expr)
 	}
-	if fn, ok := or.L.(*ast.FuncCallExpr); !ok || !fn.IntervalFirst {
-		t.Fatalf("wrong OR left operand: %#v", or.L)
+	if fn, ok := or.Left.(*ast.FuncCallExpr); !ok || !fn.IntervalFirst {
+		t.Fatalf("wrong OR left operand: %#v", or.Left)
 	}
 }
 
@@ -4701,7 +4832,7 @@ func TestExplainIntoAndSchemaClauses(t *testing.T) {
 		})
 	}
 	explain := mustParseOne(t, "EXPLAIN FORMAT=JSON INTO @v FOR SCHEMA s1 SELECT 1").(*ast.ExplainStmt)
-	if explain.Into == nil || explain.Schema.O != "s1" || explain.Format != "json" {
+	if explain.Into == nil || explain.Schema.Name != "s1" || explain.Format != "json" {
 		t.Fatalf("EXPLAIN AST: %#v", explain)
 	}
 	for _, sql := range []string{"EXPLAIN ANALYZE INTO @v SELECT 1", "EXPLAIN FOR CONNECTION 1 FOR SCHEMA s1"} {
@@ -4729,7 +4860,11 @@ func TestExplainIntoVisitor(t *testing.T) {
 					case *ast.SelectIntoStatement:
 						return n, tt.skip
 					case *ast.VariableTarget:
-						return &ast.VariableTarget{Parts: []string{"changed"}, IsUser: true}, false
+						return &ast.VariableTarget{
+							Name:   ast.QualifiedName{Parts: []lex.Ident{{Name: "changed"}}},
+							Kind:   ast.VariableTargetUser,
+							Prefix: ast.VariablePrefixAt,
+						}, false
 					}
 					return n, false
 				},
@@ -4746,9 +4881,6 @@ func TestExplainIntoVisitor(t *testing.T) {
 			}
 			if got := restoreStmt(t, stmt); got != tt.want {
 				t.Fatalf("got %s, want %s", got, tt.want)
-			}
-			if stmt.Into.VarList[0] != stmt.Into.Targets[0].LegacyName() {
-				t.Fatal("legacy INTO names were not refreshed")
 			}
 		})
 	}
@@ -4780,8 +4912,8 @@ func TestCountDistinctWindowFunction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			window := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.WindowFuncExpr)
-			if !window.Distinct || !strings.EqualFold(window.F, "count") {
+			window := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.WindowFuncExpr)
+			if !window.Distinct || !strings.EqualFold(window.Name.Name, "count") {
 				t.Fatalf("window AST: %#v", window)
 			}
 			if len(window.Args) != tt.args {
@@ -4800,7 +4932,7 @@ func TestCountDistinctWindowFunction(t *testing.T) {
 		})
 	}
 	stmt := mustParseOne(t, "SELECT COUNT(DISTINCT a) FROM t")
-	agg := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(*ast.AggregateFuncExpr)
+	agg := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.AggregateFuncExpr)
 	if !agg.Distinct {
 		t.Fatalf("aggregate AST: %#v", agg)
 	}
@@ -4834,21 +4966,20 @@ func TestCastJSONEmptyString(t *testing.T) {
 	}
 }
 
-// Parse applies the connection charset and collation to plain string
-// literals; an explicit introducer still wins.
-func TestParseAppliesCharsetToStringLiterals(t *testing.T) {
+// Connection settings must not change syntax; explicit introducers are retained.
+func TestParseStringLiteralsIgnoreConnectionSettings(t *testing.T) {
 	tests := []struct {
 		sql         string
 		charset     string
 		collation   string
-		wantCharset string
-		wantCollate string
+		introducer  string
 		wantRestore string
 	}{
-		{"SELECT 'abc'", "latin1", "", charset.CharsetLatin1, charset.CollationLatin1, "SELECT _LATIN1'abc'"},
-		{"SELECT 'abc'", "", "", mysql.DefaultCharset, mysql.DefaultCollationName, "SELECT 'abc'"},
-		{"SELECT 'a' 'b'", "latin1", "", charset.CharsetLatin1, charset.CollationLatin1, "SELECT _LATIN1'ab'"},
-		{"SELECT _utf8'abc'", "latin1", "", charset.CharsetUTF8, charset.CollationUTF8, "SELECT _UTF8'abc'"},
+		{"SELECT 'abc'", "latin1", "", "", "SELECT 'abc'"},
+		{"SELECT 'abc'", "", "", "", "SELECT 'abc'"},
+		{"SELECT 'abc'", "unknown", "unknown", "", "SELECT 'abc'"},
+		{"SELECT 'a' 'b'", "latin1", "", "", "SELECT 'ab'"},
+		{"SELECT _utf8'abc'", "latin1", "", charset.CharsetUTF8, "SELECT _UTF8'abc'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.sql+"/"+tt.charset, func(t *testing.T) {
@@ -4856,9 +4987,12 @@ func TestParseAppliesCharsetToStringLiterals(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			tp := stmt.(*ast.SelectStmt).Fields.Fields[0].Expr.(ast.ValueExpr).GetType()
-			if tp.Charset != tt.wantCharset || tp.Collate != tt.wantCollate {
-				t.Fatalf("got %s/%s, want %s/%s", tp.Charset, tp.Collate, tt.wantCharset, tt.wantCollate)
+			literal, ok := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.LiteralExpr)
+			if !ok {
+				t.Fatalf("expression is %T, want *ast.LiteralExpr", stmt.(*ast.SelectStmt).Fields.Items[0].Expr)
+			}
+			if literal.Introducer.Name != tt.introducer {
+				t.Fatalf("introducer = %q, want %q", literal.Introducer.Name, tt.introducer)
 			}
 			if got := restoreStmt(t, stmt); got != tt.wantRestore {
 				t.Fatalf("restore = %q, want %q", got, tt.wantRestore)

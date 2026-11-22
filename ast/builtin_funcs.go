@@ -55,10 +55,3 @@ func isBuiltinFunc(name string) bool {
 	_, ok := builtinFuncs[strings.ToLower(name)]
 	return ok
 }
-
-func normalizeFuncName(name string) string {
-	if isBuiltinFunc(name) {
-		return strings.ToUpper(name)
-	}
-	return name
-}

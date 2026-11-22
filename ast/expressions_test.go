@@ -3,11 +3,22 @@ package ast_test
 import (
 	"testing"
 
-	_ "github.com/mia0x75/myparser/driver"
+	"github.com/mia0x75/parserkit/lex"
+
 	"github.com/mia0x75/myparser/format"
+	pkast "github.com/mia0x75/parserkit/ast"
 
 	. "github.com/mia0x75/myparser/ast"
 )
+
+// qualName is a test-only helper to build pure name values.
+func qualName(parts ...string) QualifiedName {
+	q := QualifiedName{}
+	for _, p := range parts {
+		q.Parts = append(q.Parts, lex.Ident{Name: p, Raw: p})
+	}
+	return q
+}
 
 type checkVisitor struct{}
 
@@ -26,8 +37,9 @@ func (v checkVisitor) Leave(in Node) (Node, bool) {
 	return in, true
 }
 
+// checkExpr is a pure leaf expression used to count visitor enters and leaves.
 type checkExpr struct {
-	ValueExpr
+	pkast.BaseExpr
 
 	enterCnt int
 	leaveCnt int
@@ -40,6 +52,11 @@ func (n *checkExpr) Accept(v Visitor) (Node, bool) {
 	}
 	n = newNode.(*checkExpr)
 	return v.Leave(n)
+}
+
+// Restore satisfies the shared expression contract for the pure test leaf.
+func (n *checkExpr) Restore(ctx *format.RestoreCtx) error {
+	return ctx.Err()
 }
 
 func (n *checkExpr) reset() {
@@ -56,13 +73,14 @@ func TestExpresionsVisitorCover(t *testing.T) {
 			expectedLeaveCnt int
 		}{
 			{&BetweenExpr{Expr: ce, Left: ce, Right: ce}, 3, 3},
-			{&BinaryOperationExpr{L: ce, R: ce}, 2, 2},
+			{&BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Left: ce, Right: ce}}, 2, 2},
 			{&CaseExpr{Value: ce, WhenClauses: []*WhenClause{{Expr: ce, Result: ce},
 				{Expr: ce, Result: ce}}, ElseClause: ce}, 6, 6},
-			{&ColumnNameExpr{Name: &ColumnName{}}, 0, 0},
+			{&ColumnRef{BaseColumnRef: pkast.BaseColumnRef{Name: qualName("a", "b")}}, 0, 0},
 			{&CompareSubqueryExpr{L: ce, R: ce}, 2, 2},
-			{&DefaultExpr{Name: &ColumnName{}}, 0, 0},
+			{&DefaultExpr{Name: QualifiedName{Parts: nil}}, 0, 0},
 			{&ExistsSubqueryExpr{Sel: ce}, 1, 1},
+			{&SubqueryExpr{Query: &SelectStmt{Fields: &FieldList{Items: []*SelectItem{{Expr: ce}}}}}, 1, 1},
 			{&IsNullExpr{Expr: ce}, 1, 1},
 			{&IsTruthExpr{Expr: ce}, 1, 1},
 			{NewParamMarkerExpr(0), 0, 0},
@@ -71,10 +89,10 @@ func TestExpresionsVisitorCover(t *testing.T) {
 			{&PatternLikeExpr{Expr: ce, Pattern: ce}, 2, 2},
 			{&PatternRegexpExpr{Expr: ce, Pattern: ce}, 2, 2},
 			{&PositionExpr{}, 0, 0},
-			{&RowExpr{Values: []ExprNode{ce, ce}}, 2, 2},
-			{&UnaryOperationExpr{V: ce}, 1, 1},
-			{NewValueExpr(0), 0, 0},
-			{&ValuesExpr{Column: &ColumnNameExpr{Name: &ColumnName{}}}, 0, 0},
+			{&RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ExprNode{ce, ce}}}, 2, 2},
+			{&UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{Expr: ce}}, 1, 1},
+			{&LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "0"}}, 0, 0},
+			{&ValuesExpr{Column: &ColumnRef{BaseColumnRef: pkast.BaseColumnRef{Name: qualName("c")}}}, 0, 0},
 			{&VariableExpr{Value: ce}, 1, 1},
 		}
 
@@ -89,6 +107,10 @@ func TestExpresionsVisitorCover(t *testing.T) {
 		}
 		v.node.Accept(visitor1{})
 	}
+	// The pure syntax leaf no longer carries execution-layer flag access.
+	if _, ok := interface{}(&checkExpr{}).(interface{ GetFlag() uint64 }); ok {
+		t.Fatal("pure expression still exposes the execution flag accessor")
+	}
 }
 
 func TestUnaryOperationExprRestore(t *testing.T) {
@@ -99,12 +121,12 @@ func TestUnaryOperationExprRestore(t *testing.T) {
 		{"-1", "-1"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
 
-func TestColumnNameExprRestore(t *testing.T) {
+func TestColumnRefRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"abc", "`abc`"},
 		{"`abc`", "`abc`"},
@@ -115,7 +137,7 @@ func TestColumnNameExprRestore(t *testing.T) {
 		{"`dABC`.`sabc`.tabc", "`dABC`.`sabc`.`tabc`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -126,7 +148,7 @@ func TestIsNullExprRestore(t *testing.T) {
 		{"a is not null", "`a` IS NOT NULL"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -139,7 +161,7 @@ func TestIsTruthRestore(t *testing.T) {
 		{"a is not false", "`a` IS NOT FALSE"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -153,7 +175,7 @@ func TestBetweenExprRestore(t *testing.T) {
 		{"b between '2018-11-01' and '2018-11-02'", "`b` BETWEEN '2018-11-01' AND '2018-11-02'"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -167,7 +189,7 @@ func TestCaseExpr(t *testing.T) {
 		{"case a when 'a' then true else false end", "CASE `a` WHEN 'a' THEN TRUE ELSE FALSE END"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -184,7 +206,7 @@ func TestBinaryOperationExpr(t *testing.T) {
 		{"a=1", "`a`=1"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -201,7 +223,7 @@ func TestBinaryOperationExprWithFlags(t *testing.T) {
 		{"a=1", "`a` = 1"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	flags := format.DefaultRestoreFlags | format.RestoreSpacesAroundBinaryOperation
 	RunNodeRestoreTestWithFlags(t, testCases, "select %s", extractNodeFunc, flags)
@@ -213,7 +235,7 @@ func TestParenthesesExpr(t *testing.T) {
 		{"1+2*3", "1+2*3"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -225,7 +247,7 @@ func TestWhenClause(t *testing.T) {
 		{"when 'a'!=1 then true", "WHEN 'a'!=1 THEN TRUE"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr.(*CaseExpr).WhenClauses[0]
+		return node.(*SelectStmt).Fields.Items[0].Expr.(*CaseExpr).WhenClauses[0]
 	}
 	RunNodeRestoreTest(t, testCases, "select case %s end", extractNodeFunc)
 }
@@ -236,7 +258,7 @@ func TestDefaultExpr(t *testing.T) {
 		{"default(i)", "DEFAULT(`i`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*InsertStmt).Lists[0][0]
+		return node.(*InsertStmt).Values[0][0]
 	}
 	RunNodeRestoreTest(t, testCases, "insert into t values(%s)", extractNodeFunc)
 }
@@ -250,7 +272,7 @@ func TestPatternInExprRestore(t *testing.T) {
 		{"2 not in (select 2)", "2 NOT IN (SELECT 2)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -267,7 +289,7 @@ func TestPatternLikeExprRestore(t *testing.T) {
 		{"a not like '%t1_|'", "`a` NOT LIKE '%t1_|'"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -295,7 +317,7 @@ func TestPatternRegexpExprRestore(t *testing.T) {
 		{"a not rlike '^[abc][0-9]{11}|ok$'", "`a` NOT REGEXP '^[abc][0-9]{11}|ok$'"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
@@ -308,7 +330,7 @@ func TestRowExprRestore(t *testing.T) {
 		{"row(col1,col2)", "ROW(`col1`,`col2`)"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Where.(*BinaryOperationExpr).L
+		return node.(*SelectStmt).Where.(*BinaryOperationExpr).Left
 	}
 	RunNodeRestoreTest(t, testCases, "select 1 from t1 where %s = row(1,2)", extractNodeFunc)
 }
@@ -328,7 +350,7 @@ func TestPositionExprRestore(t *testing.T) {
 		{"1", "1"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).OrderBy.Items[0]
+		return node.(*SelectStmt).OrderBy.OrderByClauseCore().Items[0]
 	}
 	RunNodeRestoreTest(t, testCases, "select * from t order by %s", extractNodeFunc)
 }
@@ -362,7 +384,18 @@ func TestVariableExpr(t *testing.T) {
 		{`@@local."aBc"`, "@@SESSION.`abc`"},
 	}
 	extractNodeFunc := func(node Node) Node {
-		return node.(*SelectStmt).Fields.Fields[0].Expr
+		return node.(*SelectStmt).Fields.Items[0].Expr
+	}
+	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
+}
+
+func TestPatternLikeExprEscRestore(t *testing.T) {
+	testCases := []NodeRestoreTestCase{
+		{"a like 't1' escape '!'", "`a` LIKE 't1' ESCAPE '!'"},
+		{"a like 't1' escape '\\\\'", "`a` LIKE 't1'"},
+	}
+	extractNodeFunc := func(node Node) Node {
+		return node.(*SelectStmt).Fields.Items[0].Expr
 	}
 	RunNodeRestoreTest(t, testCases, "select %s", extractNodeFunc)
 }
