@@ -3,6 +3,7 @@ package myparser
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -117,6 +118,7 @@ const (
 	IssueMySQLAnalyzeTables            DialectIssueCode = "mysql.analyze-tables"
 	IssueMySQLMultiDeleteTail          DialectIssueCode = "mysql.multi-delete-tail"
 	IssueMySQLWindowIdentifier         DialectIssueCode = "mysql.window-identifier"
+	IssueMariaDBWindowHugeFrameBound   DialectIssueCode = "mariadb.window-huge-frame-bound"
 )
 
 // DialectIssue is one source-located incompatibility. Offset and Length are
@@ -176,6 +178,14 @@ func (t dialectSourceToken) isWord(word string) bool {
 func (t dialectSourceToken) isRaw(raw string) bool {
 	return t.raw == raw
 }
+
+// windowSpinBoundThreshold guards against a MariaDB execution hazard, not a
+// syntax gap: MariaDB drives window-frame iteration by the bound value
+// instead of clamping to the partition row count, so a bound of this size
+// spins the server (observed: 3-row table, INT64_MAX frame bound, KILL
+// uninterruptible; corpus window_functions_bugs.test:469-481). MySQL clamps
+// the same frames and returns in milliseconds, so the rule is MariaDB-only.
+const windowSpinBoundThreshold = uint64(1) << 60
 
 // DialectCompatibilityVisitor applies target-dialect policy after parsing. It
 // never changes the AST. Source tokens are used only where the AST deliberately
@@ -286,6 +296,9 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			if token, ok := v.tokenAtOffset(x.ExprOffset); ok && token.kind == stringLit {
 				v.addIssue(token, IssueMySQLWindowStringOffset, "string window frame offsets are MariaDB-only")
 			}
+		}
+		if v.Target == DialectMariaDB {
+			v.checkWindowSpinBound(x)
 		}
 	case *ast.FuncCastExpr:
 		if v.Target == DialectMariaDB && x.FunctionType == ast.CastFunction && x.Type != nil && x.Type.Keyword() == "JSON" {
@@ -494,6 +507,34 @@ func (v *DialectCompatibilityVisitor) tokenAtOffset(offset int) (dialectSourceTo
 		}
 	}
 	return dialectSourceToken{}, false
+}
+
+// checkWindowSpinBound flags MariaDB frame bounds whose integer literal is so
+// large the server spins on execution (see windowSpinBoundThreshold). The
+// literal token is located by value inside the bound span because some
+// productions do not set ExprOffset.
+func (v *DialectCompatibilityVisitor) checkWindowSpinBound(bound *ast.FrameBound) {
+	lit, ok := bound.Expr.(*ast.LiteralExpr)
+	if !ok || lit.Kind != pkast.LiteralInteger {
+		return
+	}
+	n, err := strconv.ParseUint(lit.Value, 10, 64)
+	if err != nil || n < windowSpinBoundThreshold {
+		return
+	}
+	span := bound.Span()
+	if !span.Valid() {
+		return
+	}
+	start, end := int(span.Start), int(span.End)
+	for _, token := range v.tokens {
+		if token.pos.Offset >= start && token.pos.Offset < end &&
+			(token.raw == lit.Value || token.text == lit.Value) {
+			v.addIssue(token, IssueMariaDBWindowHugeFrameBound,
+				"MariaDB window frames iterate up to the bound value; a bound >= 2^60 spins the server")
+			return
+		}
+	}
 }
 
 func (v *DialectCompatibilityVisitor) checkMultiDeleteTail(stmt *ast.DeleteStmt) {

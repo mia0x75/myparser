@@ -331,6 +331,7 @@ func TestDialectCompatibilityWindowFramesAndViewWith(t *testing.T) {
 		{"exclude group", "SELECT SUM(a) OVER (ROWS CURRENT ROW EXCLUDE GROUP) FROM t", "EXCLUDE", IssueMySQLWindowExclusion, IssueMariaDBWindowExclusion},
 		{"exclude ties", "SELECT SUM(a) OVER (ROWS CURRENT ROW EXCLUDE TIES) FROM t", "EXCLUDE", IssueMySQLWindowExclusion, IssueMariaDBWindowExclusion},
 		{"exclude no others", "SELECT SUM(a) OVER (ROWS CURRENT ROW EXCLUDE NO OTHERS) FROM t", "EXCLUDE", IssueMySQLWindowExclusion, ""},
+		{"huge frame bound spins mariadb", "SELECT SUM(a) OVER (ROWS BETWEEN 1 FOLLOWING AND 9223372036854775807 FOLLOWING) FROM t", "9223372036854775807", "", IssueMariaDBWindowHugeFrameBound},
 		{"create view", "/* 汉字 */\nCREATE VIEW v AS (WITH c AS (SELECT 1 AS a) SELECT * FROM c)", "WITH", "", IssueMariaDBViewParenthesizedWith},
 		{"alter view", "ALTER VIEW v AS ((WITH c AS (SELECT 1 AS a) SELECT * FROM c))", "WITH", "", IssueMariaDBViewParenthesizedWith},
 	} {
@@ -394,6 +395,46 @@ func TestDialectCompatibilityWindowFramesAndViewWith(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
+	parser := New()
+	parser.EnableWindowFunc(true)
+	// The exact MTR regression statement (window_functions_bugs.test:469-481):
+	// both frame bounds are INT64_MAX-class, so MariaDB sees two issues.
+	mtr := "SELECT SUM(a) OVER(ORDER BY a ROWS BETWEEN 9223372036854775807 FOLLOWING AND 9223372036854775807 FOLLOWING) as `sum` FROM t"
+	stmt, err := parser.ParseOneStmt(mtr, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	maria := parser.CheckDialectCompatibility(stmt, mtr, DialectMariaDB)
+	if len(maria) != 2 {
+		t.Fatalf("mariadb issues = %#v, want 2", maria)
+	}
+	for _, issue := range maria {
+		if issue.Code != IssueMariaDBWindowHugeFrameBound {
+			t.Fatalf("issue code = %s", issue.Code)
+		}
+	}
+	if _, err := parser.ParseOneStmtForDialect(mtr, "", "", DialectMySQL); err != nil {
+		t.Fatalf("mysql dialect must accept the frame (it clamps): %v", err)
+	}
+	if _, err := parser.ParseOneStmtForDialect(mtr, "", "", DialectUnion); err != nil {
+		t.Fatalf("union dialect must accept the frame: %v", err)
+	}
+	// Threshold boundary: 2^60-1 stays legal, 2^60 is the first flagged bound.
+	small := "SELECT SUM(a) OVER (ROWS BETWEEN 1152921504606846975 PRECEDING AND 2 FOLLOWING) FROM t"
+	if stmt, err := parser.ParseOneStmt(small, "", ""); err != nil {
+		t.Fatal(err)
+	} else if issues := parser.CheckDialectCompatibility(stmt, small, DialectMariaDB); len(issues) != 0 {
+		t.Fatalf("below-threshold bound flagged: %#v", issues)
+	}
+	big := "SELECT SUM(a) OVER (ROWS BETWEEN 1152921504606846976 PRECEDING AND 2 FOLLOWING) FROM t"
+	if stmt, err := parser.ParseOneStmt(big, "", ""); err != nil {
+		t.Fatal(err)
+	} else if issues := parser.CheckDialectCompatibility(stmt, big, DialectMariaDB); len(issues) != 1 || issues[0].Code != IssueMariaDBWindowHugeFrameBound {
+		t.Fatalf("threshold bound not flagged: %#v", issues)
 	}
 }
 
