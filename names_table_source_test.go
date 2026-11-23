@@ -321,25 +321,25 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 	if with == nil {
 		t.Fatalf("With clause = nil")
 	}
-	cte := with.CTEs[0]
-	if cte.Name.Raw != "c" {
-		t.Fatalf("CTE name raw = %q, want c", cte.Name.Raw)
+	core := with.CTEs[0].CTECore()
+	if core.Name.Raw != "c" {
+		t.Fatalf("CTE name raw = %q, want c", core.Name.Raw)
 	}
-	if cte.Name.Span != (loc.Span{Start: 5, End: 6}) {
-		t.Fatalf("CTE name span = %v, want [5:6]", cte.Name.Span)
+	if core.Name.Span != (loc.Span{Start: 5, End: 6}) {
+		t.Fatalf("CTE name span = %v, want [5:6]", core.Name.Span)
 	}
-	if len(cte.Columns) != 2 {
-		t.Fatalf("CTE columns = %+v, want two names", cte.Columns)
+	if len(core.Columns) != 2 {
+		t.Fatalf("CTE columns = %+v, want two names", core.Columns)
 	}
-	for i, col := range cte.Columns {
+	for i, col := range core.Columns {
 		start := strings.Index(sql, col.Raw)
 		wantCol := loc.Span{Start: loc.ByteOffset(start), End: loc.ByteOffset(start + len(col.Raw))}
 		if col.Span != wantCol {
 			t.Fatalf("CTE column %d span = %v, want %v", i, col.Span, wantCol)
 		}
 	}
-	if query, ok := cte.Query.(*ast.SelectStmt); !ok || query == nil {
-		t.Fatalf("CTE query = %T, want a non-nil SELECT", cte.Query)
+	if query, ok := core.Query.(*ast.SelectStmt); !ok || query == nil {
+		t.Fatalf("CTE query = %T, want a non-nil SELECT", core.Query)
 	}
 
 	// A recursive CTE may omit CYCLE or retain its quoted column tokens.
@@ -362,8 +362,8 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 		t.Fatal(err)
 	}
 	rwith = rstmt.(*ast.SelectStmt).With.(*ast.WithClause)
-	assertSourceIdent(t, cycleSQL, rwith.CTEs[0].Name, "公`共", "`公``共`", lex.QuoteBacktick, false)
-	for listIndex, names := range [][]lex.Ident{rwith.CTEs[0].Columns, rwith.CycleColumns} {
+	assertSourceIdent(t, cycleSQL, rwith.CTEs[0].CTECore().Name, "公`共", "`公``共`", lex.QuoteBacktick, false)
+	for listIndex, names := range [][]lex.Ident{rwith.CTEs[0].CTECore().Columns, rwith.CycleColumns} {
 		if len(names) != 2 {
 			t.Fatalf("CTE/CYCLE columns = %+v, want two", names)
 		}

@@ -352,15 +352,19 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			}
 		}
 	case *ast.FuncCallExpr:
-		if v.Target == DialectMySQL && strings.EqualFold(x.Name.Name, "log") {
+		if len(x.Name.Parts) != 1 {
+			break
+		}
+		name := x.Name.Parts[0]
+		if v.Target == DialectMySQL && strings.EqualFold(name.Name, "log") {
 			candidate, ok := v.nextLogCandidate()
-			if ok && candidate.builtin && len(x.Args) != 1 && len(x.Args) != 2 {
+			if ok && candidate.builtin && name.Quote == lex.QuoteUnquoted && len(x.Args) != 1 && len(x.Args) != 2 {
 				v.addIssue(candidate.token, IssueMySQLLogArgumentCount, "MySQL LOG accepts one or two arguments")
 			}
 		}
-		if strings.EqualFold(x.Name.Name, "last_value") {
+		if strings.EqualFold(name.Name, "last_value") {
 			candidate, ok := v.nextLastValueCandidate()
-			if ok && candidate.builtin {
+			if ok && candidate.builtin && name.Quote == lex.QuoteUnquoted {
 				switch v.Target {
 				case DialectMySQL:
 					v.addIssue(candidate.token, IssueMySQLScalarLastValue, "LAST_VALUE without OVER is a MariaDB-only scalar function")
@@ -372,15 +376,19 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			}
 		}
 	case *ast.AggregateFuncExpr:
-		switch strings.ToLower(x.Name.Name) {
+		if len(x.Name.Parts) != 1 {
+			break
+		}
+		name := x.Name.Parts[0]
+		switch strings.ToLower(name.Name) {
 		case "group_concat":
-			candidate, ok := v.nextFunctionCandidate(x.Name.Name)
-			if ok && v.Target == DialectMySQL && x.Limit != nil {
+			candidate, ok := v.nextFunctionCandidate(name.Name)
+			if ok && candidate.builtin && name.Quote == lex.QuoteUnquoted && v.Target == DialectMySQL && x.Limit != nil {
 				v.addIssue(candidate.token, IssueMySQLGroupConcatLimit, "GROUP_CONCAT LIMIT is MariaDB-only")
 			}
 		case "json_arrayagg":
-			candidate, ok := v.nextFunctionCandidate(x.Name.Name)
-			if !ok {
+			candidate, ok := v.nextFunctionCandidate(name.Name)
+			if !ok || !candidate.builtin || name.Quote != lex.QuoteUnquoted {
 				break
 			}
 			if v.Target == DialectMySQL && (x.Distinct || x.OrderBy != nil || x.Limit != nil) {
@@ -393,11 +401,15 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			v.addIssueForNode(x, IssueMySQLCorrelatedWindowInSubq,
 				"MySQL does not allow window functions in subqueries compared with ALL/ANY/SOME/IN")
 		}
-		if strings.EqualFold(x.Name.Name, "last_value") {
+		if len(x.Name.Parts) != 1 {
+			break
+		}
+		name := x.Name.Parts[0]
+		if strings.EqualFold(name.Name, "last_value") {
 			v.nextLastValueCandidate()
 		}
-		if strings.EqualFold(x.Name.Name, "json_arrayagg") {
-			if candidate, ok := v.nextFunctionCandidate(x.Name.Name); ok && candidate.builtin {
+		if strings.EqualFold(name.Name, "json_arrayagg") {
+			if candidate, ok := v.nextFunctionCandidate(name.Name); ok && candidate.builtin && name.Quote == lex.QuoteUnquoted {
 				if v.Target == DialectMariaDB {
 					v.addIssue(candidate.token, IssueMariaDBJSONArrayAggWindow, "MariaDB JSON_ARRAYAGG cannot be used as a window function")
 				}

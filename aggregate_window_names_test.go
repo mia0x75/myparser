@@ -73,21 +73,27 @@ func checkCallNameSpan(t *testing.T, call, rawName string, window bool) {
 	if isWindow != window {
 		t.Fatalf("window=%v, want %v", isWindow, window)
 	}
-	id := core.Name
+	if len(core.Name.Parts) != 1 {
+		t.Fatalf("name parts = %#v, want a single part", core.Name.Parts)
+	}
+	id := core.Name.Parts[0]
 	if !id.Present() || id.Raw != rawName {
 		t.Fatalf("name = %+v, want raw %q", id, rawName)
 	}
 	if id.Quote == lex.QuoteUnquoted && !strings.EqualFold(rawName, "variance") && id.Name != rawName {
 		t.Fatalf("decoded name = %q, want original spelling %q", id.Name, rawName)
 	}
-	if got, err := id.Span.Slice(sql); err != nil || got != rawName {
+	if got, err := core.Name.Span.Slice(sql); err != nil || got != rawName {
 		t.Fatalf("name span selects %q (%v), want %q", got, err, rawName)
 	}
-	if unsafe.StringData(core.Name.Raw) != unsafe.StringData(sql[id.Span.Start:id.Span.End]) {
+	if core.Name.Span != id.Span {
+		t.Fatalf("name span = %v, part span = %v", core.Name.Span, id.Span)
+	}
+	if unsafe.StringData(core.Name.Parts[0].Raw) != unsafe.StringData(sql[core.Name.Span.Start:core.Name.Span.End]) {
 		t.Fatal("raw name does not share the input substring")
 	}
 	if id.Quote == lex.QuoteUnquoted && !strings.EqualFold(rawName, "variance") &&
-		unsafe.StringData(core.Name.Name) != unsafe.StringData(core.Name.Raw) {
+		unsafe.StringData(core.Name.Parts[0].Name) != unsafe.StringData(core.Name.Parts[0].Raw) {
 		t.Fatal("unquoted name does not share the input substring")
 	}
 	if got, err := expr.Span().Slice(sql); err != nil || got != call {
@@ -106,13 +112,19 @@ func checkCallNameSpan(t *testing.T, call, rawName string, window bool) {
 		t.Fatalf("reparse %q: %v", canonical, err)
 	}
 	next := callSyntaxCore(t, reparsed.(*ast.SelectStmt).Fields.Items[0].Expr)
-	if !strings.EqualFold(next.Name.Name, id.Name) || len(next.Args) != len(core.Args) {
+	if len(next.Name.Parts) != 1 {
+		t.Fatalf("reparsed name parts = %#v, want a single part", next.Name.Parts)
+	}
+	if !strings.EqualFold(next.Name.Parts[0].Name, id.Name) || len(next.Args) != len(core.Args) {
 		t.Fatal("round trip changed call name or arguments")
 	}
 	if _, err := p.ParseOneStmt("SELECT `不``同`(x) OVER ()", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if core.Name != id || restoreStmt(t, stmt) != canonical {
+	if len(core.Name.Parts) != 1 ||
+		core.Name.Parts[0] != id ||
+		core.Name.Span != id.Span ||
+		restoreStmt(t, stmt) != canonical {
 		t.Fatal("parser reuse changed retained call")
 	}
 }

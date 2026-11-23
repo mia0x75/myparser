@@ -34,7 +34,7 @@ func TestIndexNamesSyntax(t *testing.T) {
 			get := func(stmt ast.StmtNode) []lex.Ident {
 				switch n := stmt.(type) {
 				case *ast.SelectStmt:
-					hint := n.From.FromClauseCore().Table.JoinExprCore().Left.(*ast.TableSource).IndexHints[0]
+					hint := n.From.FromClauseCore().Table.(*ast.JoinExpr).Left.(*ast.TableSource).IndexHints[0]
 					return hint.IndexNames
 				case *ast.AnalyzeTableStmt:
 					return n.IndexNames
@@ -63,7 +63,7 @@ func TestIndexNamesSyntax(t *testing.T) {
 				}
 			}
 			if tc.hint != "" {
-				hint := stmt.(*ast.SelectStmt).From.FromClauseCore().Table.JoinExprCore().Left.(*ast.TableSource).IndexHints[0]
+				hint := stmt.(*ast.SelectStmt).From.FromClauseCore().Table.(*ast.JoinExpr).Left.(*ast.TableSource).IndexHints[0]
 				if selected, err := hint.Span.Slice(tc.sql); err != nil || selected != tc.hint {
 					t.Fatalf("hint span selects %q (%v), want %q", selected, err, tc.hint)
 				}

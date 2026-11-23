@@ -339,13 +339,14 @@ func (n *FuncCallExpr) Restore(ctx *format.RestoreCtx) error {
 		ctx.WritePlain(" + ")
 		return n.Args[0].Restore(ctx)
 	}
-	if isBuiltinFunc(strings.ToLower(n.Name.Name)) {
-		ctx.WriteKeyword(n.Name.Name)
-	} else {
-		ctx.WritePlain(n.Name.Name)
+	if len(n.Name.Parts) == 1 && n.Name.Parts[0].Quote == lex.QuoteUnquoted &&
+		!isBuiltinFunc(n.Name.Parts[0].Name) {
+		ctx.WritePlain(n.Name.Parts[0].Name)
+	} else if err := restoreFunctionName(ctx, n.Name); err != nil {
+		return err
 	}
 	ctx.WritePlain("(")
-	switch strings.ToLower(n.Name.Name) {
+	switch builtinFunctionName(n.Name) {
 	case "convert":
 		if err := n.Args[0].Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore FuncCastExpr.Expr")
@@ -454,7 +455,13 @@ func (n *FuncCallExpr) Format(w io.Writer) {
 		FormatExpr(n.Args[0], w)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%s(", strings.ToLower(n.Name.Name))
+	if len(n.Name.Parts) == 1 && n.Name.Parts[0].Quote == lex.QuoteUnquoted {
+		_, _ = fmt.Fprint(w, strings.ToLower(n.Name.Parts[0].Name))
+	} else {
+		ctx := format.NewRestoreCtx(format.RestoreKeyWordLowercase|format.RestoreNameBackQuotes, w)
+		_ = restoreFunctionName(ctx, n.Name)
+	}
+	_, _ = fmt.Fprint(w, "(")
 	if !n.specialFormatArgs(w) {
 		for i, arg := range n.Args {
 			FormatExpr(arg, w)
@@ -468,7 +475,7 @@ func (n *FuncCallExpr) Format(w io.Writer) {
 
 // specialFormatArgs formats argument list for some special functions.
 func (n *FuncCallExpr) specialFormatArgs(w io.Writer) bool {
-	switch strings.ToLower(n.Name.Name) {
+	switch builtinFunctionName(n.Name) {
 	case Extract:
 		_, _ = fmt.Fprintf(w, "%s FROM ", n.Unit.Name)
 		FormatExpr(n.Args[0], w)
@@ -972,24 +979,20 @@ type AggregateFuncExpr struct {
 
 func (*AggregateFuncExpr) functionExpression() {}
 
-func restoreFunctionName(ctx *format.RestoreCtx, name lex.Ident) error {
-	if !name.Present() || name.Quote == lex.QuoteUnquoted && name.Name == "" {
-		return errors.New("function name is missing")
+func restoreFunctionName(ctx *format.RestoreCtx, name QualifiedName) error {
+	if err := validateFunctionName(name); err != nil {
+		return err
 	}
-	if name.Quote != lex.QuoteUnquoted {
-		ctx.WriteIdent(name)
-		return ctx.Err()
-	}
-	// Bare function names must not terminate the token in hand-built ASTs.
-	for i := 0; i < len(name.Name); i++ {
-		c := name.Name[i]
-		valid := c >= 0x80 || c == '_' || c == '$' ||
-			c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
-		if !valid {
-			return errors.New("invalid unquoted function name")
+	for i, part := range name.Parts {
+		if i != 0 {
+			ctx.WritePlain(".")
+		}
+		if len(name.Parts) == 1 && part.Quote == lex.QuoteUnquoted {
+			ctx.WriteKeyword(part.Name)
+		} else {
+			ctx.WriteIdent(part)
 		}
 	}
-	ctx.WriteKeyword(name.Name)
 	return ctx.Err()
 }
 
@@ -998,8 +1001,8 @@ func (n *AggregateFuncExpr) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
 		return errors.New("aggregate function name is missing")
 	}
-	if n.Star && !strings.EqualFold(n.Name.Name, AggFuncCount) {
-		return errors.Errorf("star is only valid for %s, got %s", AggFuncCount, n.Name.Name)
+	if n.Star && builtinFunctionName(n.Name) != AggFuncCount {
+		return errors.Errorf("star is only valid for unqualified %s", AggFuncCount)
 	}
 	if n.Star && (n.Distinct || len(n.Args) != 0) {
 		return errors.New("star cannot be combined with DISTINCT or aggregate arguments")
@@ -1179,8 +1182,8 @@ func (n *WindowFuncExpr) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
 		return errors.New("window function name is missing")
 	}
-	if n.Star && !strings.EqualFold(n.Name.Name, AggFuncCount) {
-		return errors.Errorf("star is only valid for %s, got %s", AggFuncCount, n.Name.Name)
+	if n.Star && builtinFunctionName(n.Name) != AggFuncCount {
+		return errors.Errorf("star is only valid for unqualified %s", AggFuncCount)
 	}
 	if n.Star && (n.Distinct || len(n.Args) != 0) {
 		return errors.New("star cannot be combined with DISTINCT or window arguments")

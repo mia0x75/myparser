@@ -185,7 +185,7 @@ func TestCallRestoreBoundaries(t *testing.T) {
 	for _, tc := range boundaryCalls() {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, child := range []ast.ExprNode{nil, (*ast.LiteralExpr)(nil), (*sharedPureExpr)(nil)} {
-				root := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ast.ExprNode{child}})
+				root := tc.new(pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "f"}}}, Args: []ast.ExprNode{child}})
 				var out strings.Builder
 				if err := root.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil {
 					t.Fatalf("restored nil argument %T", child)
@@ -195,12 +195,12 @@ func TestCallRestoreBoundaries(t *testing.T) {
 				}
 			}
 			var out strings.Builder
-			root := tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}, Args: []ast.ExprNode{&sharedPureExpr{restoreErr: true}}})
+			root := tc.new(pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "f"}}}, Args: []ast.ExprNode{&sharedPureExpr{restoreErr: true}}})
 			var marker *pureRestoreError
 			if err := root.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); !errors.As(err, &marker) {
 				t.Fatalf("lost child error chain: %v", err)
 			}
-			root = tc.new(pkast.BaseCallExpr{Name: lex.Ident{Name: "f"}})
+			root = tc.new(pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "f"}}}})
 			writeErr := errors.New("call writer failure")
 			for _, err := range []error{writeErr, nil} {
 				want := err
@@ -214,7 +214,7 @@ func TestCallRestoreBoundaries(t *testing.T) {
 		})
 	}
 	agg := &ast.AggregateFuncExpr{
-		BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "group_concat"}},
+		BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "group_concat"}}}},
 		Separator:    &sharedPureExpr{restoreErr: true},
 	}
 	var out strings.Builder
@@ -228,7 +228,7 @@ func TestCallRestoreNameBoundaries(t *testing.T) {
 	for _, call := range boundaryCalls() {
 		t.Run(call.name, func(t *testing.T) {
 			for _, name := range []string{"", "a;b", "a b", "a`b", "a(b)", "a.b", "a--b", "a/*b", "a\nb"} {
-				root := call.new(pkast.BaseCallExpr{Name: lex.Ident{Name: name}})
+				root := call.new(pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: name}}}})
 				var out strings.Builder
 				if err := root.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil || out.Len() != 0 {
 					t.Fatalf("name %q: output=%q, error=%v", name, out.String(), err)
@@ -247,7 +247,7 @@ func TestCallRestoreNameBoundaries(t *testing.T) {
 				{lex.Ident{Name: "MiXeD", Raw: "`MiXeD`", Quote: lex.QuoteBacktick}, dformat.RestoreNameDoubleQuotes, "\"MiXeD\"()"},
 				{lex.Ident{Quote: lex.QuoteBacktick}, dformat.DefaultRestoreFlags, "``()"},
 			} {
-				root := call.new(pkast.BaseCallExpr{Name: tc.name})
+				root := call.new(pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{tc.name}}})
 				var out strings.Builder
 				want := tc.want
 				if call.name == "window" {
@@ -271,7 +271,7 @@ func TestSpecialCallRestoreAndVisitorBoundaries(t *testing.T) {
 		new  func(ast.ExprNode) (ast.ExprNode, func() ast.ExprNode)
 	}{
 		{"function", func(arg ast.ExprNode) (ast.ExprNode, func() ast.ExprNode) {
-			n := &ast.FuncCallExpr{Name: lex.Ident{Name: "f"}, Args: []ast.ExprNode{arg}}
+			n := &ast.FuncCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "f"}}}, Args: []ast.ExprNode{arg}}
 			return n, func() ast.ExprNode { return n.Args[0] }
 		}},
 		{"weight", func(arg ast.ExprNode) (ast.ExprNode, func() ast.ExprNode) {

@@ -7490,7 +7490,7 @@ WithClause:
 	{
 		clause := &ast.WithClause{
 			BaseWithClause: pkast.BaseWithClause{
-				CTEs: $2.([]*ast.CommonTableExpression),
+				CTEs: $2.([]ast.CTENode),
 			},
 		}
 		clause.SetSpan(yyVAL.span)
@@ -7501,7 +7501,7 @@ WithClause:
 		clause := &ast.WithClause{
 			BaseWithClause: pkast.BaseWithClause{
 				IsRecursive: true,
-				CTEs:        $3.([]*ast.CommonTableExpression),
+				CTEs:        $3.([]ast.CTENode),
 			},
 			CycleColumns: $4.([]lex.Ident),
 		}
@@ -7524,11 +7524,11 @@ WithCycleOpt:
 WithList:
 	WithClauseItem
 	{
-		$$ = []*ast.CommonTableExpression{$1.(*ast.CommonTableExpression)}
+		$$ = []ast.CTENode{$1.(ast.CTENode)}
 	}
 |	WithList ',' WithClauseItem
 	{
-		$$ = append($1.([]*ast.CommonTableExpression), $3.(*ast.CommonTableExpression))
+		$$ = append($1.([]ast.CTENode), $3.(ast.CTENode))
 	}
 
 
@@ -7539,7 +7539,7 @@ WithClauseItem:
 			BaseCommonTableExpression: pkast.BaseCommonTableExpression{
 				Name:    syntaxIdent(yylex, $1, yyS[yypt-3].span),
 				Columns: $2.([]lex.Ident),
-				Query:   $4.(ast.QueryNode),
+				Query:   $4.(ast.StmtNode),
 			},
 		}
 		cte.SetSpan(yyVAL.span)
@@ -7999,7 +7999,7 @@ WindowFrameExtent:
 WindowFrameStart:
 	unbounded preceding
 	{
-		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, UnBounded: true}}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Unbounded: true}}
 		bound.SetSpan(yyVAL.span)
 		$$ = bound
 	}
@@ -8054,7 +8054,7 @@ WindowFrameBound:
 	}
 |	unbounded following
 	{
-		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, UnBounded: true}}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Unbounded: true}}
 		bound.SetSpan(yyVAL.span)
 		$$ = bound
 	}

@@ -74,18 +74,14 @@ func (checker *nodeTextCleaner) Enter(in Node) (out Node, skipChildren bool) {
 			}
 		}
 	case *FuncCallExpr:
-		node.Name.Name = strings.ToLower(node.Name.Name)
-		node.Name.Raw = ""
-		node.Name.Quote = lex.QuoteUnquoted
-		node.Name.Span = loc.InvalidSpan()
+		normalizeCallName(&node.Name)
 		for _, ident := range []*lex.Ident{&node.Unit, &node.FormatSelector} {
 			ident.Name = strings.ToUpper(ident.Name)
 			ident.Raw = ""
 			ident.Quote = lex.QuoteUnquoted
 			ident.Span = loc.InvalidSpan()
 		}
-		switch strings.ToLower(node.Name.Name) {
-		case "convert":
+		if len(node.Name.Parts) == 1 && strings.EqualFold(node.Name.Parts[0].Name, "convert") {
 			node.Charset.Name = strings.ToLower(node.Charset.Name)
 			node.Charset.Raw = ""
 			node.Charset.Quote = lex.QuoteUnquoted
@@ -226,9 +222,23 @@ func normalizeTypeIdent(ident *lex.Ident) {
 	normalizeIdent(ident)
 }
 
-func normalizeCallName(ident *lex.Ident) {
-	ident.Name = strings.ToLower(ident.Name)
-	normalizeAlias(ident)
+func normalizeCallName(name *QualifiedName) {
+	if name == nil {
+		return
+	}
+	name.Span = loc.InvalidSpan()
+	for i := range name.Parts {
+		name.Parts[i].Name = strings.ToLower(name.Parts[i].Name)
+		normalizeAlias(&name.Parts[i])
+	}
+}
+
+func TestNormalizeCallNameKeepsQuotedEmptyPart(t *testing.T) {
+	name := QualifiedName{Parts: []lex.Ident{{Quote: lex.QuoteBacktick}}}
+	normalizeCallName(&name)
+	if len(name.Parts) != 1 || !name.Parts[0].Present() || name.Parts[0].Quote != lex.QuoteBacktick {
+		t.Fatal("normalization must not erase a quoted empty function name")
+	}
 }
 
 func TestNormalizeNamePreservesSemantics(t *testing.T) {

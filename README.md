@@ -101,6 +101,21 @@ complete coverage of every server version or every combination of clauses.
 
 ### AST details and normalization
 
+- 本批跨方言 API 收口：`SelectStmt.From.FromClauseCore().Table` 使用公共 `ResultSetNode`，解析器仍
+  生成既有 Join 根。`WithClause.CTEs` 使用 `[]CTENode`，共享字段通过
+  `CTECore()` 访问，主体 `Query StmtNode` 可供其它方言表示可写 CTE；MySQL
+  文法允许的 CTE 主体保持原范围，MariaDB CYCLE 字段保留。
+- 普通、聚合、窗口调用的 `Name` 统一为 `QualifiedName`，使用 `Name.Parts`
+  读取标识符，整体范围使用 `Name.Span`。名称引号及分段保留，只有单段未加引号
+  名称参与特殊内建语法识别；限定名称不会因末段同名被当作内建函数。
+  MySQL 限定函数调用文法未扩张。分段表示每个函数名增加一次分配；五类解析
+  样本的 B/op 增加 1.1%～3.4%，耗时测量噪声较大，不作速度结论。
+- 窗口单位与边界方向增加 Unknown 零值，合法值必须显式设置；`UnBounded`
+  重命名为 `Unbounded`。Restore 拒绝未知单位、方向与 EXCLUDE 枚举；合法
+  ROWS/RANGE/GROUPS 和边界输出保持。公共具体节点的 nil 接收者 Accept
+  统一返回 `(nil, false)`，skip 前校验外层类型，typed-nil 子槽与替换结果会停止。
+- 本地开发仍通过 `replace github.com/mia0x75/parserkit => ../parserkit` 解析依赖。
+  parserkit 尚未发布可获取版本，因此当前依赖配置不支持单独 fresh clone 或远程 CI。
 - `ast.UpdateStmt/DeleteStmt` 分别值内嵌公共 `BaseUpdateStmt/BaseDeleteStmt`。
   旧 UPDATE `TableRefs/List/Order` 改为 `Table/Assignments/OrderBy`；
   DELETE 的 `TableRefs/Tables/Order` 改为单目标 `Table`、来源 `Using`、

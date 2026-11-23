@@ -103,11 +103,11 @@ func normalizeTestNameMetadata(node ast.Node) {
 	case *ast.DefaultExpr:
 		normalizeTestName(&node.Name)
 	case *ast.FuncCallExpr:
-		normalizeTestIdent(&node.Name)
+		normalizeTestName(&node.Name)
 	case *ast.AggregateFuncExpr:
-		normalizeTestIdent(&node.Name)
+		normalizeTestName(&node.Name)
 	case *ast.WindowFuncExpr:
-		normalizeTestIdent(&node.Name)
+		normalizeTestName(&node.Name)
 	case *ast.ColumnDef:
 		normalizeTestName(&node.Name)
 	case *ast.IndexKeyPart:

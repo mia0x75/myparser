@@ -627,6 +627,29 @@ func TestFrameClauseRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "select avg(val) over (%s) from t", extractNodeFunc)
 }
 
+func TestWindowFrameRestoreRejectsUnknownValues(t *testing.T) {
+	t.Parallel()
+	current := &FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: CurrentRow}}
+	for _, tc := range []struct {
+		name string
+		node Node
+	}{
+		{"zero bound", &FrameBound{}},
+		{"invalid direction", &FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: BoundType(255)}}},
+		{"unbounded unknown", &FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Unbounded: true}}},
+		{"zero frame", &FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Extent: FrameExtent{Start: current, End: current}}}},
+		{"invalid unit", &FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Type: FrameType(255), Extent: FrameExtent{Start: current, End: current}}}},
+		{"invalid exclusion", &FrameClause{BaseWindowFrameClause: pkast.BaseWindowFrameClause{Type: Rows, Extent: FrameExtent{Start: current, End: current}, Exclusion: pkast.WindowFrameExclusion(255)}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			if err := tc.node.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil {
+				t.Fatalf("Restore accepted invalid frame: %q", out.String())
+			}
+		})
+	}
+}
+
 func TestPartitionByClauseRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"PARTITION BY a", "PARTITION BY `a`"},

@@ -33,8 +33,8 @@ func syntaxIdent(l yyLexer, name string, span loc.Span) lex.Ident {
 	return ident
 }
 
-func functionName(l yyLexer, name string, span loc.Span) lex.Ident {
-	return syntaxIdent(l, name, span)
+func functionName(l yyLexer, name string, span loc.Span) ast.QualifiedName {
+	return syntaxName(syntaxIdent(l, name, span))
 }
 
 func syntaxName(parts ...lex.Ident) ast.QualifiedName {

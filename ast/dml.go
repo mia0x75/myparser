@@ -154,7 +154,7 @@ func (n *TableRefsClause) FromClauseCore() *pkast.BaseFromClause {
 
 // Restore implements Node interface.
 func (n *TableRefsClause) Restore(ctx *format.RestoreCtx) error {
-	if n == nil || n.Table == nil || n.Table.JoinExprCore() == nil {
+	if n == nil || !nodePresent(n.Table) {
 		return errors.New("restore TableRefsClause: missing relation")
 	}
 	// Each query has its own join tree. A derived query must not inherit the
@@ -182,15 +182,15 @@ func (n *TableRefsClause) Accept(v Visitor) (Node, bool) {
 	if skipChildren {
 		return v.Leave(n)
 	}
-	if n.Table == nil || n.Table.JoinExprCore() == nil {
+	if !nodePresent(n.Table) {
 		return n, false
 	}
 	node, ok := n.Table.Accept(v)
 	if !ok {
 		return n, false
 	}
-	table, ok := node.(pkast.JoinExprNode)
-	if !ok || table == nil || table.JoinExprCore() == nil {
+	table, ok := nodeAs[ResultSetNode](node)
+	if !ok {
 		return n, false
 	}
 	n.Table = table
@@ -2141,6 +2141,9 @@ func (n *FrameBound) WindowFrameBoundCore() *pkast.BaseWindowFrameBound {
 
 // Restore implements Node interface.
 func (n *FrameBound) Restore(ctx *format.RestoreCtx) error {
+	if n.Type != CurrentRow && n.Type != Preceding && n.Type != Following {
+		return errors.New("unsupported window frame bound direction")
+	}
 	if n.Unit.Present() && !validTimeUnit(n.Unit.Name) {
 		return errors.New("invalid frame time unit")
 	}
@@ -2150,7 +2153,7 @@ func (n *FrameBound) Restore(ctx *format.RestoreCtx) error {
 	if n.Unit.Present() && n.Type != Preceding && n.Type != Following {
 		return errors.New("frame time unit requires a preceding or following bound")
 	}
-	if n.UnBounded {
+	if n.Unbounded {
 		ctx.WriteKeyword("UNBOUNDED")
 	}
 	switch n.Type {

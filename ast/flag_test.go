@@ -11,7 +11,7 @@ import (
 
 func TestHasAggFlag(t *testing.T) {
 	// A real aggregate child derives the aggregate flag through the syntax tree.
-	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "sum"}, Args: []ast.ExprNode{&ast.ColumnRef{BaseColumnRef: pkast.BaseColumnRef{Name: ast.QualifiedName{}}}}}}
+	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "sum"}}}, Args: []ast.ExprNode{&ast.ColumnRef{BaseColumnRef: pkast.BaseColumnRef{Name: ast.QualifiedName{}}}}}}
 	if got := ast.HasAggFlag(agg); !got {
 		t.Fatalf("HasAggFlag = %v, want true", got)
 	}
@@ -175,7 +175,7 @@ func TestAggregateTailFlags(t *testing.T) {
 	separator := &ast.VariableExpr{Target: &ast.VariableTarget{Name: ast.QualifiedName{Parts: []lex.Ident{{Name: "separator"}}}, Kind: ast.VariableTargetLocal}}
 	agg := &ast.AggregateFuncExpr{
 		BaseCallExpr: pkast.BaseCallExpr{
-			Name: lex.Ident{Name: "group_concat"},
+			Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "group_concat"}}},
 			Args: []ast.ExprNode{&ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "1"}}},
 		},
 		Separator: separator,
@@ -209,7 +209,7 @@ func TestWindowTailFlags(t *testing.T) {
 		})
 	}
 	window := &ast.WindowFuncExpr{
-		BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "group_concat"}},
+		BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "group_concat"}}}},
 		Separator:    ast.NewParamMarkerExpr(0),
 	}
 	if got := ast.ExprFlag(window); got != ast.FlagHasWindowFunc|ast.FlagHasParamMarker {

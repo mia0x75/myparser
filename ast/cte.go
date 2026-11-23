@@ -11,6 +11,7 @@ import (
 )
 
 type CommonTableExpression = pkast.CommonTableExpression
+type CTENode = pkast.CTENode
 
 // WithClause retains MariaDB's CYCLE extension while sharing standard CTE data.
 type WithClause struct {
@@ -35,7 +36,7 @@ func (n *WithClause) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyword("RECURSIVE ")
 	}
 	for i, cte := range n.CTEs {
-		if cte == nil {
+		if !nodePresent(cte) || cte.CTECore() == nil {
 			return fmt.Errorf("restore with clause CTE %d: nil CTE", i)
 		}
 		if i > 0 {
@@ -59,6 +60,9 @@ func (n *WithClause) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *WithClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	clause, ok := entered.(*WithClause)
 	if !ok || clause == nil {
@@ -68,15 +72,15 @@ func (n *WithClause) Accept(v Visitor) (Node, bool) {
 		return v.Leave(clause)
 	}
 	for i, cte := range clause.CTEs {
-		if cte == nil {
+		if !nodePresent(cte) || cte.CTECore() == nil {
 			return clause, false
 		}
 		updated, ok := cte.Accept(v)
 		if !ok {
 			return clause, false
 		}
-		replacement, ok := updated.(*CommonTableExpression)
-		if !ok || replacement == nil {
+		replacement, ok := nodeAs[CTENode](updated)
+		if !ok || replacement.CTECore() == nil {
 			return clause, false
 		}
 		clause.CTEs[i] = replacement

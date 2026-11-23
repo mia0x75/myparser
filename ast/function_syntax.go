@@ -4,9 +4,41 @@ import (
 	"strings"
 
 	pkast "github.com/mia0x75/parserkit/ast"
+	"github.com/mia0x75/parserkit/lex"
 
 	"github.com/mia0x75/myparser/errors"
 )
+
+func builtinFunctionName(name QualifiedName) string {
+	if len(name.Parts) != 1 || name.Parts[0].Quote != lex.QuoteUnquoted {
+		return ""
+	}
+	return strings.ToLower(name.Parts[0].Name)
+}
+
+func validateFunctionName(name QualifiedName) error {
+	if len(name.Parts) == 0 {
+		return errors.New("function name is missing")
+	}
+	for _, part := range name.Parts {
+		if !part.Present() || part.Quote == lex.QuoteUnquoted && part.Name == "" {
+			return errors.New("function name is missing")
+		}
+		if part.Quote != lex.QuoteUnquoted {
+			continue
+		}
+		// Bare parts must not terminate the token in hand-built ASTs.
+		for i := 0; i < len(part.Name); i++ {
+			c := part.Name[i]
+			valid := c >= 0x80 || c == '_' || c == '$' ||
+				c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+			if !valid {
+				return errors.New("invalid unquoted function name")
+			}
+		}
+	}
+	return nil
+}
 
 func validTimeUnit(unit string) bool {
 	switch unit {
@@ -41,8 +73,11 @@ func (n *FuncCallExpr) validateSyntaxArgs() error {
 	if n == nil {
 		return errors.New("nil function call")
 	}
+	if err := validateFunctionName(n.Name); err != nil {
+		return err
+	}
 	count := -1
-	name := strings.ToLower(n.Name.Name)
+	name := builtinFunctionName(n.Name)
 	switch name {
 	case DateAdd, DateSub, AddDate, SubDate:
 		count = 2

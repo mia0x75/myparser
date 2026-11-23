@@ -114,14 +114,14 @@ func TestWithClauseCTESpanAndVisitOrder(t *testing.T) {
 		t.Fatalf("parse = %T, want SelectStmt", n)
 	}
 	with := sel.With.(*ast.WithClause)
-	if len(with.CTEs) != 1 || with.CTEs[0].Query == nil {
+	if len(with.CTEs) != 1 || with.CTEs[0].CTECore().Query == nil {
 		t.Fatalf("CTE query lost: %#v", with.CTEs)
 	}
 	// The inner CTE query is the CTE's own SELECT. Its own Span is set by
 	// the independent SELECT-migration work, so we only assert that it is
 	// a non-nil SelectStmt and leave the span check to that batch.
-	if _, ok := with.CTEs[0].Query.(*ast.SelectStmt); !ok {
-		t.Fatalf("CTE Query = %T, want *ast.SelectStmt", with.CTEs[0].Query)
+	if _, ok := with.CTEs[0].CTECore().Query.(*ast.SelectStmt); !ok {
+		t.Fatalf("CTE Query = %T, want *ast.SelectStmt", with.CTEs[0].CTECore().Query)
 	}
 
 	// The CTE node's span covers "c AS (SELECT 1)" = [5,20).
@@ -179,7 +179,7 @@ func TestWithClauseAcceptNilCTEStops(t *testing.T) {
 func TestWithClauseRestoreNilCTEFails(t *testing.T) {
 	// A nil CTE in the CTEs list must fail Restore.
 	clause := &ast.WithClause{}
-	clause.CTEs = []*ast.CommonTableExpression{nil}
+	clause.CTEs = []ast.CTENode{nil}
 	var out strings.Builder
 	err := clause.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, &out))
 	if err == nil {
@@ -203,7 +203,7 @@ func TestWithClauseRestoreNilClause(t *testing.T) {
 func TestWithClauseRestoreNilCycleColumns(t *testing.T) {
 	// With no CYCLE columns, no CYCLE keyword is emitted.
 	clause := &ast.WithClause{}
-	clause.CTEs = []*ast.CommonTableExpression{{BaseCommonTableExpression: pkast.BaseCommonTableExpression{
+	clause.CTEs = []ast.CTENode{&ast.CommonTableExpression{BaseCommonTableExpression: pkast.BaseCommonTableExpression{
 		Name:  lex.Ident{Name: "c"},
 		Query: &fakeCTESelect{},
 	}}}

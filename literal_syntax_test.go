@@ -366,7 +366,7 @@ func TestLiteralSyntaxStringEntryPoints(t *testing.T) {
 			sql:  "SELECT CHAR(65 USING `utf8`)",
 			extract: func(s ast.StmtNode) []ast.ExprNode {
 				call := s.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.FuncCallExpr)
-				if !strings.EqualFold(call.Name.Name, ast.CharFunc) {
+				if len(call.Name.Parts) != 1 || !strings.EqualFold(call.Name.Parts[0].Name, ast.CharFunc) {
 					return nil
 				}
 				return []ast.ExprNode{call.Args[len(call.Args)-1]}

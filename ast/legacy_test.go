@@ -39,8 +39,8 @@ func TestMigratedOperatorsHaveNoLegacyMetadata(t *testing.T) {
 func TestMigratedOperatorFlagsFollowChildren(t *testing.T) {
 	ref := &ast.ColumnRef{BaseColumnRef: pkast.BaseColumnRef{}}
 	marker := ast.NewParamMarkerExpr(0)
-	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "sum"}, Args: []ast.ExprNode{ref}}}
-	window := &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "row_number"}}, Spec: ast.WindowSpec{}}
+	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "sum"}}}, Args: []ast.ExprNode{ref}}}
+	window := &ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "row_number"}}}}, Spec: ast.WindowSpec{}}
 	bin := &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Left: ref, Right: marker}}
 	unary := &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{Expr: bin}}
 	want := ast.FlagHasReference | ast.FlagHasParamMarker
@@ -263,7 +263,7 @@ func TestExprFlagScansMigratedChainsOnce(t *testing.T) {
 func TestMigratedRowFlagsFollowItems(t *testing.T) {
 	ref := &ast.ColumnRef{BaseColumnRef: pkast.BaseColumnRef{}}
 	marker := ast.NewParamMarkerExpr(0)
-	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "sum"}, Args: []ast.ExprNode{ref}}}
+	agg := &ast.AggregateFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "sum"}}}, Args: []ast.ExprNode{ref}}}
 	row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ast.ExprNode{
 		nil, ref, &ast.UnaryOperationExpr{BaseUnaryExpr: pkast.BaseUnaryExpr{Expr: marker}},
 	}}}
@@ -276,7 +276,7 @@ func TestMigratedRowFlagsFollowItems(t *testing.T) {
 	}
 	// Classification follows real aggregate and window subtrees in the row.
 	rowAgg := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ast.ExprNode{agg}}}
-	if !ast.HasAggFlag(rowAgg) || !ast.HasWindowFlag(&ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: lex.Ident{Name: "row_number"}}}) {
+	if !ast.HasAggFlag(rowAgg) || !ast.HasWindowFlag(&ast.WindowFuncExpr{BaseCallExpr: pkast.BaseCallExpr{Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "row_number"}}}}}) {
 		t.Fatal("row classification did not follow child mutation")
 	}
 	row.Items = nil

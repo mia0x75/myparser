@@ -631,9 +631,15 @@ func (testSyntaxMetadataNormalizer) Enter(node ast.Node) (ast.Node, bool) {
 		clearIdent(&node.Unit)
 		clearIdent(&node.FormatSelector)
 	case *ast.AggregateFuncExpr:
-		clearIdent(&node.Name)
+		for i := range node.Name.Parts {
+			clearIdent(&node.Name.Parts[i])
+		}
+		node.Name.Span = loc.InvalidSpan()
 	case *ast.WindowFuncExpr:
-		clearIdent(&node.Name)
+		for i := range node.Name.Parts {
+			clearIdent(&node.Name.Parts[i])
+		}
+		node.Name.Span = loc.InvalidSpan()
 	case *ast.Constraint:
 		clearIdent(&node.Name)
 		clearIdent(&node.IndexName)
@@ -1864,7 +1870,7 @@ func TestBuiltin(t *testing.T) {
 		{`SELECT a->>3 FROM t`, false, ""},
 
 		// Test that quoted identifier can be a function name.
-		{"SELECT `uuid`()", true, "SELECT UUID()"},
+		{"SELECT `uuid`()", true, "SELECT `uuid`()"},
 	}
 	RunTest(t, table, false)
 }
@@ -4587,18 +4593,22 @@ func (checker *nodeTextCleaner) Enter(in ast.Node) (out ast.Node, skipChildren b
 			}
 		}
 	case *ast.FuncCallExpr:
-		node.Name.Name = strings.ToLower(node.Name.Name)
-		node.Name.Raw = ""
-		node.Name.Quote = lex.QuoteUnquoted
-		node.Name.Span = loc.InvalidSpan()
+		for i := range node.Name.Parts {
+			node.Name.Parts[i].Name = strings.ToLower(node.Name.Parts[i].Name)
+		}
+		normalizeTestName(&node.Name)
 	case *ast.CollateExpr:
 		node.Collation = strings.ToLower(node.Collation)
 	case *ast.AggregateFuncExpr:
-		node.Name.Name = strings.ToLower(node.Name.Name)
-		normalizeTestIdent(&node.Name)
+		for i := range node.Name.Parts {
+			node.Name.Parts[i].Name = strings.ToLower(node.Name.Parts[i].Name)
+		}
+		normalizeTestName(&node.Name)
 	case *ast.WindowFuncExpr:
-		node.Name.Name = strings.ToLower(node.Name.Name)
-		normalizeTestIdent(&node.Name)
+		for i := range node.Name.Parts {
+			node.Name.Parts[i].Name = strings.ToLower(node.Name.Parts[i].Name)
+		}
+		normalizeTestName(&node.Name)
 	case *ast.SelectItem:
 		normalizeTestSelectItem(node)
 	case *ast.TableName:
@@ -4913,7 +4923,7 @@ func TestCountDistinctWindowFunction(t *testing.T) {
 				t.Fatal(err)
 			}
 			window := stmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.WindowFuncExpr)
-			if !window.Distinct || !strings.EqualFold(window.Name.Name, "count") {
+			if !window.Distinct || len(window.Name.Parts) != 1 || !strings.EqualFold(window.Name.Parts[0].Name, "count") {
 				t.Fatalf("window AST: %#v", window)
 			}
 			if len(window.Args) != tt.args {

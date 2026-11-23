@@ -289,7 +289,7 @@ func TestCTEAST(t *testing.T) {
 	if !with.IsRecursive || len(with.CTEs) != 1 {
 		t.Fatalf("unexpected WithClause: %+v", stmt.With)
 	}
-	if with.CTEs[0].Name.Name != "cte" || len(with.CTEs[0].Columns) != 1 {
+	if with.CTEs[0].CTECore().Name.Name != "cte" || len(with.CTEs[0].CTECore().Columns) != 1 {
 		t.Fatalf("unexpected CTE: %+v", with.CTEs[0])
 	}
 }

@@ -287,7 +287,7 @@ func TestSharedConvertRestore(t *testing.T) {
 
 	convert := &ast.FuncCallExpr{
 		BaseCallExpr: pkast.BaseCallExpr{
-			Name: lex.Ident{Name: "CONVERT"},
+			Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "CONVERT"}}},
 			Args: []ast.ExprNode{sharedIntLiteral("1")},
 		},
 	}
@@ -303,7 +303,7 @@ func TestSharedConvertRestore(t *testing.T) {
 	// The syntax charset restores without an execution-layer value expression.
 	syntax := &ast.FuncCallExpr{
 		BaseCallExpr: pkast.BaseCallExpr{
-			Name: lex.Ident{Name: "CONVERT"},
+			Name: pkast.QualifiedName{Parts: []lex.Ident{{Name: "CONVERT"}}},
 			Args: []ast.ExprNode{&ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralString, Value: "abc"}}},
 		},
 		Charset: lex.Ident{Name: "utf8mb4"},
