@@ -19,6 +19,20 @@ func TestScannerResetReleasesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestUnterminatedTokensRejected(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT 1 `unterminated",
+		"SELECT 1 X'AB",
+		"SELECT 1 B'01",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+				t.Fatalf("accepted truncated input %q", sql)
+			}
+		})
+	}
+}
+
 func TestLastErrorAsWarnReleasesErrorSlot(t *testing.T) {
 	st := &parseState{}
 	err := errors.New("MOCK_ERROR")

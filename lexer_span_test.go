@@ -137,7 +137,7 @@ func TestSpanErrorsAndEOF(t *testing.T) {
 	}{
 		{"empty", "", 0, 0, loc.InvalidSpan()},
 		{"whitespace", " \n\t", 0, 0, loc.InvalidSpan()},
-		{"unterminated backtick", "`abc", 0, 0, loc.Span{Start: 0, End: 4}},
+		{"unterminated backtick", "`abc", 0, 1, loc.Span{Start: 0, End: 4}},
 		{"unterminated string", "'abc", 0, 1, loc.Span{Start: 0, End: 4}},
 		{"unterminated comment", "/* abc", 0, 1, loc.Span{Start: 0, End: 6}},
 		{"unconsumed invalid", "\x00", invalid, 0, loc.Span{Start: 0, End: 0}},

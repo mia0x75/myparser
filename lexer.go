@@ -457,6 +457,7 @@ func startWithXx(s *Scanner) (tok int, pos Pos, lit string) {
 			s.r.inc()
 			tok, lit = hexLit, s.r.data(&pos)
 		} else {
+			s.appendUnterminated(pos)
 			tok = unicode.ReplacementChar
 		}
 		return
@@ -490,6 +491,7 @@ func startWithBb(s *Scanner) (tok int, pos Pos, lit string) {
 			s.r.inc()
 			tok, lit = bitLit, s.r.data(&pos)
 		} else {
+			s.appendUnterminated(pos)
 			tok = unicode.ReplacementChar
 		}
 		return
@@ -766,6 +768,7 @@ func scanQuotedIdent(s *Scanner) (tok int, pos Pos, lit string) {
 	for {
 		ch := s.r.readByte()
 		if ch == unicode.ReplacementChar && s.r.eof() {
+			s.appendUnterminated(pos)
 			tok = unicode.ReplacementChar
 			return
 		}
@@ -852,9 +855,15 @@ func (s *Scanner) scanString() (tok int, pos Pos, lit string) {
 
 	// An unterminated string literal must not be silently treated as EOF:
 	// without an explicit error the parser would accept truncated input.
-	s.errs = append(s.errs, ParseErrorWith(s.r.data(&pos), s.r.p.Line))
+	s.appendUnterminated(pos)
 	tok = unicode.ReplacementChar
 	return
+}
+
+// appendUnterminated records truncated input for every scanner that would
+// otherwise turn the error token into EOF.
+func (s *Scanner) appendUnterminated(pos Pos) {
+	s.errs = append(s.errs, ParseErrorWith(s.r.data(&pos), s.r.p.Line))
 }
 
 // handleEscape handles the case in scanString when previous char is '\'.
