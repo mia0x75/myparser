@@ -10990,7 +10990,7 @@ TableOption:
 	}
 |	statsPersistent EqOpt StatsPersistentVal
 	{
-		$$ = &ast.TableOption{Tp: ast.TableOptionStatsPersistent}
+		$$ = syntaxTableOptionValue(ast.TableOptionStatsPersistent, $3)
 		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 |	shardRowIDBits EqOpt LengthNum
@@ -11000,15 +11000,14 @@ TableOption:
 	}
 |	packKeys EqOpt StatsPersistentVal
 	{
-		// Parse it but will ignore it.
-		$$ = &ast.TableOption{Tp: ast.TableOptionPackKeys}
+		$$ = syntaxTableOptionValue(ast.TableOptionPackKeys, $3)
 		$$.(*ast.TableOption).SetSpan(yyVAL.span)
 	}
 
 
 StatsPersistentVal:
-	defaultKwd {}
-|	LengthNum {}
+	defaultKwd { $$ = "DEFAULT" }
+|	LengthNum { $$ = $1 }
 
 
 AlterTableOptionListOpt:

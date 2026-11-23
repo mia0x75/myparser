@@ -33,6 +33,18 @@ func syntaxInsertColumns(names []ast.QualifiedName) []ast.ExprNode {
 	return columns
 }
 
+// Table options that accept either DEFAULT or an integer keep the spelling
+// distinction so Restore does not silently replace an explicit value.
+func syntaxTableOptionValue(tp ast.TableOptionType, value interface{}) *ast.TableOption {
+	option := &ast.TableOption{Tp: tp}
+	if text, ok := value.(string); ok {
+		option.StrValue = text
+	} else {
+		option.UintValue = value.(uint64)
+	}
+	return option
+}
+
 func grantName(name lex.Ident) ast.GrantObjectPart {
 	return ast.GrantObjectPart{Name: name, WildcardSpan: loc.InvalidSpan()}
 }

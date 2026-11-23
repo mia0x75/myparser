@@ -2090,21 +2090,25 @@ func (n *TableOption) Restore(ctx *format.RestoreCtx) error {
 			return errors.Errorf("invalid TableOption: TableOptionRowFormat: %d", n.UintValue)
 		}
 	case TableOptionStatsPersistent:
-		// TODO: not support
 		ctx.WriteKeyword("STATS_PERSISTENT ")
 		ctx.WritePlain("= ")
-		ctx.WriteKeyword("DEFAULT")
-		ctx.WritePlain(" /* TableOptionStatsPersistent is not supported */ ")
+		if n.StrValue != "" {
+			ctx.WriteKeyword(n.StrValue)
+		} else {
+			ctx.WritePlainf("%d", n.UintValue)
+		}
 	case TableOptionShardRowID:
 		ctx.WriteKeyword("SHARD_ROW_ID_BITS ")
 		ctx.WritePlain("= ")
 		ctx.WritePlainf("%d", n.UintValue)
 	case TableOptionPackKeys:
-		// TODO: not support
 		ctx.WriteKeyword("PACK_KEYS ")
 		ctx.WritePlain("= ")
-		ctx.WriteKeyword("DEFAULT")
-		ctx.WritePlain(" /* TableOptionPackKeys is not supported */ ")
+		if n.StrValue != "" {
+			ctx.WriteKeyword(n.StrValue)
+		} else {
+			ctx.WritePlainf("%d", n.UintValue)
+		}
 	default:
 		return errors.Errorf("invalid TableOption: %d", n.Tp)
 	}
