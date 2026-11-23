@@ -126,6 +126,7 @@ const (
 	IssueMariaDBAtTimeZone             DialectIssueCode = "mariadb.at-time-zone"
 	IssueMySQLSysdateFunction          DialectIssueCode = "mysql.sysdate-function"
 	IssueMySQLBeginNotAtomic           DialectIssueCode = "mysql.begin-not-atomic"
+	IssueMySQLCorrelatedWindowInSubq   DialectIssueCode = "mysql.correlated-window-in-subquery"
 )
 
 // DialectIssue is one source-located incompatibility. Offset and Length are
@@ -204,6 +205,7 @@ type DialectCompatibilityVisitor struct {
 	sqlMode     mysql.SQLMode
 	analyzed    bool
 	stmtScanned bool
+	ancestors   []ast.Node
 	tokens      []dialectSourceToken
 	issues      []DialectIssue
 	seen        map[string]struct{}
@@ -249,6 +251,7 @@ func (v *DialectCompatibilityVisitor) Issues() []DialectIssue {
 
 // Enter implements ast.Visitor.
 func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
+	v.ancestors = append(v.ancestors, n)
 	v.analyzeSource()
 	if !v.stmtScanned {
 		v.stmtScanned = true
@@ -385,6 +388,10 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 			v.checkJSONArrayAggAll(candidate)
 		}
 	case *ast.WindowFuncExpr:
+		if v.Target == DialectMySQL && v.inCorrelatedSubquery() {
+			v.addIssueForNode(x, IssueMySQLCorrelatedWindowInSubq,
+				"MySQL does not allow window functions in subqueries compared with ALL/ANY/SOME/IN")
+		}
 		if strings.EqualFold(x.Name.Name, "last_value") {
 			v.nextLastValueCandidate()
 		}
@@ -418,6 +425,35 @@ func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 	}
 
 	return n, false
+}
+
+// inCorrelatedSubquery reports whether the current node is inside a subquery
+// that is the operand of ALL/ANY/SOME/IN comparison. MySQL 8.4 rejects window
+// functions in that position; MariaDB 12.3 accepts them.
+func (v *DialectCompatibilityVisitor) inCorrelatedSubquery() bool {
+	inSubq := false
+	for i := len(v.ancestors) - 1; i >= 0; i-- {
+		switch v.ancestors[i].(type) {
+		case *ast.SubqueryExpr:
+			inSubq = true
+		case *ast.CompareSubqueryExpr, *ast.PatternInExpr:
+			if inSubq {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// addIssueForNode locates the function name token from the AST span.
+func (v *DialectCompatibilityVisitor) addIssueForNode(node ast.Node, code DialectIssueCode, message string) {
+	span := node.Span()
+	if !span.Valid() {
+		return
+	}
+	if token, ok := v.tokenAtOffset(int(span.Start)); ok {
+		v.addIssue(token, code, message)
+	}
 }
 
 func (v *DialectCompatibilityVisitor) checkBuiltinTableName(table *ast.TableName) {
@@ -491,6 +527,9 @@ func (v *DialectCompatibilityVisitor) checkParenthesizedViewWith() {
 
 // Leave implements ast.Visitor.
 func (v *DialectCompatibilityVisitor) Leave(n ast.Node) (ast.Node, bool) {
+	if len(v.ancestors) > 0 {
+		v.ancestors = v.ancestors[:len(v.ancestors)-1]
+	}
 	return n, true
 }
 

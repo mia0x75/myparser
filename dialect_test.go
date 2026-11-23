@@ -438,6 +438,56 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 	}
 }
 
+func TestDialectCompatibilityCorrelatedWindowInSubquery(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT * FROM t WHERE a = ALL(SELECT ROW_NUMBER() OVER () + 1 FROM t)",
+		"SELECT * FROM t upper WHERE upper.a IN (SELECT ROW_NUMBER() OVER () FROM t WHERE t.a > upper.a)",
+	} {
+		t.Run(sql[:40], func(t *testing.T) {
+			p := New()
+			p.EnableWindowFunc(true)
+			stmt, err := p.ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := p.CheckDialectCompatibility(stmt, sql, DialectMySQL)
+			if len(issues) != 1 || issues[0].Code != IssueMySQLCorrelatedWindowInSubq {
+				t.Fatalf("mysql issues = %#v", issues)
+			}
+			if _, err := p.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err == nil {
+				t.Fatal("mysql strict accepted correlated window in subquery")
+			}
+			// MariaDB accepts (verified against live 12.3.3).
+			p2 := New()
+			p2.EnableWindowFunc(true)
+			if _, err := p2.ParseOneStmtForDialect(sql, "", "", DialectMariaDB); err != nil {
+				t.Fatalf("mariadb rejected: %v", err)
+			}
+		})
+	}
+	// Controls: window functions outside comparison subqueries stay legal.
+	for _, sql := range []string{
+		"SELECT ROW_NUMBER() OVER () FROM t",
+		"SELECT * FROM t WHERE a IN (SELECT b FROM u)",
+	} {
+		t.Run("control "+sql[:30], func(t *testing.T) {
+			p := New()
+			p.EnableWindowFunc(true)
+			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
+				stmt, err := p.ParseOneStmt(sql, "", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, i := range p.CheckDialectCompatibility(stmt, sql, target) {
+					if i.Code == IssueMySQLCorrelatedWindowInSubq {
+						t.Fatalf("false positive for %s: %#v", target, i)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestDialectCompatibilityMySQLSysdateAndNotAtomic(t *testing.T) {
 	for _, tc := range []struct {
 		sql, highlight string
