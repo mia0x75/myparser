@@ -101,6 +101,10 @@ func TestReadOnlyChecker(t *testing.T) {
 	if IsReadOnly(writesVar) {
 		t.Fatal("select that assigns a user variable should not be read only")
 	}
+	writesOutput := &SelectStmt{Into: &SelectIntoStatement{}}
+	if IsReadOnly(writesOutput) {
+		t.Fatal("select with INTO should not be read only")
+	}
 }
 
 func TestFlagHelpers(t *testing.T) {

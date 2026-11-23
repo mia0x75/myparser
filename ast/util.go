@@ -38,6 +38,22 @@ func (checker *readOnlyChecker) Enter(in Node) (out Node, skipChildren bool) {
 			checker.readOnly = false
 			return in, true
 		}
+	case *SelectStmt:
+		// SELECT ... INTO writes a file or assigns user variables.
+		if node.Into != nil {
+			checker.readOnly = false
+			return in, true
+		}
+	case *SetOprStmt:
+		if node.Into != nil {
+			checker.readOnly = false
+			return in, true
+		}
+	case *QueryTailStmt:
+		if node.Into != nil {
+			checker.readOnly = false
+			return in, true
+		}
 	}
 	return in, false
 }
