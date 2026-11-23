@@ -752,10 +752,14 @@ func (d *MyDecimal) Round(to *MyDecimal, frac int, roundMode RoundMode) (err err
 	wordsInt := digitsToWords(int(d.digitsInt))
 
 	var roundDigit int32
-	/* TODO - fix this code as it won't work for CEILING mode */
 	switch roundMode {
 	case modeCeiling:
-		roundDigit = 0
+		// Ceiling rounds toward +infinity, so negatives truncate instead.
+		if d.negative {
+			roundDigit = 10
+		} else {
+			roundDigit = 0
+		}
 	case ModeHalfEven:
 		roundDigit = 5
 	case ModeTruncate:
@@ -830,11 +834,18 @@ func (d *MyDecimal) Round(to *MyDecimal, frac int, roundMode RoundMode) (err err
 			return nil
 		}
 	} else {
-		/* TODO - fix this code as it won't work for CEILING mode */
 		pos := wordsFracTo*digitsPerWord - frac - 1
 		shiftedNumber := to.wordBuf[toIdx] / powers10[pos]
 		digAfterScale := shiftedNumber % 10
-		if digAfterScale > roundDigit || (roundDigit == 5 && digAfterScale == 5) {
+		increment := digAfterScale > roundDigit || (roundDigit == 5 && digAfterScale == 5)
+		if roundDigit == 0 && !increment {
+			// Ceiling increments on any discarded non-zero digit, not just the first.
+			increment = to.wordBuf[toIdx]%powers10[pos] != 0
+			for idx := toIdx + 1; !increment && idx < wordsInt+wordsFrac; idx++ {
+				increment = to.wordBuf[idx] != 0
+			}
+		}
+		if increment {
 			shiftedNumber += 10
 		}
 		to.wordBuf[toIdx] = powers10[pos] * (shiftedNumber - digAfterScale)
