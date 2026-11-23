@@ -950,6 +950,13 @@ func TestFindDuplicateIntoTokensAcrossUnion(t *testing.T) {
 	}
 }
 
+func TestDialectTokenizationStopsOnInvalidSource(t *testing.T) {
+	tokens := tokenizeDialectSourceForTarget("SELECT 1\x00", 0, DialectMySQL)
+	if len(tokens) != 2 {
+		t.Fatalf("tokens = %d, want 2 before the invalid byte", len(tokens))
+	}
+}
+
 func dialectTestLineColumn(source string, offset int) (line, column int) {
 	line = 1
 	for _, r := range source[:offset] {

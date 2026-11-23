@@ -885,7 +885,7 @@ func tokenizeDialectSourceForTarget(source string, mode mysql.SQLMode, target Di
 	tokens := make([]dialectSourceToken, 0, 32)
 	for {
 		kind, pos, text := scanner.scan()
-		if kind == 0 {
+		if kind == 0 || kind == invalid {
 			break
 		}
 		if kind == int(';') {
@@ -897,8 +897,8 @@ func tokenizeDialectSourceForTarget(source string, mode mysql.SQLMode, target Di
 		if end < pos.Offset || end > len(source) {
 			end = pos.Offset + len(text)
 		}
-		if end < pos.Offset || end > len(source) {
-			end = pos.Offset
+		if end <= pos.Offset || end > len(source) {
+			break
 		}
 		pos.Line, pos.Col = dialectLineColumn(source, lineStarts, pos.Offset)
 		tokens = append(tokens, dialectSourceToken{
