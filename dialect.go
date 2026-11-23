@@ -119,6 +119,11 @@ const (
 	IssueMySQLMultiDeleteTail          DialectIssueCode = "mysql.multi-delete-tail"
 	IssueMySQLWindowIdentifier         DialectIssueCode = "mysql.window-identifier"
 	IssueMariaDBWindowHugeFrameBound   DialectIssueCode = "mariadb.window-huge-frame-bound"
+	IssueMySQLExplainExtended          DialectIssueCode = "mysql.explain-extended"
+	IssueMySQLSetStatement             DialectIssueCode = "mysql.set-statement"
+	IssueMySQLExecuteImmediate         DialectIssueCode = "mysql.execute-immediate"
+	IssueMySQLCreateOrReplace          DialectIssueCode = "mysql.create-or-replace"
+	IssueMariaDBAtTimeZone             DialectIssueCode = "mariadb.at-time-zone"
 )
 
 // DialectIssue is one source-located incompatibility. Offset and Length are
@@ -194,11 +199,12 @@ type DialectCompatibilityVisitor struct {
 	Target Dialect
 	Source string
 
-	sqlMode  mysql.SQLMode
-	analyzed bool
-	tokens   []dialectSourceToken
-	issues   []DialectIssue
-	seen     map[string]struct{}
+	sqlMode     mysql.SQLMode
+	analyzed    bool
+	stmtScanned bool
+	tokens      []dialectSourceToken
+	issues      []DialectIssue
+	seen        map[string]struct{}
 
 	castJSONCandidates     []dialectSourceToken
 	castJSONCursor         int
@@ -242,6 +248,10 @@ func (v *DialectCompatibilityVisitor) Issues() []DialectIssue {
 // Enter implements ast.Visitor.
 func (v *DialectCompatibilityVisitor) Enter(n ast.Node) (ast.Node, bool) {
 	v.analyzeSource()
+	if !v.stmtScanned {
+		v.stmtScanned = true
+		v.scanMariaDBOnlyStatements()
+	}
 
 	switch x := n.(type) {
 	case *ast.TableName:
@@ -533,6 +543,49 @@ func (v *DialectCompatibilityVisitor) checkWindowSpinBound(bound *ast.FrameBound
 			v.addIssue(token, IssueMariaDBWindowHugeFrameBound,
 				"MariaDB window frames iterate up to the bound value; a bound >= 2^60 spins the server")
 			return
+		}
+	}
+}
+
+// scanMariaDBOnlyStatements flags MariaDB-only statement constructs under the
+// MySQL dialect (live 8.4.13 rejects each at parse time, 1064) and MySQL-only
+// CAST ... AT TIME ZONE under the MariaDB dialect (live 12.3.3 rejects, 1064).
+// String literals are single tokens, so keyword sequences inside dynamic SQL
+// payloads cannot false-positive.
+func (v *DialectCompatibilityVisitor) scanMariaDBOnlyStatements() {
+	if v.Target != DialectMySQL && v.Target != DialectMariaDB {
+		return
+	}
+	toks := v.tokens
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if v.Target == DialectMySQL {
+			switch {
+			case t.isWord("explain") && i+1 < len(toks) && toks[i+1].isWord("extended"):
+				v.addIssue(toks[i+1], IssueMySQLExplainExtended, "EXPLAIN EXTENDED is MariaDB-only")
+				i++
+			case t.isWord("set") && i+1 < len(toks) && toks[i+1].isWord("statement"):
+				v.addIssue(toks[i+1], IssueMySQLSetStatement, "SET STATEMENT ... FOR is MariaDB-only")
+				i++
+			case t.isWord("execute") && i+1 < len(toks) && toks[i+1].isWord("immediate"):
+				v.addIssue(toks[i], IssueMySQLExecuteImmediate, "EXECUTE IMMEDIATE is MariaDB-only")
+				i++
+			case t.isWord("create") && i+2 < len(toks) && toks[i+1].isWord("or") && toks[i+2].isWord("replace"):
+				obj := ""
+				if i+3 < len(toks) {
+					obj = toks[i+3].text
+				}
+				if !strings.EqualFold(obj, "view") {
+					v.addIssue(t, IssueMySQLCreateOrReplace,
+						"CREATE OR REPLACE is MariaDB-only outside VIEW (MySQL 8.4 accepts only CREATE OR REPLACE VIEW)")
+					i += 2
+				}
+			}
+			continue
+		}
+		if t.isWord("at") && i+2 < len(toks) && toks[i+1].isWord("time") && toks[i+2].isWord("zone") {
+			v.addIssue(t, IssueMariaDBAtTimeZone, "CAST ... AT TIME ZONE is MySQL-only")
+			i += 2
 		}
 	}
 }

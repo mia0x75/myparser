@@ -438,6 +438,75 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 	}
 }
 
+func TestDialectCompatibilityMariaDBOnlyStatements(t *testing.T) {
+	for _, tc := range []struct {
+		name, sql, highlight string
+		mysql, mariadb       DialectIssueCode
+	}{
+		{"explain extended", "EXPLAIN EXTENDED SELECT 1 FROM t", "EXTENDED", IssueMySQLExplainExtended, ""},
+		{"set statement for", "SET STATEMENT sql_mode=ANSI FOR SELECT 1", "STATEMENT", IssueMySQLSetStatement, ""},
+		{"execute immediate", "EXECUTE IMMEDIATE 'SELECT 1'", "EXECUTE", IssueMySQLExecuteImmediate, ""},
+		{"create or replace table", "CREATE OR REPLACE TEMPORARY TABLE tmp AS SELECT 1 AS a", "CREATE", IssueMySQLCreateOrReplace, ""},
+		{"at time zone", "SELECT cast(TIMESTAMP'2019-10-10 10:11:12' AT TIME ZONE 'UTC' AS DATETIME)", "AT", "", IssueMariaDBAtTimeZone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := New()
+			parser.EnableWindowFunc(true)
+			stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, target := range []Dialect{DialectMySQL, DialectMariaDB, DialectUnion} {
+				t.Run(target.String(), func(t *testing.T) {
+					want := tc.mysql
+					switch target {
+					case DialectMariaDB:
+						want = tc.mariadb
+					case DialectUnion:
+						want = ""
+					}
+					issues := parser.CheckDialectCompatibility(stmt, tc.sql, target)
+					_, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target)
+					if want == "" {
+						if len(issues) != 0 || err != nil {
+							t.Fatalf("control rejected: issues=%#v err=%v", issues, err)
+						}
+						return
+					}
+					if len(issues) != 1 || issues[0].Code != want || issues[0].Highlight != tc.highlight {
+						t.Fatalf("issues = %#v", issues)
+					}
+					if _, ok := errors.AsType[*DialectCompatibilityError](err); !ok {
+						t.Fatalf("strict error = %v, want compatibility error", err)
+					}
+				})
+			}
+		})
+	}
+	// Controls: constructs that stay legal in both strict dialects.
+	for _, sql := range []string{
+		"EXPLAIN SELECT 1 FROM t",
+		"SET sql_mode=ANSI",
+		"EXECUTE s",
+		"CREATE VIEW v1 AS SELECT 1 AS a",
+		"CREATE OR REPLACE VIEW v1 AS SELECT 1 AS a",
+		"SELECT CAST('2019-10-10' AS DATETIME) FROM t",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
+				parser := New()
+				stmt, err := parser.ParseOneStmt(sql, "", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if issues := parser.CheckDialectCompatibility(stmt, sql, target); len(issues) != 0 {
+					t.Fatalf("%s rejected for %s: %#v", sql, target, issues)
+				}
+			}
+		})
+	}
+}
+
 func TestDialectCompatibilityBuiltinTableNames(t *testing.T) {
 	for _, tc := range []struct {
 		name, sql, highlight string
@@ -566,7 +635,8 @@ func TestDialectCompatibilityRemainingSyntax(t *testing.T) {
 		{name: "backup lock", sql: "BACKUP LOCK db.t",
 			mysql: []finding{{IssueMySQLBackup, "BACKUP", "BACKUP LOCK"}}},
 		{name: "wrapped backup unlock", sql: "SET STATEMENT max_statement_time=180 FOR BACKUP UNLOCK",
-			mysql: []finding{{IssueMySQLBackup, "BACKUP", "BACKUP UNLOCK"}}},
+			mysql: []finding{{IssueMySQLSetStatement, "STATEMENT", "STATEMENT max_statement_time"},
+				{IssueMySQLBackup, "BACKUP", "BACKUP UNLOCK"}}},
 		{name: "conditional foreign key drop", sql: "ALTER TABLE t DROP FOREIGN KEY IF EXISTS fk",
 			mysql: []finding{{IssueMySQLDropForeignKeyIfExists, "IF", "IF EXISTS"}}},
 		{name: "analyze plural", sql: "ANALYZE TABLES t,u",
