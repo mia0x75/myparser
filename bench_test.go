@@ -1,6 +1,7 @@
 package myparser
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,17 @@ func BenchmarkParseComplex(b *testing.B) {
 		}
 	}
 	b.ReportAllocs()
+}
+
+func BenchmarkParseUnionChain(b *testing.B) {
+	sql := strings.Repeat("SELECT 1 UNION ALL ", 1023) + "SELECT 1"
+	parser := New()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := parser.Parse(sql, "", ""); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func BenchmarkParseSimple(b *testing.B) {

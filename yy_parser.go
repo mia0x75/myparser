@@ -968,17 +968,10 @@ func validateSetOperand(operand ast.QueryNode, last bool) error {
 		if queryHasTrailingInto(x) {
 			return fmt.Errorf("INTO is not allowed in a parenthesized set operation operand")
 		}
-		if nested, ok := x.Query.(*ast.SetOprStmt); ok {
-			if err := validateSetOprBoundaries(nested); err != nil {
-				return err
-			}
-		}
 	case *ast.SetOprStmt:
+		// Nested operations are validated when the visitor reaches them.
 		if x.Into != nil {
 			return fmt.Errorf("INTO cannot be followed by another query tail or set operation")
-		}
-		if err := validateSetOprBoundaries(x); err != nil {
-			return err
 		}
 	}
 	return nil
