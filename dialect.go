@@ -127,6 +127,7 @@ const (
 	IssueMySQLSysdateFunction          DialectIssueCode = "mysql.sysdate-function"
 	IssueMySQLBeginNotAtomic           DialectIssueCode = "mysql.begin-not-atomic"
 	IssueMySQLCorrelatedWindowInSubq   DialectIssueCode = "mysql.correlated-window-in-subquery"
+	IssueMySQLRecursiveCteTail         DialectIssueCode = "mysql.recursive-cte-tail"
 )
 
 // DialectIssue is one source-located incompatibility. Offset and Length are
@@ -636,6 +637,12 @@ func (v *DialectCompatibilityVisitor) scanMariaDBOnlyStatements() {
 			i += 2
 		}
 	}
+	if v.Target == DialectMySQL {
+		for _, token := range findMySQLRecursiveCteTailIssues(toks) {
+			v.addIssue(token, IssueMySQLRecursiveCteTail,
+				"MySQL rejects ORDER BY / LIMIT / SELECT DISTINCT in a recursive query block")
+		}
+	}
 }
 
 func (v *DialectCompatibilityVisitor) checkMultiDeleteTail(stmt *ast.DeleteStmt) {
@@ -957,6 +964,72 @@ func findDuplicateIntoTokens(tokens []dialectSourceToken) []dialectSourceToken {
 		}
 	}
 	return duplicates
+}
+
+// findMySQLRecursiveCteTailIssues finds illegal clauses in the recursive
+// (post-UNION) part of a WITH RECURSIVE definition. MySQL 8.4 rejects ORDER BY,
+// LIMIT and SELECT DISTINCT there; MariaDB 12.3 accepts them.
+func findMySQLRecursiveCteTailIssues(tokens []dialectSourceToken) []dialectSourceToken {
+	var issues []dialectSourceToken
+	for i := 0; i < len(tokens); i++ {
+		if !tokens[i].isWord("with") || i+1 >= len(tokens) || !tokens[i+1].isWord("recursive") {
+			continue
+		}
+		open := -1
+		for j := i + 2; j < len(tokens); j++ {
+			if tokens[j].isRaw("(") {
+				open = j
+				break
+			}
+			if tokens[j].isWord("select") {
+				break
+			}
+		}
+		if open < 0 {
+			continue
+		}
+		depth, close := 0, -1
+		for j := open; j < len(tokens); j++ {
+			if tokens[j].isRaw("(") {
+				depth++
+			}
+			if tokens[j].isRaw(")") {
+				depth--
+				if depth == 0 {
+					close = j
+					break
+				}
+			}
+		}
+		if close < 0 {
+			continue
+		}
+		depth = 0
+		union := -1
+		for j := open + 1; j < close; j++ {
+			if tokens[j].isRaw("(") {
+				depth++
+			}
+			if tokens[j].isRaw(")") {
+				depth--
+			}
+			if depth == 0 && tokens[j].isWord("union") {
+				union = j
+				break
+			}
+		}
+		if union >= 0 {
+			for j := union + 1; j < close; j++ {
+				if tokens[j].isWord("order") && j+1 < close && tokens[j+1].isWord("by") ||
+					tokens[j].isWord("limit") || tokens[j].isWord("distinct") {
+					issues = append(issues, tokens[j])
+					break
+				}
+			}
+		}
+		i = close
+	}
+	return issues
 }
 
 func isMySQLNumericIdentifier(token dialectSourceToken) bool {

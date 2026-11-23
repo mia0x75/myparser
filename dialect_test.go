@@ -438,6 +438,55 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 	}
 }
 
+func TestDialectCompatibilityRecursiveCteTail(t *testing.T) {
+	for _, sql := range []string{
+		"with recursive qn as (select 1 as a union all (select 1 from qn order by a)) select * from qn",
+		"with recursive qn as (select 1 as a union all (select 1 from qn limit 10)) select * from qn",
+		"WITH RECURSIVE qn AS (select 1 union all select distinct 3 from qn) select * from qn",
+	} {
+		t.Run(sql[:40], func(t *testing.T) {
+			p := New()
+			p.EnableWindowFunc(true)
+			stmt, err := p.ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := p.CheckDialectCompatibility(stmt, sql, DialectMySQL)
+			if len(issues) != 1 || issues[0].Code != IssueMySQLRecursiveCteTail {
+				t.Fatalf("mysql issues = %#v", issues)
+			}
+			if _, err := p.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err == nil {
+				t.Fatal("mysql strict accepted illegal recursive CTE tail")
+			}
+			// MariaDB accepts (verified against live 12.3.3).
+			p2 := New()
+			p2.EnableWindowFunc(true)
+			if _, err := p2.ParseOneStmtForDialect(sql, "", "", DialectMariaDB); err != nil {
+				t.Fatalf("mariadb rejected: %v", err)
+			}
+		})
+	}
+	for _, sql := range []string{
+		"with qn as (select 1 as a order by a) select * from qn",
+		"with recursive qn as (select 1 as a union all select a+1 from qn where a<5) select * from qn",
+		"with recursive qn as (select 1 as a union all select a+1 from qn where a<5) select * from qn order by a",
+	} {
+		t.Run("control "+sql[:30], func(t *testing.T) {
+			p := New()
+			p.EnableWindowFunc(true)
+			stmt, err := p.ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, i := range p.CheckDialectCompatibility(stmt, sql, DialectMySQL) {
+				if i.Code == IssueMySQLRecursiveCteTail {
+					t.Fatalf("false positive: %#v", i)
+				}
+			}
+		})
+	}
+}
+
 func TestDialectCompatibilityCorrelatedWindowInSubquery(t *testing.T) {
 	for _, sql := range []string{
 		"SELECT * FROM t WHERE a = ALL(SELECT ROW_NUMBER() OVER () + 1 FROM t)",
