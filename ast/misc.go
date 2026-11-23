@@ -88,11 +88,27 @@ type AuthOption struct {
 	ByAuthString bool
 	AuthString   string
 	HashString   string
-	// TODO: support auth_plugin
+	// HashStringPresent distinguishes AS '' from an absent credential.
+	HashStringPresent bool
+	// AuthPlugin keeps the name from IDENTIFIED WITH; empty means the legacy forms.
+	AuthPlugin string
 }
 
 // Restore implements Node interface.
 func (n *AuthOption) Restore(ctx *format.RestoreCtx) error {
+	if n.AuthPlugin != "" {
+		ctx.WriteKeyword("IDENTIFIED WITH ")
+		ctx.WriteName(n.AuthPlugin)
+		switch {
+		case n.ByAuthString:
+			ctx.WriteKeyword(" BY ")
+			ctx.WriteString(n.AuthString)
+		case n.HashStringPresent || n.HashString != "":
+			ctx.WriteKeyword(" AS ")
+			ctx.WriteString(n.HashString)
+		}
+		return ctx.Err()
+	}
 	ctx.WriteKeyword("IDENTIFIED BY ")
 	if n.ByAuthString {
 		ctx.WriteString(n.AuthString)

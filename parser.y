@@ -11929,9 +11929,9 @@ ClearPasswordExpireOptions:
 AuthOption:
 	/* EMPTY */                                    { $$ = nil }
 |	identified by AuthString                   { $$ = &ast.AuthOption { AuthString: $3.(string), ByAuthString: true } }
-|	identified with StringName                 { $$ = nil }
-|	identified with StringName by AuthString { $$ = &ast.AuthOption { AuthString: $5.(string), ByAuthString: true } }
-|	identified with StringName as HashString { $$ = &ast.AuthOption{ HashString: $5.(string) } }
+|	identified with StringName                 { $$ = &ast.AuthOption { AuthPlugin: $3.(string) } }
+|	identified with StringName by AuthString { $$ = &ast.AuthOption { AuthPlugin: $3.(string), AuthString: $5.(string), ByAuthString: true } }
+|	identified with StringName as HashString { $$ = &ast.AuthOption{ AuthPlugin: $3.(string), HashString: $5.(string), HashStringPresent: true } }
 |	identified by password HashString        { $$ = &ast.AuthOption{ HashString: $4.(string) } }
 
 
