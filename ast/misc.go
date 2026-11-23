@@ -1215,7 +1215,7 @@ func (t *TslOption) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyword("ISSUER ")
 		ctx.WriteString(t.Value)
 	case Subject:
-		ctx.WriteKeyword("CIPHER")
+		ctx.WriteKeyword("SUBJECT ")
 		ctx.WriteString(t.Value)
 	default:
 		return errors.Errorf("Unsupported TslOption.Type %d", t.Type)
