@@ -124,6 +124,8 @@ const (
 	IssueMySQLExecuteImmediate         DialectIssueCode = "mysql.execute-immediate"
 	IssueMySQLCreateOrReplace          DialectIssueCode = "mysql.create-or-replace"
 	IssueMariaDBAtTimeZone             DialectIssueCode = "mariadb.at-time-zone"
+	IssueMySQLSysdateFunction          DialectIssueCode = "mysql.sysdate-function"
+	IssueMySQLBeginNotAtomic           DialectIssueCode = "mysql.begin-not-atomic"
 )
 
 // DialectIssue is one source-located incompatibility. Offset and Length are
@@ -570,6 +572,13 @@ func (v *DialectCompatibilityVisitor) scanMariaDBOnlyStatements() {
 			case t.isWord("execute") && i+1 < len(toks) && toks[i+1].isWord("immediate"):
 				v.addIssue(toks[i], IssueMySQLExecuteImmediate, "EXECUTE IMMEDIATE is MariaDB-only")
 				i++
+			case t.isWord("create") && i+2 < len(toks) && toks[i+1].isWord("function") &&
+				i+3 < len(toks) && toks[i+2].isWord("sysdate"):
+				v.addIssue(toks[i+2], IssueMySQLSysdateFunction,
+					"MySQL reserved function name SYSDATE cannot be redefined")
+				i += 2
+			case t.isWord("begin") && i+2 < len(toks) && toks[i+1].isWord("not") && toks[i+2].isWord("atomic"):
+				v.addIssue(toks[i+1], IssueMySQLBeginNotAtomic, "BEGIN NOT ATOMIC is MariaDB-only")
 			case t.isWord("create") && i+2 < len(toks) && toks[i+1].isWord("or") && toks[i+2].isWord("replace"):
 				obj := ""
 				if i+3 < len(toks) {

@@ -438,6 +438,36 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 	}
 }
 
+func TestDialectCompatibilityMySQLSysdateAndNotAtomic(t *testing.T) {
+	for _, tc := range []struct {
+		sql, highlight string
+		code           DialectIssueCode
+	}{
+		{"CREATE FUNCTION sysdate() RETURNS INT BEGIN RETURN 1; END;", "sysdate", IssueMySQLSysdateFunction},
+		{"BEGIN NOT ATOMIC DECLARE x INT; END", "NOT", IssueMySQLBeginNotAtomic},
+	} {
+		t.Run(tc.sql[:30], func(t *testing.T) {
+			p := New()
+			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := p.CheckDialectCompatibility(stmt, tc.sql, DialectMySQL)
+			if len(issues) != 1 || issues[0].Code != tc.code || issues[0].Highlight != tc.highlight {
+				t.Fatalf("mysql issues = %#v", issues)
+			}
+			if _, err := p.ParseOneStmtForDialect(tc.sql, "", "", DialectMySQL); err == nil {
+				t.Fatal("mysql strict accepted MariaDB-only construct")
+			}
+			// MariaDB accepts both (verified against live 12.3.3).
+			p2 := New()
+			if _, err := p2.ParseOneStmtForDialect(tc.sql, "", "", DialectMariaDB); err != nil {
+				t.Fatalf("mariadb rejected: %v", err)
+			}
+		})
+	}
+}
+
 func TestDialectCompatibilityMariaDBOnlyStatements(t *testing.T) {
 	for _, tc := range []struct {
 		name, sql, highlight string
