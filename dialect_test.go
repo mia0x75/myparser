@@ -927,6 +927,29 @@ func TestDialectCompatibilityControlsAndUTF8Position(t *testing.T) {
 	}
 }
 
+func TestFindDuplicateIntoTokensAcrossUnion(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT 1 INTO @a UNION SELECT 2 INTO @b",
+		"SELECT 1 INTO @a FROM DUAL UNION SELECT 2 INTO @b FROM DUAL",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			toks := tokenizeDialectSourceForTarget(sql, 0, DialectMariaDB)
+			found := findDuplicateIntoTokens(toks)
+			if len(found) != 1 {
+				t.Fatalf("duplicate INTO not found: %#v", found)
+			}
+			stmt, err := New().ParseOneStmt(sql, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := CheckDialectCompatibility(stmt, sql, DialectMariaDB)
+			if len(issues) != 1 || issues[0].Code != IssueMariaDBMultipleInto {
+				t.Fatalf("issues = %#v", issues)
+			}
+		})
+	}
+}
+
 func dialectTestLineColumn(source string, offset int) (line, column int) {
 	line = 1
 	for _, r := range source[:offset] {

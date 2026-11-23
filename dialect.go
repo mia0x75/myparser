@@ -951,7 +951,12 @@ func findDuplicateIntoTokens(tokens []dialectSourceToken) []dialectSourceToken {
 			continue
 		}
 		if token.isWord("select") {
-			blocks[depth] = &queryBlock{}
+			// Keep one block per nesting depth for the whole statement. A UNION
+			// operand is a new SELECT at the same depth; resetting here would
+			// hide a second INTO in the next operand.
+			if blocks[depth] == nil {
+				blocks[depth] = &queryBlock{}
+			}
 			continue
 		}
 		if token.isWord("into") {
