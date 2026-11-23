@@ -258,7 +258,9 @@ type PrepareStmt struct {
 
 	Name    lex.Ident
 	SQLText string
-	SQLVar  *VariableExpr
+	// SQLTextPresent distinguishes an empty SQL string from a variable source.
+	SQLTextPresent bool
+	SQLVar         *VariableExpr
 }
 
 // Restore implements Node interface.
@@ -266,7 +268,7 @@ func (n *PrepareStmt) Restore(ctx *format.RestoreCtx) error {
 	ctx.WriteKeyword("PREPARE ")
 	ctx.WriteIdent(n.Name)
 	ctx.WriteKeyword(" FROM ")
-	if n.SQLText != "" {
+	if n.SQLTextPresent || n.SQLText != "" {
 		ctx.WriteString(n.SQLText)
 		return ctx.Err()
 	}

@@ -3233,6 +3233,7 @@ func TestExplain(t *testing.T) {
 func TestPrepare(t *testing.T) {
 	table := []testCase{
 		{"PREPARE pname FROM 'SELECT ?'", true, "PREPARE `pname` FROM 'SELECT ?'"},
+		{"PREPARE pname FROM ''", true, "PREPARE `pname` FROM ''"},
 		{"PREPARE pname FROM @test", true, "PREPARE `pname` FROM @`test`"},
 		{"PREPARE `` FROM @test", true, "PREPARE `` FROM @`test`"},
 	}

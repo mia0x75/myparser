@@ -7247,17 +7247,19 @@ PreparedStmt:
 	prepare Identifier from PrepareSQL
 	{
 		var sqlText string
+		var sqlTextPresent bool
 		var sqlVar *ast.VariableExpr
 		switch $4.(type) {
 		case string:
-			sqlText = $4.(string)
+			sqlText, sqlTextPresent = $4.(string), true
 		case *ast.VariableExpr:
 			sqlVar = $4.(*ast.VariableExpr)
 		}
 		stmt := &ast.PrepareStmt{
-			Name: syntaxIdent(yylex, $2, yyS[yypt-2].span),
-			SQLText: sqlText,
-			SQLVar: sqlVar,
+			Name:           syntaxIdent(yylex, $2, yyS[yypt-2].span),
+			SQLText:        sqlText,
+			SQLTextPresent: sqlTextPresent,
+			SQLVar:         sqlVar,
 		}
 		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
