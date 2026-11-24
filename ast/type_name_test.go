@@ -23,7 +23,7 @@ func TestTypeNameRestore(t *testing.T) {
 		{"decimal default", "DECIMAL", "DECIMAL", "DECIMAL(11)", nil},
 		{"decimal width", "DECIMAL", "DECIMAL", "DECIMAL(12)", []string{"12"}},
 		{"decimal scale", "DECIMAL", "DECIMAL(12,3)", "DECIMAL(12, 3)", []string{"12", "3"}},
-		{"decimal zero scale", "DECIMAL", "DECIMAL", "DECIMAL(12)", []string{"12", "0"}},
+		{"decimal zero scale", "DECIMAL", "DECIMAL(12,0)", "DECIMAL(12, 0)", []string{"12", "0"}},
 		{"explicit zero fsp", "DATETIME", "DATETIME", "DATETIME(0)", []string{"0"}},
 		{"overflow fsp", "TIME", "TIME", "TIME(18446744073709551615)", []string{"18446744073709551615"}},
 		{"float normalization", "FLOAT", "DOUBLE(25,3)", "DOUBLE", []string{"25", "3"}},

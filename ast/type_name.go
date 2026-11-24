@@ -162,7 +162,7 @@ func (n *TypeName) Restore(ctx *format.RestoreCtx) error {
 	}
 	ctx.WriteKeyword(keyword)
 	width, hasWidth := n.number(0)
-	scale, hasScale := n.number(1)
+	_, hasScale := n.number(1)
 	count := 0
 	switch n.Keyword() {
 	case "BOOL", "BOOLEAN":
@@ -180,7 +180,9 @@ func (n *TypeName) Restore(ctx *format.RestoreCtx) error {
 			count = 1
 		}
 	case "DOUBLE", "FLOAT", "DECIMAL":
-		if hasWidth && width > 0 && hasScale && scale > 0 {
+		// An explicit zero scale must survive restore; only a missing
+		// scale is dropped.
+		if hasWidth && width > 0 && hasScale {
 			count = 2
 		}
 	case "BIT", "SMALLINT", "TINYINT", "MEDIUMINT", "INT", "BIGINT", "CHAR", "VARCHAR",
@@ -251,12 +253,13 @@ func (n *TypeName) RestoreAsCastType(ctx *format.RestoreCtx) error {
 		}
 	case "DECIMAL":
 		width, hasWidth := n.number(0)
-		scale, hasScale := n.number(1)
+		_, hasScale := n.number(1)
 		if !hasWidth {
 			ctx.WritePlain("(11)")
 		} else if width > 0 {
 			count := 1
-			if hasScale && scale > 0 {
+			// Match Restore: an explicit zero scale is preserved.
+			if hasScale {
 				count = 2
 			}
 			if err := n.writeModifiers(ctx, count, ", "); err != nil {
