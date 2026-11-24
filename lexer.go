@@ -833,6 +833,13 @@ func (mb *lazyBuf) data() string {
 	return lit
 }
 
+// doubleQuotedIdentifier reports whether a string token closed by ending is
+// re-scanned as an identifier: identifiers carry no escape sequences, so a
+// backslash inside them must stay literal.
+func (s *Scanner) doubleQuotedIdentifier(ending rune) bool {
+	return ending == '"' && s.sqlMode.HasANSIQuotesMode()
+}
+
 func (s *Scanner) scanString() (tok int, pos Pos, lit string) {
 	tok, pos = stringLit, s.r.pos()
 	mb := lazyBuf{false, &s.r, &s.buf, &pos}
@@ -847,7 +854,7 @@ func (s *Scanner) scanString() (tok int, pos Pos, lit string) {
 			}
 			str := mb.r.data(&pos)
 			mb.setUseBuf(str[1 : len(str)-1])
-		} else if ch0 == '\\' && !s.sqlMode.HasNoBackslashEscapesMode() {
+		} else if ch0 == '\\' && !s.sqlMode.HasNoBackslashEscapesMode() && !s.doubleQuotedIdentifier(ending) {
 			mb.setUseBuf(mb.r.data(&pos)[1:])
 			ch0 = handleEscape(s)
 		}
