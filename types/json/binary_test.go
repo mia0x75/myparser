@@ -115,8 +115,8 @@ func TestBinaryJSONType(t *testing.T) {
 	}
 	// we can't parse '9223372036854775808' to JSON::Uint64 now,
 	// because go builtin JSON parser treats that as DOUBLE.
-	if CreateBinary(uint64(1<<63)).Type() != "UNSIGNED INTEGER" {
-		t.Fatalf("got %#v, want %#v", CreateBinary(uint64(1<<63)).Type(), "UNSIGNED INTEGER")
+	if mustCreateBinary(t, uint64(1<<63)).Type() != "UNSIGNED INTEGER" {
+		t.Fatalf("got %#v, want %#v", mustCreateBinary(t, uint64(1<<63)).Type(), "UNSIGNED INTEGER")
 	}
 }
 
@@ -257,7 +257,7 @@ func TestCompareBinary(t *testing.T) {
 	jNull := mustParseBinaryFromString(t, `null`)
 	jBoolTrue := mustParseBinaryFromString(t, `true`)
 	jBoolFalse := mustParseBinaryFromString(t, `false`)
-	jIntegerLarge := CreateBinary(uint64(1 << 63))
+	jIntegerLarge := mustCreateBinary(t, uint64(1<<63))
 	jIntegerSmall := mustParseBinaryFromString(t, `3`)
 	jStringLarge := mustParseBinaryFromString(t, `"hello, world"`)
 	jStringSmall := mustParseBinaryFromString(t, `"hello"`)
@@ -388,5 +388,30 @@ func TestBinaryJSONDepth(t *testing.T) {
 		if obj.GetElemDepth() != tt.expected {
 			t.Fatalf("got %#v, want %#v", obj.GetElemDepth(), tt.expected)
 		}
+	}
+}
+
+func mustCreateBinary(t *testing.T, in any) BinaryJSON {
+	t.Helper()
+	j, err := CreateBinary(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return j
+}
+
+func TestCreateBinaryRejectsUnsupportedValue(t *testing.T) {
+	if _, err := CreateBinary(struct{}{}); err == nil {
+		t.Fatal("unsupported value did not return an error")
+	}
+}
+
+func TestUnknownTypeCodeHasSafeFallback(t *testing.T) {
+	unknown := BinaryJSON{TypeCode: 99}
+	if got := unknown.Type(); got != "UNKNOWN(99)" {
+		t.Fatalf("Type() = %q, want UNKNOWN(99)", got)
+	}
+	if got := i64AsFloat64(1, 99); got != 0 {
+		t.Fatalf("i64AsFloat64() = %v, want 0", got)
 	}
 }

@@ -158,13 +158,17 @@ func (bj BinaryJSON) GetString() []byte {
 }
 
 // GetKeys gets the keys of the object
-func (bj BinaryJSON) GetKeys() BinaryJSON {
+func (bj BinaryJSON) GetKeys() (BinaryJSON, error) {
 	count := bj.GetElemCount()
 	ret := make([]BinaryJSON, 0, count)
 	for i := range count {
-		ret = append(ret, CreateBinary(string(bj.objectGetKey(i))))
+		key, err := CreateBinary(string(bj.objectGetKey(i)))
+		if err != nil {
+			return BinaryJSON{}, err
+		}
+		ret = append(ret, key)
 	}
-	return buildBinaryArray(ret)
+	return buildBinaryArray(ret), nil
 }
 
 // GetElemCount gets the count of Object or Array.
@@ -344,24 +348,6 @@ func marshalStringTo(buf, s []byte) []byte {
 	return buf
 }
 
-//nolint:unused
-func (bj BinaryJSON) marshalValueEntryTo(buf []byte, entryOff int) ([]byte, error) {
-	tpCode := bj.Value[entryOff]
-	switch tpCode {
-	case TypeCodeLiteral:
-		buf = marshalLiteralTo(buf, bj.Value[entryOff+1])
-	default:
-		offset := endian.Uint32(bj.Value[entryOff+1:])
-		tmp := BinaryJSON{TypeCode: tpCode, Value: bj.Value[offset:]}
-		var err error
-		buf, err = tmp.marshalTo(buf)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-	return buf, nil
-}
-
 func marshalLiteralTo(b []byte, litType byte) []byte {
 	switch litType {
 	case LiteralFalse:
@@ -414,12 +400,12 @@ func (bj *BinaryJSON) UnmarshalJSON(data []byte) error {
 }
 
 // CreateBinary creates a BinaryJSON from interface.
-func CreateBinary(in any) BinaryJSON {
+func CreateBinary(in any) (BinaryJSON, error) {
 	typeCode, buf, err := appendBinary(nil, in)
 	if err != nil {
-		panic(err)
+		return BinaryJSON{}, err
 	}
-	return BinaryJSON{TypeCode: typeCode, Value: buf}
+	return BinaryJSON{TypeCode: typeCode, Value: buf}, nil
 }
 
 func appendBinary(buf []byte, in any) (TypeCode, []byte, error) {

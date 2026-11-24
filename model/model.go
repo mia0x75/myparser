@@ -623,20 +623,6 @@ func (cis *CIStr) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// TODO: update it when more collate is supported.
-//
-//nolint:unused
-func collationToProto(c string) int32 {
-	v := mysql.CollationNames[c]
-	if v == mysql.BinaryCollationID {
-		return int32(mysql.BinaryCollationID)
-	}
-	// We only support binary and utf8_bin collation.
-	// Setting other collations to utf8_bin for old data compatibility.
-	// For the data created when we didn't enforce utf8_bin collation in create table.
-	return int32(mysql.DefaultCollationID)
-}
-
 // TableColumnID is composed by table ID and column ID.
 type TableColumnID struct {
 	TableID  int64

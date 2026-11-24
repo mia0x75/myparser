@@ -83,7 +83,7 @@ var Ops = map[Op]string{
 func (o Op) String() string {
 	str, ok := Ops[o]
 	if !ok {
-		panic(fmt.Sprintf("%d", o))
+		return ""
 	}
 
 	return str

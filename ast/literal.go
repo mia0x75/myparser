@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -142,7 +143,9 @@ func (n *LiteralExpr) Format(w io.Writer) {
 		// The legacy format prints these keywords upper case, while the
 		// shared restore helper lower cases every keyword.
 		ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, w)
-		_ = n.Restore(ctx)
+		if err := n.Restore(ctx); err != nil {
+			_, _ = fmt.Fprint(w, "<unsupported>")
+		}
 	default:
 		formatViaRestore(n, w)
 	}

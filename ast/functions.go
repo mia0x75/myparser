@@ -462,7 +462,9 @@ func (n *FuncCallExpr) Format(w io.Writer) {
 		_, _ = fmt.Fprint(w, strings.ToLower(n.Name.Parts[0].Name))
 	} else {
 		ctx := format.NewRestoreCtx(format.RestoreKeyWordLowercase|format.RestoreNameBackQuotes, w)
-		_ = restoreFunctionName(ctx, n.Name)
+		if err := restoreFunctionName(ctx, n.Name); err != nil {
+			_, _ = fmt.Fprint(w, "<unsupported>")
+		}
 	}
 	_, _ = fmt.Fprint(w, "(")
 	if !n.specialFormatArgs(w) {

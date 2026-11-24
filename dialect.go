@@ -877,8 +877,6 @@ func (v *DialectCompatibilityVisitor) analyzeSource() {
 	}
 }
 
-//nolint:unused
-
 func tokenizeDialectSourceForTarget(source string, mode mysql.SQLMode, target Dialect) []dialectSourceToken {
 	var scanner Scanner
 	scanner.SetSQLMode(mode)

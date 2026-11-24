@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -278,7 +279,9 @@ func (n *TypeName) RestoreAsCastType(ctx *format.RestoreCtx) error {
 
 func (n *TypeName) FormatAsCastType(w io.Writer) {
 	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, w)
-	_ = n.RestoreAsCastType(ctx)
+	if err := n.RestoreAsCastType(ctx); err != nil {
+		_, _ = fmt.Fprint(w, "<unsupported>")
+	}
 }
 
 func (n *TypeName) Accept(v Visitor) (Node, bool) {

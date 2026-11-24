@@ -396,7 +396,9 @@ func formatViaRestore(node Node, w io.Writer) {
 		format.RestoreNameBackQuotes |
 		format.RestoreStringDoubleQuotes
 	ctx := format.NewRestoreCtx(flags, w)
-	_ = node.Restore(ctx)
+	if err := node.Restore(ctx); err != nil {
+		_, _ = fmt.Fprint(w, "<unsupported>")
+	}
 }
 
 // Format the ExprNode into a Writer.

@@ -203,7 +203,10 @@ func TestNewBinaryLiteralFromUint(t *testing.T) {
 		{0x4920616D2061206C, 5, []byte{0x6D, 0x20, 0x61, 0x20, 0x6C}},
 	}
 	for _, tt := range tbl {
-		hex := NewBinaryLiteralFromUint(tt.Input, tt.ByteSize)
+		hex, err := NewBinaryLiteralFromUint(tt.Input, tt.ByteSize)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !reflect.DeepEqual([]byte(hex), tt.Expected) {
 			t.Fatalf("got %#v, want %#v: %#v", []byte(hex), tt.Expected, tt)
 		}
@@ -224,6 +227,14 @@ func TestBinaryLiteral_Compare(t *testing.T) {
 	for _, tt := range tbl {
 		if got := tt.a.Compare(tt.b); got != tt.cmp {
 			t.Fatalf("got %#v, want %#v", got, tt.cmp)
+		}
+	}
+}
+
+func TestNewBinaryLiteralFromUintRejectsInvalidSize(t *testing.T) {
+	for _, size := range []int{0, -2, 9} {
+		if _, err := NewBinaryLiteralFromUint(1, size); err == nil {
+			t.Fatalf("byte size %d was accepted", size)
 		}
 	}
 }

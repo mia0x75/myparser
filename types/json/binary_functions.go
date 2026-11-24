@@ -37,8 +37,7 @@ func (bj BinaryJSON) Type() string {
 	case TypeCodeString:
 		return "STRING"
 	default:
-		msg := fmt.Sprintf(unknownTypeCodeErrorMsg, bj.TypeCode)
-		panic(msg)
+		return fmt.Sprintf("UNKNOWN(%d)", bj.TypeCode)
 	}
 }
 
@@ -579,8 +578,7 @@ func i64AsFloat64(i64 int64, typeCode TypeCode) float64 {
 	case TypeCodeFloat64:
 		return *(*float64)(unsafe.Pointer(&i64))
 	default:
-		msg := fmt.Sprintf(unknownTypeCodeErrorMsg, typeCode)
-		panic(msg)
+		return 0
 	}
 }
 

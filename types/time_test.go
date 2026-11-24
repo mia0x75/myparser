@@ -86,35 +86,6 @@ func TestYear(t *testing.T) {
 	}
 }
 
-//nolint:unused
-func getLocation(t *testing.T) *time.Location {
-	locations := []string{"Asia/Shanghai", "Europe/Berlin"}
-	timeFormat := "Jan 2, 2006 at 3:04pm (MST)"
-
-	z, err := time.LoadLocation(locations[0])
-	if err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-
-	t1, err := time.ParseInLocation(timeFormat, "Jul 9, 2012 at 5:02am (CEST)", z)
-	if err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-	t2, err := time.Parse(timeFormat, "Jul 9, 2012 at 5:02am (CEST)")
-	if err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-
-	if t1.Equal(t2) {
-		z, err = time.LoadLocation(locations[1])
-		if err != nil {
-			t.Fatalf("unexpected error %v", err)
-		}
-	}
-
-	return z
-}
-
 func TestTimeSuite_ParseFrac(t *testing.T) {
 	tbl := []struct {
 		S        string

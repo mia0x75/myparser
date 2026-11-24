@@ -39,9 +39,9 @@ func trimLeadingZeroBytes(bytes []byte) []byte {
 // NewBinaryLiteralFromUint creates a new BinaryLiteral instance by the given uint value in BitEndian.
 // byteSize will be used as the length of the new BinaryLiteral, with leading bytes filled to zero.
 // If byteSize is -1, the leading zeros in new BinaryLiteral will be trimmed.
-func NewBinaryLiteralFromUint(value uint64, byteSize int) BinaryLiteral {
+func NewBinaryLiteralFromUint(value uint64, byteSize int) (BinaryLiteral, error) {
 	if byteSize != -1 && (byteSize < 1 || byteSize > 8) {
-		panic("Invalid byteSize")
+		return nil, fmt.Errorf("types: invalid binary literal byte size %d", byteSize)
 	}
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, value)
@@ -50,7 +50,7 @@ func NewBinaryLiteralFromUint(value uint64, byteSize int) BinaryLiteral {
 	} else {
 		buf = buf[8-byteSize:]
 	}
-	return buf
+	return buf, nil
 }
 
 // String implements fmt.Stringer interface.
