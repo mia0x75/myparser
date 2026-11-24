@@ -1,7 +1,9 @@
 package myparser
 
 import (
+	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -16,6 +18,29 @@ func TestScannerResetReleasesDiagnostics(t *testing.T) {
 	}
 	if errorsBacking[0] != nil || warningsBacking[0] != nil {
 		t.Fatal("reset retained diagnostic references in backing arrays")
+	}
+}
+
+func TestScannerResetDropsLargeBuffer(t *testing.T) {
+	scanner := NewScanner("'" + strings.Repeat("a\\n", 40000) + "'")
+	var v yySymType
+	scanner.Lex(&v)
+	if scanner.buf.Cap() <= maxRetainedScanBuffer {
+		t.Fatal("test input did not grow the decode buffer")
+	}
+	scanner.reset("")
+	if scanner.buf.Cap() > maxRetainedScanBuffer {
+		t.Fatalf("reset kept a %d byte decode buffer", scanner.buf.Cap())
+	}
+}
+
+func TestNormalizeClearsTokenReferences(t *testing.T) {
+	d := &sqlDigester{lexer: NewScanner(""), hasher: sha256.New()}
+	d.doNormalize("/*" + strings.Repeat("x", 1<<16) + "*/ SELECT 1")
+	for i, token := range d.tokens[:cap(d.tokens)] {
+		if token.lit != "" || token.tok != 0 {
+			t.Fatalf("slot %d kept token %#v", i, token)
+		}
 	}
 }
 

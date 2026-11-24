@@ -118,6 +118,8 @@ func (d *sqlDigester) normalize(sql string) {
 			d.buffer.WriteRune(' ')
 		}
 	}
+	// Reuse the backing array without keeping input substrings alive.
+	clear(d.tokens)
 	d.tokens = d.tokens[:0]
 }
 

@@ -135,9 +135,14 @@ func (s *Scanner) Errors() (warns []error, errs []error) {
 	return s.warns, s.errs
 }
 
+const maxRetainedScanBuffer = 64 << 10
+
 // reset resets the sql string to be scanned.
 func (s *Scanner) reset(sql string) {
 	s.r = reader{s: sql, p: Pos{Line: 1}}
+	if s.buf.Cap() > maxRetainedScanBuffer {
+		s.buf = bytes.Buffer{}
+	}
 	s.buf.Reset()
 	clear(s.errs)
 	clear(s.warns)
