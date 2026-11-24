@@ -192,8 +192,6 @@ func TestStatementNamesZeroCopyReuse(t *testing.T) {
 }
 
 func TestStatementNamesRoundTrip(t *testing.T) {
-	// Non-empty SQL text only: the empty-string PREPARE FROM '' restore
-	// presence bug is known and intentionally not exercised here.
 	cases := []string{
 		"prepare st from 'select 1'",
 		"prepare st from @a",

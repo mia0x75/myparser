@@ -2505,9 +2505,7 @@ func (n *AlterTableSpec) Restore(ctx *format.RestoreCtx) error {
 			}
 		}
 	case AlterTableForce:
-		// TODO: not support
 		ctx.WriteKeyword("FORCE")
-		ctx.WritePlain(" /* AlterTableForce is not supported */ ")
 	case AlterTableAddPartitions:
 		if n.PartDefinitions != nil && len(n.PartDefinitions) == 0 {
 			return errors.New("restore alter table add partitions: empty definitions")

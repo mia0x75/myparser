@@ -254,6 +254,7 @@ var statementCorpus = []string{
 	"LOCK TABLE t1 READ;",
 	"LOCK TABLE t2 WRITE",
 	"PREPARE pname FROM 'SELECT ?'",
+	"PREPARE pname FROM ''",
 	"PREPARE `pname` FROM 'SELECT ?'",
 	"PREPARE pname FROM @test",
 	"PREPARE `pname` FROM @`test`",
