@@ -44,6 +44,12 @@ func (checker *readOnlyChecker) Enter(in Node) (out Node, skipChildren bool) {
 			checker.readOnly = false
 			return in, true
 		}
+		// A nested locking read (subquery or derived table) still takes a
+		// lock; the top-level lock is already checked by IsReadOnly.
+		if node.LockTp == SelectLockForUpdate {
+			checker.readOnly = false
+			return in, true
+		}
 	case *SetOprStmt:
 		if node.Into != nil {
 			checker.readOnly = false

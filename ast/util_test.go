@@ -47,6 +47,31 @@ func TestCacheable(t *testing.T) {
 	}
 }
 
+// A locking read nested in a subquery or derived table makes the outer
+// select non-cacheable even when its own tail has no lock.
+func TestIsReadOnlySubqueryLocks(t *testing.T) {
+	parser := myparser.New()
+	for _, tc := range []struct {
+		sql  string
+		want bool
+	}{
+		{"SELECT * FROM t WHERE x = (SELECT y FROM u)", true},
+		{"SELECT * FROM t WHERE x = (SELECT y FROM u FOR UPDATE)", false},
+		{"SELECT * FROM t WHERE EXISTS (SELECT y FROM u)", true},
+		{"SELECT * FROM t WHERE EXISTS (SELECT y FROM u FOR UPDATE)", false},
+		{"SELECT * FROM (SELECT y FROM u FOR UPDATE) d", false},
+		{"SELECT * FROM (SELECT y FROM u) d", true},
+	} {
+		stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", tc.sql, err)
+		}
+		if got := IsReadOnly(stmt); got != tc.want {
+			t.Errorf("IsReadOnly(%q) = %t, want %t", tc.sql, got, tc.want)
+		}
+	}
+}
+
 // CleanNodeText set the text of node and all child node empty.
 // For test only.
 func CleanNodeText(node Node) {
