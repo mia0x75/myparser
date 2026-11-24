@@ -301,7 +301,7 @@ func (n *TypeName) Accept(v Visitor) (Node, bool) {
 			return outer, false
 		}
 		expr, ok := replacement.(ExprNode)
-		if !ok {
+		if !ok || !nodePresent(expr) {
 			return outer, false
 		}
 		outer.Modifiers[i] = expr

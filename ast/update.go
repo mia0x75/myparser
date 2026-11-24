@@ -165,7 +165,7 @@ func (n *UpdateStmt) Accept(v Visitor) (Node, bool) {
 			return n, false
 		}
 		expr, ok := updated.(ExprNode)
-		if !ok || expr == nil {
+		if !ok || !nodePresent(expr) {
 			return n, false
 		}
 		n.Where = expr

@@ -180,6 +180,50 @@ func TestExecuteVisitorStopsBeforeChangingRejectedSlot(t *testing.T) {
 	}
 }
 
+// A typed-nil replacement must not be written back into an expression slot:
+// the parent's Accept has to fail and keep the original child.
+func TestVisitorsRejectTypedNilChildReplacements(t *testing.T) {
+	probe := NewParamMarkerExpr(0)
+	joinOn := &JoinExpr{BaseJoinExpr: pkast.BaseJoinExpr{Left: &TableSource{}, Right: &TableName{}, On: probe}}
+	updateWhere := &UpdateStmt{BaseUpdateStmt: pkast.BaseUpdateStmt{Table: &TableSource{}, Where: probe}}
+	deleteWhere := &DeleteStmt{BaseDeleteStmt: pkast.BaseDeleteStmt{Table: &TableSource{}, Where: probe}}
+	typeModifier := NewTypeName("VARCHAR")
+	typeModifier.Modifiers = []ExprNode{probe}
+	cases := []struct {
+		name string
+		root Node
+		slot func() ExprNode
+	}{
+		{"group item", &GroupItem{BaseGroupItem: pkast.BaseGroupItem{Expr: probe}}, func() ExprNode { return probe }},
+		{"partition item", &PartitionItem{Expr: probe}, func() ExprNode { return probe }},
+		{"update where", updateWhere, func() ExprNode { return updateWhere.Where }},
+		{"delete where", deleteWhere, func() ExprNode { return deleteWhere.Where }},
+		{"join on", joinOn, func() ExprNode { return joinOn.On }},
+		{"type modifier", typeModifier, func() ExprNode { return probe }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			visited := false
+			visitor := spBoundaryVisitor{leave: func(n Node) (Node, bool) {
+				if n == ExprNode(probe) {
+					visited = true
+					return (*LiteralExpr)(nil), true
+				}
+				return n, true
+			}}
+			if _, ok := tc.root.Accept(visitor); ok {
+				t.Fatal("Accept accepted a typed-nil child replacement")
+			}
+			if !visited {
+				t.Fatal("the child was never visited, so the rejection was not exercised")
+			}
+			if tc.slot() != probe {
+				t.Fatal("typed-nil replacement was written back into the child slot")
+			}
+		})
+	}
+}
+
 func TestLoadRestoreOmitsAbsentFieldAndLineOptions(t *testing.T) {
 	n := &LoadDataStmt{Table: &TableName{Name: QualifiedName{Parts: []lex.Ident{{Name: "t"}}}}}
 	var out strings.Builder

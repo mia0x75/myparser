@@ -52,7 +52,7 @@ func (n *PartitionItem) Accept(v Visitor) (Node, bool) {
 			return item, false
 		}
 		expr, ok := updated.(ExprNode)
-		if !ok || expr == nil {
+		if !ok || !nodePresent(expr) {
 			return item, false
 		}
 		item.Expr = expr

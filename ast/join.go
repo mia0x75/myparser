@@ -152,7 +152,7 @@ func (n *JoinExpr) Accept(v Visitor) (Node, bool) {
 			return outer, false
 		}
 		on, ok := updated.(ExprNode)
-		if !ok || on == nil {
+		if !ok || !nodePresent(on) {
 			return outer, false
 		}
 		outer.On = on
