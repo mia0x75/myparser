@@ -45,6 +45,17 @@ func BenchmarkParseUnionChain(b *testing.B) {
 	}
 }
 
+func BenchmarkStrictWideProjection(b *testing.B) {
+	sql := "SELECT " + strings.Repeat("a,", 8191) + "a"
+	parser := New()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkParseSimple(b *testing.B) {
 	var table = []string{
 		"insert into t values (1), (2), (3)",

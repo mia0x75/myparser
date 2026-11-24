@@ -167,11 +167,12 @@ func (e *DialectCompatibilityError) Error() string {
 }
 
 type dialectSourceToken struct {
-	kind int
-	text string
-	raw  string
-	pos  Pos
-	end  int
+	kind      int
+	text      string
+	raw       string
+	pos       Pos
+	lineStart int
+	end       int
 }
 
 type dialectFunctionCandidate struct {
@@ -765,7 +766,7 @@ func (v *DialectCompatibilityVisitor) addIssue(token dialectSourceToken, code Di
 		Offset:    token.pos.Offset,
 		Length:    token.end - token.pos.Offset,
 		Line:      token.pos.Line,
-		Column:    token.pos.Col,
+		Column:    utf8.RuneCountInString(v.Source[token.lineStart:token.pos.Offset]),
 		Highlight: token.raw,
 	})
 }
@@ -900,13 +901,15 @@ func tokenizeDialectSourceForTarget(source string, mode mysql.SQLMode, target Di
 		if end <= pos.Offset || end > len(source) {
 			break
 		}
-		pos.Line, pos.Col = dialectLineColumn(source, lineStarts, pos.Offset)
+		line := dialectLineIndex(lineStarts, pos.Offset)
+		pos.Line = line + 1
 		tokens = append(tokens, dialectSourceToken{
-			kind: kind,
-			text: text,
-			raw:  source[pos.Offset:end],
-			pos:  pos,
-			end:  end,
+			kind:      kind,
+			text:      text,
+			raw:       source[pos.Offset:end],
+			pos:       pos,
+			lineStart: lineStarts[line],
+			end:       end,
 		})
 	}
 	return tokens
@@ -922,12 +925,12 @@ func dialectLineStarts(source string) []int {
 	return starts
 }
 
-func dialectLineColumn(source string, starts []int, offset int) (line, column int) {
+func dialectLineIndex(starts []int, offset int) int {
 	lineIndex := sort.Search(len(starts), func(i int) bool { return starts[i] > offset }) - 1
 	if lineIndex < 0 {
-		lineIndex = 0
+		return 0
 	}
-	return lineIndex + 1, utf8.RuneCountInString(source[starts[lineIndex]:offset])
+	return lineIndex
 }
 
 func dialectScannerOffset(scanner *Scanner) int {
