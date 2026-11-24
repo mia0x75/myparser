@@ -56,6 +56,18 @@ func BenchmarkStrictWideProjection(b *testing.B) {
 	}
 }
 
+func BenchmarkStrictNestedCast(b *testing.B) {
+	const depth = 512
+	sql := "SELECT " + strings.Repeat("CAST(\n", depth) + "1" + strings.Repeat(" AS SIGNED)\n", depth)
+	parser := New()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkParseSimple(b *testing.B) {
 	var table = []string{
 		"insert into t values (1), (2), (3)",

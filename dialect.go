@@ -781,11 +781,13 @@ func (v *DialectCompatibilityVisitor) analyzeSource() {
 		return
 	}
 	v.tokens = tokenizeDialectSourceForTarget(v.Source, v.sqlMode, v.Target)
-	v.castJSONCandidates = findCastJSONCandidates(v.tokens)
-	v.castVarcharCandidates = findCastVarcharCandidates(v.tokens)
+	parens := matchingParens(v.tokens)
+	castTargets := indexCastTargets(v.tokens, parens)
+	v.castJSONCandidates = castTargets["json"]
+	v.castVarcharCandidates = castTargets["varchar"]
 	v.logCandidates = findFunctionCandidates(v.tokens, "log")
 	v.lastValueCandidates = findFunctionCandidates(v.tokens, "last_value")
-	v.duplicateCollateTokens = findDuplicateColumnCollates(v.tokens)
+	v.duplicateCollateTokens = findDuplicateColumnCollates(v.tokens, parens)
 	for i, token := range v.tokens {
 		if !token.isWord("show") || i+1 >= len(v.tokens) || (i > 0 && v.tokens[i-1].isRaw(".")) {
 			continue
@@ -809,15 +811,15 @@ func (v *DialectCompatibilityVisitor) analyzeSource() {
 				v.addIssue(token, IssueMariaDBNumericIdentifier, "this numeric identifier boundary is not accepted by MariaDB")
 			}
 		}
-		for _, token := range findMariaDBTypeModifierIssues(v.tokens) {
+		for _, token := range findMariaDBTypeModifierIssues(v.tokens, parens) {
 			v.addIssue(token, IssueMariaDBTypeModifier, "this numeric type modifier combination is not accepted by MariaDB")
 		}
-		for _, token := range findMariaDBSerialOptionIssues(v.tokens) {
+		for _, token := range findMariaDBSerialOptionIssues(v.tokens, parens) {
 			v.addIssue(token, IssueMariaDBSerialOption, "MariaDB SERIAL does not accept NULL, DEFAULT, or another AUTO_INCREMENT")
 		}
 	case DialectMySQL:
 		for _, target := range []string{"int", "integer", "interval"} {
-			for _, token := range findCastVarcharCandidatesForTarget(v.tokens, target) {
+			for _, token := range castTargets[target] {
 				v.addIssue(token, IssueMySQLCastTarget, "this CAST/CONVERT target is MariaDB-only")
 			}
 		}
@@ -1063,80 +1065,58 @@ func isMySQLNumericIdentifier(token dialectSourceToken) bool {
 	return i+1 < len(token.raw) && token.raw[i] == '.' && (token.raw[i+1] == 'e' || token.raw[i+1] == 'E')
 }
 
-func findCastJSONCandidates(tokens []dialectSourceToken) []dialectSourceToken {
-	return findCastTargetCandidates(tokens, "json")
-}
-
-func findCastVarcharCandidates(tokens []dialectSourceToken) []dialectSourceToken {
-	return findCastVarcharCandidatesForTarget(tokens, "varchar")
-}
-
-func findCastVarcharCandidatesForTarget(tokens []dialectSourceToken, target string) []dialectSourceToken {
-	var candidates []dialectSourceToken
-	for i := 0; i+2 < len(tokens); i++ {
-		if tokens[i].isWord("cast") {
-			candidates = append(candidates, findCastTargetCandidate(tokens, i, target)...)
+// indexCastTargets records each CAST/CONVERT target in one pass so nested
+// calls do not re-scan the same token stream for every candidate.
+func indexCastTargets(tokens []dialectSourceToken, parens []int) map[string][]dialectSourceToken {
+	targets := make(map[string][]dialectSourceToken)
+	for i, token := range tokens {
+		if i+1 >= len(tokens) || !tokens[i+1].isRaw("(") {
 			continue
 		}
-		if !tokens[i].isWord("convert") || !tokens[i+1].isRaw("(") {
-			continue
-		}
-		close := matchingParen(tokens, i+1)
+		close := matchingParen(parens, i+1)
 		if close < 0 {
 			continue
 		}
-		depth := 0
-		for j := i + 2; j < close; j++ {
-			switch tokens[j].raw {
-			case "(":
-				depth++
-			case ")":
-				if depth > 0 {
-					depth--
+		switch {
+		case token.isWord("cast"):
+			depth := 0
+			for j := i + 2; j < close; j++ {
+				switch tokens[j].raw {
+				case "(":
+					depth++
+				case ")":
+					if depth > 0 {
+						depth--
+					}
+				default:
+					if depth == 0 && tokens[j].isWord("as") && j+1 < close {
+						target := strings.ToLower(tokens[j+1].text)
+						targets[target] = append(targets[target], tokens[j+1])
+						j = close
+					}
 				}
-			case ",":
-				if depth == 0 && j+1 < close && tokens[j+1].isWord(target) {
-					candidates = append(candidates, tokens[j+1])
-					j = close
+			}
+		case token.isWord("convert"):
+			depth := 0
+			for j := i + 2; j < close; j++ {
+				switch tokens[j].raw {
+				case "(":
+					depth++
+				case ")":
+					if depth > 0 {
+						depth--
+					}
+				case ",":
+					if depth == 0 && j+1 < close {
+						target := strings.ToLower(tokens[j+1].text)
+						targets[target] = append(targets[target], tokens[j+1])
+						j = close
+					}
 				}
 			}
 		}
 	}
-	return candidates
-}
-
-func findCastTargetCandidates(tokens []dialectSourceToken, target string) []dialectSourceToken {
-	var candidates []dialectSourceToken
-	for i := 0; i+2 < len(tokens); i++ {
-		candidates = append(candidates, findCastTargetCandidate(tokens, i, target)...)
-	}
-	return candidates
-}
-
-func findCastTargetCandidate(tokens []dialectSourceToken, start int, target string) []dialectSourceToken {
-	if start+2 >= len(tokens) || !tokens[start].isWord("cast") || !tokens[start+1].isRaw("(") {
-		return nil
-	}
-	close := matchingParen(tokens, start+1)
-	if close < 0 {
-		return nil
-	}
-	depth := 0
-	for i := start + 2; i < close; i++ {
-		switch tokens[i].raw {
-		case "(":
-			depth++
-		case ")":
-			if depth > 0 {
-				depth--
-			}
-		default:
-			if depth == 0 && tokens[i].isWord("as") && i+1 < close && tokens[i+1].isWord(target) {
-				return []dialectSourceToken{tokens[i+1]}
-			}
-		}
-	}
-	return nil
+	return targets
 }
 
 func findFunctionCandidates(tokens []dialectSourceToken, name string) []dialectFunctionCandidate {
@@ -1151,7 +1131,7 @@ func findFunctionCandidates(tokens []dialectSourceToken, name string) []dialectF
 	return candidates
 }
 
-func findMariaDBTypeModifierIssues(tokens []dialectSourceToken) []dialectSourceToken {
+func findMariaDBTypeModifierIssues(tokens []dialectSourceToken, parens []int) []dialectSourceToken {
 	var issues []dialectSourceToken
 	for i := range tokens {
 		if !isNumericType(tokens[i]) {
@@ -1162,7 +1142,7 @@ func findMariaDBTypeModifierIssues(tokens []dialectSourceToken) []dialectSourceT
 			j++
 		}
 		if j < len(tokens) && tokens[j].isRaw("(") {
-			if close := matchingParen(tokens, j); close >= 0 {
+			if close := matchingParen(parens, j); close >= 0 {
 				j = close + 1
 			}
 		}
@@ -1204,7 +1184,7 @@ func isNumericType(token dialectSourceToken) bool {
 	}
 }
 
-func findMariaDBSerialOptionIssues(tokens []dialectSourceToken) []dialectSourceToken {
+func findMariaDBSerialOptionIssues(tokens []dialectSourceToken, parens []int) []dialectSourceToken {
 	var issues []dialectSourceToken
 	tableDDL := false
 	for i, token := range tokens {
@@ -1233,7 +1213,7 @@ func findMariaDBSerialOptionIssues(tokens []dialectSourceToken) []dialectSourceT
 				break
 			}
 			if tokens[j].isRaw("(") {
-				if close := matchingParen(tokens, j); close >= 0 {
+				if close := matchingParen(parens, j); close >= 0 {
 					j = close
 				}
 				continue
@@ -1286,7 +1266,7 @@ func findMySQLSetIssues(tokens []dialectSourceToken) []dialectSourceFinding {
 	return findings
 }
 
-func findDuplicateColumnCollates(tokens []dialectSourceToken) []dialectSourceToken {
+func findDuplicateColumnCollates(tokens []dialectSourceToken, parens []int) []dialectSourceToken {
 	var duplicates []dialectSourceToken
 	for i := 0; i < len(tokens); i++ {
 		if !tokens[i].isWord("create") {
@@ -1307,7 +1287,7 @@ func findDuplicateColumnCollates(tokens []dialectSourceToken) []dialectSourceTok
 		if j >= len(tokens) || !tokens[j].isRaw("(") {
 			continue
 		}
-		close := matchingParen(tokens, j)
+		close := matchingParen(parens, j)
 		if close < 0 {
 			continue
 		}
@@ -1356,23 +1336,30 @@ func findDuplicateColumnCollates(tokens []dialectSourceToken) []dialectSourceTok
 	return duplicates
 }
 
-func matchingParen(tokens []dialectSourceToken, open int) int {
-	if open < 0 || open >= len(tokens) || !tokens[open].isRaw("(") {
-		return -1
+func matchingParens(tokens []dialectSourceToken) []int {
+	matches := make([]int, len(tokens))
+	for i := range matches {
+		matches[i] = -1
 	}
-	depth := 0
-	for i := open; i < len(tokens); i++ {
-		switch tokens[i].raw {
-		case "(":
-			depth++
-		case ")":
-			depth--
-			if depth == 0 {
-				return i
-			}
+	var open []int
+	for i, token := range tokens {
+		switch {
+		case token.isRaw("("):
+			open = append(open, i)
+		case token.isRaw(")") && len(open) > 0:
+			start := open[len(open)-1]
+			open = open[:len(open)-1]
+			matches[start] = i
 		}
 	}
-	return -1
+	return matches
+}
+
+func matchingParen(matches []int, open int) int {
+	if open < 0 || open >= len(matches) {
+		return -1
+	}
+	return matches[open]
 }
 
 func isASCIIDigit(ch byte) bool {
