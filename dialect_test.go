@@ -950,6 +950,18 @@ func TestFindDuplicateIntoTokensAcrossUnion(t *testing.T) {
 	}
 }
 
+func TestDialectIssuesAfterOptimizerHint(t *testing.T) {
+	sql := "SELECT /*+ NO_ICP() */ CAST(1 AS JSON) FROM t"
+	stmt, err := New().ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues := CheckDialectCompatibility(stmt, sql, DialectMariaDB)
+	if len(issues) != 1 || issues[0].Code != IssueMariaDBCastJSON {
+		t.Fatalf("issues = %#v", issues)
+	}
+}
+
 func TestDialectTokenizationStopsOnInvalidSource(t *testing.T) {
 	tokens := tokenizeDialectSourceForTarget("SELECT 1\x00", 0, DialectMySQL)
 	if len(tokens) != 2 {

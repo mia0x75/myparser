@@ -900,8 +900,8 @@ func tokenizeDialectSourceForTarget(source string, mode mysql.SQLMode, target Di
 		if end < pos.Offset || end > len(source) {
 			end = pos.Offset + len(text)
 		}
-		if end <= pos.Offset || end > len(source) {
-			break
+		if end < pos.Offset || end > len(source) {
+			end = pos.Offset
 		}
 		line := dialectLineIndex(lineStarts, pos.Offset)
 		pos.Line = line + 1
