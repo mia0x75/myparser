@@ -3071,9 +3071,9 @@ func queryHasOrderBy(node ast.QueryNode) bool {
 func TestLikeEscape(t *testing.T) {
 	table := []testCase{
 		// for like escape
-		{`select "abc_" like "abc\\_" escape ''`, true, "SELECT 'abc_' LIKE 'abc\\_'"},
-		{`select "abc_" like "abc\\_" escape '\\'`, true, "SELECT 'abc_' LIKE 'abc\\_'"},
-		{`select "abc_" like "abc\\_" escape '||'`, true, "SELECT 'abc_' LIKE 'abc\\_' ESCAPE '||'"},
+		{`select "abc_" like "abc\\_" escape ''`, true, "SELECT 'abc_' LIKE 'abc\\\\_'"},
+		{`select "abc_" like "abc\\_" escape '\\'`, true, "SELECT 'abc_' LIKE 'abc\\\\_'"},
+		{`select "abc_" like "abc\\_" escape '||'`, true, "SELECT 'abc_' LIKE 'abc\\\\_' ESCAPE '||'"},
 		{`select "abc" like "escape" escape '+'`, true, "SELECT 'abc' LIKE 'escape' ESCAPE '+'"},
 		{"select '''_' like '''_' escape ''''", true, "SELECT '''_' LIKE '''_' ESCAPE ''''"},
 	}

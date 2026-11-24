@@ -9,6 +9,7 @@ import (
 	"github.com/mia0x75/parserkit/loc"
 
 	"github.com/mia0x75/myparser/ast"
+	. "github.com/mia0x75/myparser/format"
 )
 
 // literalSyntax is the pure-syntax shape of a literal expression.
@@ -506,6 +507,28 @@ func TestLiteralSyntaxDoubledQuotes(t *testing.T) {
 			}
 			if literal.Raw != tt.sql[tt.span.Start:tt.span.End] {
 				t.Fatalf("raw = %q, want %q", literal.Raw, tt.sql[tt.span.Start:tt.span.End])
+			}
+		})
+	}
+}
+
+// Default restore flags escape backslashes so parse -> restore -> re-parse
+// keeps the decoded string value.
+func TestLiteralSyntaxBackslashRoundTrip(t *testing.T) {
+	for _, sql := range []string{
+		`SELECT 'a\\b'`,
+		`SELECT 'a\nb'`,
+		`SELECT 'a\b'`,
+	} {
+		t.Run(sql, func(t *testing.T) {
+			before := literalFields(t, mustParseOne(t, sql))[0]
+			var sb strings.Builder
+			if err := mustParseOne(t, sql).Restore(NewRestoreCtx(DefaultRestoreFlags, &sb)); err != nil {
+				t.Fatalf("Restore: %v", err)
+			}
+			after := literalFields(t, mustParseOne(t, sb.String()))[0]
+			if before.Value != after.Value {
+				t.Fatalf("restored=%q changed value %q to %q", sb.String(), before.Value, after.Value)
 			}
 		})
 	}

@@ -89,8 +89,10 @@ const (
 )
 
 // DefaultRestoreFlags is the MySQL default: single quoted strings, upper case
-// keywords and back quoted identifiers.
-const DefaultRestoreFlags = RestoreStringSingleQuotes | RestoreKeyWordUppercase | RestoreNameBackQuotes
+// keywords, back quoted identifiers and escaped backslashes so that a
+// restored string literal keeps the value of the literal it was parsed from.
+const DefaultRestoreFlags = RestoreStringSingleQuotes | RestoreKeyWordUppercase | RestoreNameBackQuotes |
+	RestoreStringEscapeBackslash
 
 // RestoreCtx is `Restore` context to hold flags and writer.
 type RestoreCtx = pkformat.RestoreCtx
