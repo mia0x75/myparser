@@ -34,6 +34,7 @@ parser: ## Regenerate the parser and reject grammar conflicts
 	if ! $(GOYACC) -l -o parser/parser_generated.go -v "$$report" parser/parser.y >"$$output" 2>&1; then \
 		cat "$$output"; exit 1; \
 	fi; \
+	sed -i '1s# -v .*parser/parser.y# -v parser/parser.output parser/parser.y#' parser/parser_generated.go; \
 	cat "$$output"; \
 	if grep -Eq '(shift|reduce)/reduce' "$$output"; then \
 		echo 'Grammar conflicts found in parser.y'; exit 1; \
