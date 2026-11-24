@@ -965,7 +965,9 @@ func (n *FieldsClause) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
 		return nilRestoreError("FieldsClause")
 	}
-	if n.Terminated != "\t" || n.Escaped != '\\' {
+	// Enclosed alone must trigger the clause: with the other options at
+	// their defaults, the FIELDS keyword is what carries the enclosed char.
+	if n.Terminated != "\t" || n.Escaped != '\\' || n.Enclosed != 0 {
 		ctx.WriteKeyword(" FIELDS")
 		if n.Terminated != "\t" {
 			ctx.WriteKeyword(" TERMINATED BY ")

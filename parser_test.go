@@ -844,6 +844,9 @@ func TestDMLStmt(t *testing.T) {
 		{"LOAD DATA LOCAL INFILE '/tmp/t.csv' INTO TABLE t1 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';", true, "LOAD DATA LOCAL INFILE '/tmp/t.csv' IGNORE INTO TABLE `t1` FIELDS TERMINATED BY ','"},
 		{"LOAD DATA LOCAL INFILE '/tmp/t.csv' IGNORE INTO TABLE t1 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';", true, "LOAD DATA LOCAL INFILE '/tmp/t.csv' IGNORE INTO TABLE `t1` FIELDS TERMINATED BY ','"},
 		{"LOAD DATA LOCAL INFILE '/tmp/t.csv' REPLACE INTO TABLE t1 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';", true, "LOAD DATA LOCAL INFILE '/tmp/t.csv' REPLACE INTO TABLE `t1` FIELDS TERMINATED BY ','"},
+		// ENCLOSED alone (other field options at defaults) must survive restore.
+		{"LOAD DATA INFILE '/tmp/t.csv' INTO TABLE t1 FIELDS ENCLOSED BY '\"';", true, "LOAD DATA INFILE '/tmp/t.csv' INTO TABLE `t1` FIELDS ENCLOSED BY '\"'"},
+		{"SELECT 1 INTO OUTFILE '/tmp/t.csv' FIELDS ENCLOSED BY '\"';", true, "SELECT 1 INTO OUTFILE '/tmp/t.csv' FIELDS ENCLOSED BY '\"'"},
 
 		// select for update
 		{"SELECT * from t for update", true, "SELECT * FROM `t` FOR UPDATE"},
