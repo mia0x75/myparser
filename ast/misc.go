@@ -1149,7 +1149,6 @@ const (
 	SetRoleRegular
 )
 
-// SetRoleStmt TODO:
 type SetRoleStmt struct {
 	stmtNode
 
@@ -1199,7 +1198,6 @@ func (n *SetRoleStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// SetDefaultRoleStmt TODO:
 type SetDefaultRoleStmt struct {
 	stmtNode
 
@@ -1315,7 +1313,6 @@ func (n *UserSpec) EncodedPassword() (string, bool) {
 	return opt.HashString, true
 }
 
-// TODO:
 const (
 	TslNone = iota
 	Ssl
@@ -1325,7 +1322,6 @@ const (
 	Subject
 )
 
-// TslOption TODO:
 type TslOption struct {
 	Type  int
 	Value string
@@ -1358,7 +1354,6 @@ func (t *TslOption) Restore(ctx *format.RestoreCtx) error {
 	return ctx.Err()
 }
 
-// TODO:
 const (
 	MaxQueriesPerHour = iota + 1
 	MaxUpdatesPerHour
@@ -1366,7 +1361,6 @@ const (
 	MaxUserConnections
 )
 
-// ResourceOption TODO:
 type ResourceOption struct {
 	Type  int
 	Count int64
@@ -1393,7 +1387,6 @@ func (r *ResourceOption) Restore(ctx *format.RestoreCtx) error {
 	return ctx.Err()
 }
 
-// TODO:
 const (
 	PasswordExpire = iota + 1
 	PasswordExpireDefault
@@ -1403,7 +1396,6 @@ const (
 	Unlock
 )
 
-// PasswordOrLockOption TODO:
 type PasswordOrLockOption struct {
 	Type  int
 	Count int64
@@ -2199,7 +2191,6 @@ func (n *GrantRoleStmt) SecureText() string {
 	return text
 }
 
-// LockTableStmt TODO:
 type LockTableStmt struct {
 	stmtNode
 }
@@ -2225,7 +2216,6 @@ func (n *LockTableStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// UnlockTableStmt TODO:
 type UnlockTableStmt struct {
 	stmtNode
 }

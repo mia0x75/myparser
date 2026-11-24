@@ -949,14 +949,12 @@ func (n *LoadDataStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// TODO:
 const (
 	Terminated = iota
 	Enclosed
 	Escaped
 )
 
-// FieldItem TODO:
 type FieldItem struct {
 	Type  int
 	Value string
@@ -1480,7 +1478,6 @@ const (
 	ShowBinaryLogs
 )
 
-// TODO:
 const (
 	ProfileTypeInvalid = iota
 	ProfileTypeCPU
