@@ -67,7 +67,7 @@ func initTokenFunc(str string, fn func(s *Scanner) (int, Pos, string)) {
 }
 
 func init() {
-	// invalid is a special token defined in parser.y, when parser meet
+	// invalid is a special token defined in grammar.y, when parser meet
 	// this token, it will throw an error.
 	// set root trie node's token to invalid, so when input match nothing
 	// in the trie, invalid will be the default return token.

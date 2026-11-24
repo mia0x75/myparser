@@ -23,7 +23,7 @@ lint: ## Run the pinned golangci-lint version
 
 verify: build vet race lint ## Run all quality gates
 
-parser/parser_generated.go: parser/parser.y
+parser/parser_generated.go: parser/grammar.y
 	$(MAKE) parser
 
 parser: ## Regenerate the parser and reject grammar conflicts
@@ -31,13 +31,13 @@ parser: ## Regenerate the parser and reject grammar conflicts
 	output=$$(mktemp); \
 	report=$$(mktemp); \
 	trap 'rm -f "$$output" "$$report"' EXIT HUP INT TERM; \
-	if ! $(GOYACC) -l -o parser/parser_generated.go -v "$$report" parser/parser.y >"$$output" 2>&1; then \
+	if ! $(GOYACC) -l -o parser/parser_generated.go -v "$$report" parser/grammar.y >"$$output" 2>&1; then \
 		cat "$$output"; exit 1; \
 	fi; \
-	sed -i '1s# -v .*parser/parser.y# -v parser/parser.output parser/parser.y#' parser/parser_generated.go; \
+	sed -i '1s# -v .*parser/grammar.y# -v parser/parser.output parser/grammar.y#' parser/parser_generated.go; \
 	cat "$$output"; \
 	if grep -Eq '(shift|reduce)/reduce' "$$output"; then \
-		echo 'Grammar conflicts found in parser.y'; exit 1; \
+		echo 'Grammar conflicts found in grammar.y'; exit 1; \
 	fi
 	go run github.com/mia0x75/parserkit/cmd/yaccspan parser/parser_generated.go
 

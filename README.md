@@ -96,7 +96,7 @@ comment filtering.
 - AST traversal through `Accept` and SQL output through `Restore`, with
   configurable quoting and keyword formatting.
 
-Support is defined by `parser.y` and the tests, not by these broad categories.
+Support is defined by `grammar.y` and the tests, not by these broad categories.
 
 ### AST API
 
@@ -167,40 +167,15 @@ make generate-check  # Check committed generated parser consistency
 make fmt             # Format Go source
 ```
 
-Edit `parser/parser.y`, not the generated `parser/parser_generated.go`, then run `make parser`.
+Edit `parser/grammar.y`, not the generated `parser/parser_generated.go`, then run `make parser`.
 Generation uses goyacc v0.52.0 and `parserkit/cmd/yaccspan`; lint uses
 golangci-lint v2.15.0. Initial runs need access to the Go module proxy.
-
-### MTR tests
-
-`compat_mtr*_test.go` contains offline regressions derived from MTR cases:
-parsing, AST inspection, visitor behavior, and SQL round trips. These tests do
-not connect to a database. `cmd/mtrcheck/` checks the corpus in `testdata/mtr/`;
-live-check scripts compare results with actual servers and distinguish syntax
-errors from execution errors.
-
-Some MTR files and tools are local-only via `.git/info/exclude`, including
-`compat_mtr_remaining_test.go`, `cmd/mtrcheck/`, `testdata/mtr/`, `scripts/`, and
-the `mtrcheck` binary. Go tests outside `testdata/` still run locally, but excluded
-files are absent from fresh clones and CI. Local-only tests are not release gates.
-
-### CI
-
-GitHub Actions runs Makefile checks, CodeQL, and Conventional Commit PR-title
-validation. The local `parserkit` replacement requires a sibling checkout on CI;
-the workflow does not provide one yet.
-
-Dependabot checks modules and actions daily, with automatic approval and squash
-auto-merge, including major updates. Enable **Allow auto-merge**, **Allow squash
-merging**, and **Allow GitHub Actions to create and approve pull requests**.
-Protect `main` with required checks. The stale workflow closes inactive
-issues and PRs; items with milestones are exempt.
 
 ### Layout
 
 | Path | Purpose |
 | --- | --- |
-| `parser/parser.y` / `parser/parser_generated.go` | Grammar and generated LALR parser |
+| `parser/grammar.y` / `parser/parser_generated.go` | Grammar and generated LALR parser |
 | `parser/` | SQL parser, scanner, dialect checks, and parser tests |
 | `ast/` | AST nodes, visitors, and SQL restoration |
 | `parser/dialect.go` | Dialect checks and strict parsing APIs |

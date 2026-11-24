@@ -14,7 +14,7 @@ import (
 
 func TestKeywordConsistent(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	parserFilename := path.Join(path.Dir(filename), "parser.y")
+	parserFilename := path.Join(path.Dir(filename), "grammar.y")
 	parserFile, err := os.Open(parserFilename)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
