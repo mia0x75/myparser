@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 // Insert regression tests for the p41 batch: BaseInsertStmt slots, direct
 // TableName target, expression column targets, source slots and spans.

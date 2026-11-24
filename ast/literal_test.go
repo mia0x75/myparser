@@ -7,9 +7,9 @@ import (
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
 	dformat "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 )
 
 // literalRestore restores a literal node with the default MySQL flags.
@@ -204,7 +204,7 @@ func TestLiteralRestoreRejectsInvalidNumericText(t *testing.T) {
 }
 
 func TestStatementRestoreRejectsModifiedNumericLiteral(t *testing.T) {
-	stmt, err := myparser.New().ParseOneStmt("SELECT 1", "", "")
+	stmt, err := parser.New().ParseOneStmt("SELECT 1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

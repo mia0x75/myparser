@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 )
 
@@ -66,7 +66,7 @@ func (n *dmlTestLimit) Restore(ctx *format.RestoreCtx) error {
 
 func dmlParse(t *testing.T, sql string) ast.StmtNode {
 	t.Helper()
-	n, err := myparser.New().ParseOneStmt(sql, "", "")
+	n, err := parser.New().ParseOneStmt(sql, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

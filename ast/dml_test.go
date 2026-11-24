@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
 	dformat "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 )
@@ -399,7 +399,7 @@ func TestOnConditionRestore(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.sourceSQL, func(t *testing.T) {
-			stmt, err := myparser.New().ParseOneStmt(fmt.Sprintf("select * from t1 join t2 %s", tc.sourceSQL), "", "")
+			stmt, err := parser.New().ParseOneStmt(fmt.Sprintf("select * from t1 join t2 %s", tc.sourceSQL), "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +472,7 @@ func TestDeleteTableListRestore(t *testing.T) {
 			{"DELETE FROM %s USING t1, t2;", "DELETE FROM `t1`,`t2` USING (`t1`) JOIN `t2`"},
 		} {
 			t.Run(form.template+tc.sourceSQL, func(t *testing.T) {
-				p := myparser.New()
+				p := parser.New()
 				sourceSQL := fmt.Sprintf(form.template, tc.sourceSQL)
 				stmt, err := p.ParseOneStmt(sourceSQL, "", "")
 				if err != nil {
@@ -579,7 +579,7 @@ func TestHavingClauseRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "select 1 from t1 group by 1 HAVING %s", extractNodeFunc)
 	for _, tc := range testCases {
 		sql := "select 1 from t1 group by 1 HAVING " + tc.sourceSQL
-		stmt, err := myparser.New().ParseOneStmt(sql, "", "")
+		stmt, err := parser.New().ParseOneStmt(sql, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -701,7 +701,7 @@ func TestWindowSpecRestore(t *testing.T) {
 // INTO OUTFILE option: the charset stays a plain string (not a QualifiedName)
 // and is dropped when absent.
 func TestSelectIntoStatementRestore(t *testing.T) {
-	p := myparser.New()
+	p := parser.New()
 	for _, sql := range []string{
 		"select * from t into outfile 'f'",
 		"select * from t into outfile 'f' character set utf8mb4",

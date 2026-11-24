@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"encoding/json"
@@ -20,34 +20,33 @@ import (
 	"github.com/mia0x75/myparser/driver"
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/opcode"
-	"github.com/mia0x75/myparser/sqlerr"
 )
 
 const (
-	codeErrParse                   = sqlerr.ErrCode(mysql.ErrParse)
-	codeErrSyntax                  = sqlerr.ErrCode(mysql.ErrSyntax)
-	codeErrUnknownCharacterSet     = sqlerr.ErrCode(mysql.ErrUnknownCharacterSet)
-	codeErrInvalidYearColumnLength = sqlerr.ErrCode(mysql.ErrInvalidYearColumnLength)
-	codeWrongArgument              = sqlerr.ErrCode(mysql.ErrWrongArguments)
-	codeWrongFieldTerminators      = sqlerr.ErrCode(mysql.ErrWrongFieldTerminators)
-	codeTooBigDisplayWidth         = sqlerr.ErrCode(mysql.ErrTooBigDisplaywidth)
+	codeErrParse                   = mysql.ErrCode(mysql.ErrParse)
+	codeErrSyntax                  = mysql.ErrCode(mysql.ErrSyntax)
+	codeErrUnknownCharacterSet     = mysql.ErrCode(mysql.ErrUnknownCharacterSet)
+	codeErrInvalidYearColumnLength = mysql.ErrCode(mysql.ErrInvalidYearColumnLength)
+	codeWrongArgument              = mysql.ErrCode(mysql.ErrWrongArguments)
+	codeWrongFieldTerminators      = mysql.ErrCode(mysql.ErrWrongFieldTerminators)
+	codeTooBigDisplayWidth         = mysql.ErrCode(mysql.ErrTooBigDisplaywidth)
 )
 
 var (
 	// ErrSyntax returns for sql syntax error.
-	ErrSyntax = sqlerr.ClassParser.New(codeErrSyntax, mysql.MySQLErrName[mysql.ErrSyntax])
+	ErrSyntax = mysql.ClassParser.New(codeErrSyntax, mysql.MySQLErrName[mysql.ErrSyntax])
 	// ErrParse returns for sql parse error.
-	ErrParse = sqlerr.ClassParser.New(codeErrParse, mysql.MySQLErrName[mysql.ErrParse])
+	ErrParse = mysql.ClassParser.New(codeErrParse, mysql.MySQLErrName[mysql.ErrParse])
 	// ErrUnknownCharacterSet returns for no character set found error.
-	ErrUnknownCharacterSet = sqlerr.ClassParser.New(codeErrUnknownCharacterSet, mysql.MySQLErrName[mysql.ErrUnknownCharacterSet])
+	ErrUnknownCharacterSet = mysql.ClassParser.New(codeErrUnknownCharacterSet, mysql.MySQLErrName[mysql.ErrUnknownCharacterSet])
 	// ErrInvalidYearColumnLength returns for illegal column length for year type.
-	ErrInvalidYearColumnLength = sqlerr.ClassParser.New(codeErrInvalidYearColumnLength, mysql.MySQLErrName[mysql.ErrInvalidYearColumnLength])
+	ErrInvalidYearColumnLength = mysql.ClassParser.New(codeErrInvalidYearColumnLength, mysql.MySQLErrName[mysql.ErrInvalidYearColumnLength])
 	// ErrWrongArguments returns for illegal argument.
-	ErrWrongArguments = sqlerr.ClassParser.New(codeWrongArgument, mysql.MySQLErrName[mysql.ErrWrongArguments])
+	ErrWrongArguments = mysql.ClassParser.New(codeWrongArgument, mysql.MySQLErrName[mysql.ErrWrongArguments])
 	// ErrWrongFieldTerminators returns for illegal field terminators.
-	ErrWrongFieldTerminators = sqlerr.ClassParser.New(codeWrongFieldTerminators, mysql.MySQLErrName[mysql.ErrWrongFieldTerminators])
+	ErrWrongFieldTerminators = mysql.ClassParser.New(codeWrongFieldTerminators, mysql.MySQLErrName[mysql.ErrWrongFieldTerminators])
 	// ErrTooBigDisplayWidth returns for data display width exceed limit .
-	ErrTooBigDisplayWidth = sqlerr.ClassParser.New(codeTooBigDisplayWidth, mysql.MySQLErrName[mysql.ErrTooBigDisplaywidth])
+	ErrTooBigDisplayWidth = mysql.ClassParser.New(codeTooBigDisplayWidth, mysql.MySQLErrName[mysql.ErrTooBigDisplaywidth])
 	// SpecFieldPattern special result field pattern
 	SpecFieldPattern = regexp.MustCompile(`(\/\*(?:!|M!)([0-9]{5,6})?|\*\/)`)
 	specCodeStart    = regexp.MustCompile(`^\/\*(?:!|M!)([0-9]{5,6})?[ \t]*`)
@@ -55,7 +54,7 @@ var (
 )
 
 func init() {
-	parserMySQLErrCodes := map[sqlerr.ErrCode]uint16{
+	parserMySQLErrCodes := map[mysql.ErrCode]uint16{
 		codeErrSyntax:                  mysql.ErrSyntax,
 		codeErrParse:                   mysql.ErrParse,
 		codeErrUnknownCharacterSet:     mysql.ErrUnknownCharacterSet,
@@ -64,7 +63,7 @@ func init() {
 		codeWrongFieldTerminators:      mysql.ErrWrongFieldTerminators,
 		codeTooBigDisplayWidth:         mysql.ErrTooBigDisplaywidth,
 	}
-	sqlerr.ErrClassToMySQLCodes[sqlerr.ClassParser] = parserMySQLErrCodes
+	mysql.ErrClassToMySQLCodes[mysql.ClassParser] = parserMySQLErrCodes
 }
 
 // TrimComment trim comment for special comment code of MySQL.

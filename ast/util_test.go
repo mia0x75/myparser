@@ -9,9 +9,9 @@ import (
 	"github.com/mia0x75/parserkit/lex"
 	"github.com/mia0x75/parserkit/loc"
 
-	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
 	. "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 )
 
 func TestCacheable(t *testing.T) {
@@ -50,7 +50,7 @@ func TestCacheable(t *testing.T) {
 // A locking read nested in a subquery or derived table makes the outer
 // select non-cacheable even when its own tail has no lock.
 func TestIsReadOnlySubqueryLocks(t *testing.T) {
-	parser := myparser.New()
+	parser := parser.New()
 	for _, tc := range []struct {
 		sql  string
 		want bool
@@ -484,7 +484,7 @@ func RunNodeRestoreTest(t *testing.T, nodeTestCases []NodeRestoreTestCase, templ
 }
 
 func RunNodeRestoreTestWithFlags(t *testing.T, nodeTestCases []NodeRestoreTestCase, template string, extractNodeFunc func(node Node) Node, flags RestoreFlags) {
-	p := myparser.New()
+	p := parser.New()
 	p.EnableWindowFunc(true)
 	for _, testCase := range nodeTestCases {
 		sourceSQL := fmt.Sprintf(template, testCase.sourceSQL)

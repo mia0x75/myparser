@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
 	. "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 	"github.com/mia0x75/myparser/types"
 )
 
@@ -442,7 +442,7 @@ func (v *exerciseVisitor) Leave(in Node) (Node, bool) {
 }
 
 func TestStatementCorpusRestoreVisit(t *testing.T) {
-	p := myparser.New()
+	p := parser.New()
 	p.EnableWindowFunc(true)
 	for _, sql := range statementCorpus {
 		stmts, _, err := p.Parse(sql, "", "")

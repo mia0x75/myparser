@@ -29,12 +29,12 @@ import (
 	"log"
 	"strings"
 
-	"github.com/mia0x75/myparser"
+	"github.com/mia0x75/myparser/parser"
 	"github.com/mia0x75/myparser/format"
 )
 
 func main() {
-	p := myparser.New()
+	p := parser.New()
 	p.EnableWindowFunc(true)
 	stmts, warnings, err := p.Parse("SELECT id FROM tbl WHERE id = 1", "", "")
 	if err != nil {
@@ -64,16 +64,17 @@ reject known incompatibilities with the selected database family:
 
 ```go
 sql := "SELECT CAST(doc AS JSON) FROM t"
-stmt, err := p.ParseOneStmtForDialect(sql, "", "", myparser.DialectMariaDB)
+p := parser.New()
+stmt, err := p.ParseOneStmtForDialect(sql, "", "", parser.DialectMariaDB)
 if err != nil {
-	// Handle syntax errors or *myparser.DialectCompatibilityError.
+	// Handle syntax errors or *parser.DialectCompatibilityError.
 	return
 }
 _ = stmt
 ```
 
 For an existing AST, use
-`myparser.CheckDialectCompatibility(stmt, sql, myparser.DialectMariaDB)`.
+`parser.CheckDialectCompatibility(stmt, sql, parser.DialectMariaDB)`.
 Issues include a rule code, target dialect, UTF-8 byte range, line number,
 rune-based column, and highlighted source text. These checks are not a complete
 validator for every server version.
@@ -161,12 +162,12 @@ make race            # Race detection with randomized test order
 make vet             # Go static analysis
 make lint            # Pinned golangci-lint
 make verify          # Build, vet, race, and lint
-make parser          # Regenerate parser.go and reject grammar conflicts
+make parser          # Regenerate parser/parser_generated.go and reject grammar conflicts
 make generate-check  # Check committed generated parser consistency
 make fmt             # Format Go source
 ```
 
-Edit `parser.y`, not the generated `parser.go`, then run `make parser`.
+Edit `parser/parser.y`, not the generated `parser/parser_generated.go`, then run `make parser`.
 Generation uses goyacc v0.52.0 and `parserkit/cmd/yaccspan`; lint uses
 golangci-lint v2.15.0. Initial runs need access to the Go module proxy.
 
@@ -199,13 +200,13 @@ issues and PRs; items with milestones are exempt.
 
 | Path | Purpose |
 | --- | --- |
-| `parser.y` / `parser.go` | Grammar and generated LALR parser |
+| `parser/parser.y` / `parser/parser_generated.go` | Grammar and generated LALR parser |
+| `parser/` | SQL parser, scanner, dialect checks, and parser tests |
 | `ast/` | AST nodes, visitors, and SQL restoration |
-| `dialect.go` | Dialect checks and strict parsing APIs |
+| `parser/dialect.go` | Dialect checks and strict parsing APIs |
 | `types/` | Legacy data types and value conversion |
 | `errors/` | Generic error wrapping and stack traces |
-| `sqlerr/` | SQL error classes and codes |
-| `mysql/` | Server constants and error codes |
+| `mysql/` | Server constants, error classes and codes |
 | `format/` | SQL output and formatting |
 | `driver/` | Legacy value helpers and literal conversion |
 

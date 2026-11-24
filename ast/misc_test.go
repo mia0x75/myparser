@@ -3,8 +3,8 @@ package ast_test
 import (
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/auth"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 
 	. "github.com/mia0x75/myparser/ast"
@@ -117,7 +117,7 @@ jobAbbr char(4) not null,
 constraint foreign key (jobabbr) references ffxi_jobtype (jobabbr) on delete cascade on update cascade
 );
 `
-	parse := myparser.New()
+	parse := parser.New()
 	stmts, _, err := parse.Parse(sql, "", "")
 	if err != nil {
 		t.Fatalf("got error %v, want nil", err)
@@ -138,7 +138,7 @@ update t1 set col1 = col1 + 1, col2 = col1;
 show create table t;
 load data infile '/tmp/t.csv' into table t fields terminated by 'ab' enclosed by 'b';`
 
-	p := myparser.New()
+	p := parser.New()
 	stmts, _, err := p.Parse(sql, "", "")
 	if err != nil {
 		t.Fatalf("got error %v, want nil", err)

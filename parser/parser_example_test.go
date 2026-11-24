@@ -1,14 +1,14 @@
-package myparser_test
+package parser_test
 
 import (
 	"fmt"
 
-	"github.com/mia0x75/myparser"
 	_ "github.com/mia0x75/myparser/driver"
+	"github.com/mia0x75/myparser/parser"
 )
 
-// This example show how to parse a text sql into ast.
-func Example_parseSQL() {
+// This example shows how to parse SQL into an AST.
+func Example() {
 
 	// 0. Ensure the driver is imported.
 
@@ -16,7 +16,7 @@ func Example_parseSQL() {
 	// not be shared among multiple goroutines. However, parser is also
 	// heavy, so each goroutine should reuse its own local instance if
 	// possible.
-	p := myparser.New()
+	p := parser.New()
 
 	// 2. Parse a text SQL into AST([]ast.StmtNode).
 	stmtNodes, _, err := p.Parse("select * from tbl where id = 1", "", "")

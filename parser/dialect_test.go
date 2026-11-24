@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"errors"
@@ -966,6 +966,40 @@ func TestDialectTokenizationStopsOnInvalidSource(t *testing.T) {
 	tokens := tokenizeDialectSourceForTarget("SELECT 1\x00", 0, DialectMySQL)
 	if len(tokens) != 2 {
 		t.Fatalf("tokens = %d, want 2 before the invalid byte", len(tokens))
+	}
+}
+
+func TestTableNameHelpers(t *testing.T) {
+	stmt, err := New().ParseOneStmt("select * from `db`.`t`", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := stmt.(*ast.SelectStmt).From.FromClauseCore().Table.(*ast.JoinExpr).Left.(*ast.TableSource).Source.(*ast.TableName)
+	if got := tableNameBareName(table); got != "t" {
+		t.Fatalf("bare name = %q, want t", got)
+	}
+	if got := tableNameSchema(table); got != "db" {
+		t.Fatalf("schema = %q, want db", got)
+	}
+	if got := tableNameStartOffset(table); got != 14 {
+		t.Fatalf("start offset = %d, want 14", got)
+	}
+	bare, err := New().ParseOneStmt("select 1 from `t`", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bareTable := bare.(*ast.SelectStmt).From.FromClauseCore().Table.(*ast.JoinExpr).Left.(*ast.TableSource).Source.(*ast.TableName)
+	if got := tableNameSchema(bareTable); got != "" {
+		t.Fatalf("single-part schema = %q, want empty", got)
+	}
+	if got := tableNameBareName(nil); got != "" {
+		t.Fatalf("nil bare name = %q, want empty", got)
+	}
+	if got := tableNameSchema(nil); got != "" {
+		t.Fatalf("nil schema = %q, want empty", got)
+	}
+	if got := tableNameStartOffset(nil); got != -1 {
+		t.Fatalf("nil start offset = %d, want -1", got)
 	}
 }
 

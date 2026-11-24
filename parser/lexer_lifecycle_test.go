@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"crypto/sha256"
@@ -6,6 +6,14 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestScannerEmptyStatementText(t *testing.T) {
+	var scanner Scanner
+	scanner.reset("")
+	if got := scanner.stmtText(); got != "" {
+		t.Fatalf("empty scanner text: %q", got)
+	}
+}
 
 func TestScannerResetReleasesDiagnostics(t *testing.T) {
 	scanner := NewScanner("SELECT 1")

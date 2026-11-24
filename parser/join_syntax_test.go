@@ -1,11 +1,11 @@
-package myparser_test
+package parser_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 	"github.com/mia0x75/parserkit/loc"
@@ -27,7 +27,7 @@ func TestJoinSyntaxSpans(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			const prefix = "SELECT * FROM "
 			sql := prefix + tc.from + " WHERE 1"
-			stmt, err := myparser.New().ParseOneStmt(sql, "", "")
+			stmt, err := parser.New().ParseOneStmt(sql, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -55,7 +55,7 @@ func TestJoinSyntaxSpans(t *testing.T) {
 func TestJoinSyntaxNamesAndOnLifetime(t *testing.T) {
 	t.Parallel()
 	const sql = "SELECT * FROM (`库.点`.`表` AS `别` JOIN b USING (`列.点`)) LEFT JOIN c ON ?=?"
-	p := myparser.New()
+	p := parser.New()
 	stmt, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {
 		t.Fatal(err)

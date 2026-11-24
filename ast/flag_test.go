@@ -3,8 +3,8 @@ package ast_test
 import (
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 )
@@ -29,7 +29,7 @@ func TestHasAggFlag(t *testing.T) {
 }
 
 func TestFlag(t *testing.T) {
-	p := myparser.New()
+	p := parser.New()
 	flagTests := []struct {
 		expr string
 		flag uint64
@@ -162,7 +162,7 @@ func TestAggregateTailFlags(t *testing.T) {
 		{name: "limit offset", sql: "SELECT JSON_ARRAYAGG(1 LIMIT ?,1)", flag: ast.FlagHasAggregateFunc | ast.FlagHasParamMarker},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			stmt, err := myparser.New().ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.New().ParseOneStmt(tt.sql, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -196,9 +196,9 @@ func TestWindowTailFlags(t *testing.T) {
 		{name: "limit offset", sql: "SELECT GROUP_CONCAT(1 LIMIT ?,1) OVER ()", flag: ast.FlagHasWindowFunc | ast.FlagHasParamMarker},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := myparser.New()
-			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			p := parser.New()
+			p.EnableWindowFunc(true)
+			stmt, err := p.ParseOneStmt(tt.sql, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}

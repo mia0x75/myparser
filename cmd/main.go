@@ -11,9 +11,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 )
 
 // result is the stable JSON schema printed with -json.
@@ -61,13 +61,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	p := myparser.New()
+	p := parser.New()
 	p.EnableWindowFunc(true)
 	res := result{SQL: text, Dialect: target.String()}
 
 	var stmts []ast.StmtNode
 	var warnings []error
-	if target == myparser.DialectUnion {
+	if target == parser.DialectUnion {
 		stmts, warnings, err = p.Parse(text, "", "")
 	} else {
 		var stmt ast.StmtNode
@@ -77,7 +77,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		// Strict parsing collects compatibility issues into a typed error;
 		// surface them as a list instead of a single multi-line message.
-		var compat *myparser.DialectCompatibilityError
+		var compat *parser.DialectCompatibilityError
 		if errors.As(err, &compat) {
 			for _, issue := range compat.Issues {
 				res.Issues = append(res.Issues, issue.Error())
@@ -108,16 +108,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func parseDialect(name string) (myparser.Dialect, error) {
+func parseDialect(name string) (parser.Dialect, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "union":
-		return myparser.DialectUnion, nil
+		return parser.DialectUnion, nil
 	case "mysql":
-		return myparser.DialectMySQL, nil
+		return parser.DialectMySQL, nil
 	case "mariadb":
-		return myparser.DialectMariaDB, nil
+		return parser.DialectMariaDB, nil
 	default:
-		return myparser.DialectUnion, fmt.Errorf("unsupported dialect %q: expected union, mysql or mariadb", name)
+		return parser.DialectUnion, fmt.Errorf("unsupported dialect %q: expected union, mysql or mariadb", name)
 	}
 }
 

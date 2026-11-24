@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	. "github.com/mia0x75/myparser/ast"
 	dformat "github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 )
@@ -72,7 +72,7 @@ func TestFuncCallExprRestore(t *testing.T) {
 }
 
 func TestFuncCallNameKeepsSourceSyntax(t *testing.T) {
-	parser := myparser.New()
+	parser := parser.New()
 	for _, tc := range []struct {
 		name         string
 		sql          string
@@ -220,7 +220,7 @@ func TestAggregateFuncExprRestore(t *testing.T) {
 }
 
 func TestAggregateFuncExprTailVisitor(t *testing.T) {
-	stmt, err := myparser.New().ParseOneStmt("SELECT GROUP_CONCAT(a,b ORDER BY c SEPARATOR '|' LIMIT 2,3)", "", "")
+	stmt, err := parser.New().ParseOneStmt("SELECT GROUP_CONCAT(a,b ORDER BY c SEPARATOR '|' LIMIT 2,3)", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestConvert(t *testing.T) {
 		{`SELECT CONVERT("abc" USING CONCAT("utf", "8"))`, "", `[parser:1115]Unknown character set: 'CONCAT'`},
 	}
 	for _, testCase := range cases {
-		stmt, err := myparser.New().ParseOneStmt(testCase.SQL, "", "")
+		stmt, err := parser.New().ParseOneStmt(testCase.SQL, "", "")
 		if testCase.ErrorMessage != "" {
 			if err == nil || err.Error() != testCase.ErrorMessage {
 				t.Fatalf("got error %v, want %v", err, testCase.ErrorMessage)
@@ -390,7 +390,7 @@ func TestChar(t *testing.T) {
 		{`SELECT CHAR("abc" USING CONCAT("utf", "8"))`, "", `[parser:1115]Unknown character set: 'CONCAT'`},
 	}
 	for _, testCase := range cases {
-		stmt, err := myparser.New().ParseOneStmt(testCase.SQL, "", "")
+		stmt, err := parser.New().ParseOneStmt(testCase.SQL, "", "")
 		if testCase.ErrorMessage != "" {
 			if err == nil || err.Error() != testCase.ErrorMessage {
 				t.Fatalf("got error %v, want %v", err, testCase.ErrorMessage)

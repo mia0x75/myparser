@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"testing"

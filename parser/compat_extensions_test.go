@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"fmt"
@@ -282,20 +282,6 @@ func TestJSONTableBehaviorClauses(t *testing.T) {
 		"select * from json_table(j, '$' columns (a int path '$'))",
 		"select * from lateral json_table(j, '$' columns (a int path '$')) jt",
 	})
-}
-
-type extensionVisitor struct {
-	enter func(ast.Node) (ast.Node, bool)
-	leave func(ast.Node) (ast.Node, bool)
-}
-
-// isValueOrLiteral reports whether the node holds a shared syntax literal.
-func isValueOrLiteral(n ast.Node) bool {
-	switch n.(type) {
-	case *ast.LiteralExpr:
-		return true
-	}
-	return false
 }
 
 // replaceLiteral retains source origin while changing canonical literal text.

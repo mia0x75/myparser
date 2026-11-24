@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 // Table-source, window, CTE and INSERT-alias name/syntax contracts on the
 // shared marker types. Source tokens (Raw, Quote, Span) stay independent of

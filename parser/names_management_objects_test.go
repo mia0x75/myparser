@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 // p59 59.5/59.6/59.2/59.7 parser-side regression: parse each management
 // statement, snapshot the AST, parse the restored SQL and normalize both

@@ -1,9 +1,9 @@
-package myparser_test
+package parser_test
 
 import (
 	"strings"
 
-	"github.com/mia0x75/myparser"
+	"github.com/mia0x75/myparser/parser"
 	"testing"
 )
 
@@ -37,7 +37,7 @@ func TestNormalize(t *testing.T) {
 		{"select * from 🥳", "select * from 🥳"},
 	}
 	for _, test := range tests {
-		actual := myparser.Normalize(test.input)
+		actual := parser.Normalize(test.input)
 		if actual != test.expect {
 			t.Fatalf("got %#v, want %#v", actual, test.expect)
 		}
@@ -53,7 +53,7 @@ func TestNormalizeDigest(t *testing.T) {
 		{"select 1 from b where id in (1, 3, '3', 1, 2, 3, 4)", "select ? from b where id in ( ... )", "f36161eef94dbfbd5e2f6b9a2f498a4c7facc6860621fbeb8084f63898275016"},
 	}
 	for _, test := range tests {
-		normalized, digest := myparser.NormalizeDigest(test.sql)
+		normalized, digest := parser.NormalizeDigest(test.sql)
 		if normalized != test.normalized {
 			t.Fatalf("got %#v, want %#v", normalized, test.normalized)
 		}
@@ -64,9 +64,9 @@ func TestNormalizeDigest(t *testing.T) {
 }
 
 func TestDigestHashReturnsSHA256(t *testing.T) {
-	_, want := myparser.NormalizeDigest("select 1")
+	_, want := parser.NormalizeDigest("select 1")
 
-	got := myparser.DigestHash("select 1")
+	got := parser.DigestHash("select 1")
 	if got != want {
 		t.Fatalf("DigestHash mismatch: got %#v, want %#v", got, want)
 	}
@@ -87,7 +87,7 @@ func TestDigestHashEqForSimpleSQL(t *testing.T) {
 	for _, sqlGroup := range sqlGroups {
 		var d string
 		for _, sql := range sqlGroup {
-			dig := myparser.DigestHash(sql)
+			dig := parser.DigestHash(sql)
 			if d == "" {
 				d = dig
 				continue
@@ -106,7 +106,7 @@ func TestDigestHashNotEqForSimpleSQL(t *testing.T) {
 	for _, sqlGroup := range sqlGroups {
 		var d string
 		for _, sql := range sqlGroup {
-			dig := myparser.DigestHash(sql)
+			dig := parser.DigestHash(sql)
 			if d == "" {
 				d = dig
 				continue

@@ -1,5 +1,5 @@
 %{
-package myparser
+package parser
 
 import (
 	"fmt"

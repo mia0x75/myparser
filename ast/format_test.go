@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mia0x75/myparser"
 	"github.com/mia0x75/myparser/ast"
 	"github.com/mia0x75/myparser/format"
+	"github.com/mia0x75/myparser/parser"
 	"github.com/mia0x75/parserkit/lex"
 )
 
@@ -92,7 +92,7 @@ func TestAstFormat(t *testing.T) {
 	for _, tt := range testcases {
 		expr := fmt.Sprintf("select %s", tt.input)
 		charset, collation := getDefaultCharsetAndCollate()
-		stmts, _, err := myparser.New().Parse(expr, charset, collation)
+		stmts, _, err := parser.New().Parse(expr, charset, collation)
 		node := stmts[0].(*ast.SelectStmt).Fields.Items[0].Expr
 		if err != nil {
 			t.Fatalf("got error %v, want nil", err)
@@ -116,7 +116,7 @@ func TestColumnRefFormatCompatibility(t *testing.T) {
 		{"empty quoted name", "``", "``", "``"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := myparser.New().ParseOneStmt("SELECT "+tc.expr, "", "")
+			stmt, err := parser.New().ParseOneStmt("SELECT "+tc.expr, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +161,7 @@ func TestAstFormatStubCoverage(t *testing.T) {
 	}
 	for _, tt := range testcases {
 		charset, collation := getDefaultCharsetAndCollate()
-		stmts, _, err := myparser.New().Parse(tt.sql, charset, collation)
+		stmts, _, err := parser.New().Parse(tt.sql, charset, collation)
 		if err != nil {
 			t.Fatalf("%s: got error %v, want nil", tt.sql, err)
 		}

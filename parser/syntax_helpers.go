@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"github.com/mia0x75/myparser/ast"

@@ -23,7 +23,7 @@ lint: ## Run the pinned golangci-lint version
 
 verify: build vet race lint ## Run all quality gates
 
-parser.go: parser.y
+parser/parser_generated.go: parser/parser.y
 	$(MAKE) parser
 
 parser: ## Regenerate the parser and reject grammar conflicts
@@ -31,22 +31,27 @@ parser: ## Regenerate the parser and reject grammar conflicts
 	output=$$(mktemp); \
 	report=$$(mktemp); \
 	trap 'rm -f "$$output" "$$report"' EXIT HUP INT TERM; \
-	if ! $(GOYACC) -l -o parser.go -v "$$report" parser.y >"$$output" 2>&1; then \
+	if ! $(GOYACC) -l -o parser/parser_generated.go -v "$$report" parser/parser.y >"$$output" 2>&1; then \
 		cat "$$output"; exit 1; \
 	fi; \
 	cat "$$output"; \
 	if grep -Eq '(shift|reduce)/reduce' "$$output"; then \
 		echo 'Grammar conflicts found in parser.y'; exit 1; \
 	fi
-	go run github.com/mia0x75/parserkit/cmd/yaccspan parser.go
+	go run github.com/mia0x75/parserkit/cmd/yaccspan parser/parser_generated.go
 
 generate-check: parser ## Verify the committed generated parser is up to date
 	@set -eu; \
 	dir=$$(mktemp -d); \
 	trap 'rm -f "$$dir/committed" "$$dir/expected" "$$dir/actual"; rmdir "$$dir"' EXIT HUP INT TERM; \
-	git show HEAD:parser.go >"$$dir/committed"; \
+	if git cat-file -e HEAD:parser/parser_generated.go 2>/dev/null; then \
+		git show HEAD:parser/parser_generated.go >"$$dir/committed"; \
+	else \
+		git show HEAD:parser.go >"$$dir/committed"; \
+	fi; \
 	sed '1d' "$$dir/committed" >"$$dir/expected"; \
-	sed '1d' parser.go >"$$dir/actual"; \
+	sed -i 's/^package myparser$$/package parser/' "$$dir/expected"; \
+	sed '1d' parser/parser_generated.go >"$$dir/actual"; \
 	cmp "$$dir/expected" "$$dir/actual"
 
 fmt: ## Format Go source files
