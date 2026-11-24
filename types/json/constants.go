@@ -199,6 +199,10 @@ var (
 	ErrInvalidJSONData = mysql.ClassJSON.New(mysql.ErrInvalidJSONData, mysql.MySQLErrName[mysql.ErrInvalidJSONData])
 	// ErrInvalidJSONPathWildcard means invalid JSON path that contain wildcard characters.
 	ErrInvalidJSONPathWildcard = mysql.ClassJSON.New(mysql.ErrInvalidJSONPathWildcard, mysql.MySQLErrName[mysql.ErrInvalidJSONPathWildcard])
+	// ErrJSONVacuousPath means the root JSON path is not allowed for removal.
+	ErrJSONVacuousPath = mysql.ClassJSON.New(mysql.ErrJSONVacuousPath, mysql.MySQLErrName[mysql.ErrJSONVacuousPath])
+	// ErrWrongParamcountToNativeFct means a JSON function received mismatched argument lists.
+	ErrWrongParamcountToNativeFct = mysql.ClassJSON.New(mysql.ErrWrongParamcountToNativeFct, "Incorrect parameter count")
 	// ErrInvalidJSONContainsPathType means invalid JSON contains path type.
 	ErrInvalidJSONContainsPathType = mysql.ClassJSON.New(mysql.ErrInvalidJSONContainsPathType, mysql.MySQLErrName[mysql.ErrInvalidJSONContainsPathType])
 )
@@ -210,6 +214,8 @@ func init() {
 		mysql.ErrInvalidJSONData:             mysql.ErrInvalidJSONData,
 		mysql.ErrInvalidJSONPathWildcard:     mysql.ErrInvalidJSONPathWildcard,
 		mysql.ErrInvalidJSONContainsPathType: mysql.ErrInvalidJSONContainsPathType,
+		mysql.ErrJSONVacuousPath:             mysql.ErrJSONVacuousPath,
+		mysql.ErrWrongParamcountToNativeFct:  mysql.ErrWrongParamcountToNativeFct,
 	}
 }
 

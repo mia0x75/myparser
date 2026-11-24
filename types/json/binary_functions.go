@@ -272,13 +272,11 @@ func buildBinaryObject(keys [][]byte, elems []BinaryJSON) BinaryJSON {
 // If any error occurs, the input won't be changed.
 func (bj BinaryJSON) Modify(pathExprList []PathExpression, values []BinaryJSON, mt ModifyType) (retj BinaryJSON, err error) {
 	if len(pathExprList) != len(values) {
-		// TODO: should return 1582(42000)
-		return retj, errors.New("Incorrect parameter count")
+		return retj, ErrWrongParamcountToNativeFct
 	}
 	for _, pathExpr := range pathExprList {
 		if pathExpr.flags.containsAnyAsterisk() {
-			// TODO: should return 3149(42000)
-			return retj, errors.New("Invalid path expression")
+			return retj, ErrInvalidJSONPathWildcard
 		}
 	}
 	for i := range pathExprList {
@@ -300,12 +298,10 @@ func (bj BinaryJSON) Modify(pathExprList []PathExpression, values []BinaryJSON, 
 func (bj BinaryJSON) Remove(pathExprList []PathExpression) (BinaryJSON, error) {
 	for _, pathExpr := range pathExprList {
 		if len(pathExpr.legs) == 0 {
-			// TODO: should return 3153(42000)
-			return bj, errors.New("Invalid path expression")
+			return bj, ErrJSONVacuousPath
 		}
 		if pathExpr.flags.containsAnyAsterisk() {
-			// TODO: should return 3149(42000)
-			return bj, errors.New("Invalid path expression")
+			return bj, ErrInvalidJSONPathWildcard
 		}
 		modifer := &binaryModifier{bj: bj}
 		bj = modifer.remove(pathExpr)

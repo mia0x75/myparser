@@ -883,6 +883,7 @@ const (
 	ErrInvalidJSONPathWildcard                                      = 3149
 	ErrInvalidJSONContainsPathType                                  = 3150
 	ErrJSONUsedAsKey                                                = 3152
+	ErrJSONVacuousPath                                              = 3153
 	ErrBadUser                                                      = 3162
 	ErrRoleNotGranted                                               = 3530
 	ErrWindowNoSuchWindow                                           = 3579

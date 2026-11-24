@@ -2,6 +2,8 @@ package json
 
 import (
 	"testing"
+
+	"github.com/mia0x75/myparser/mysql"
 )
 
 func TestBinaryJSONMarshalUnmarshal(t *testing.T) {
@@ -210,6 +212,24 @@ func TestBinaryJSONModify(t *testing.T) {
 	}
 }
 
+func TestBinaryJSONModifyErrors(t *testing.T) {
+	base := mustParseBinaryFromString(t, `null`)
+	path, err := ParseJSONPathExpr("$.*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := mustParseBinaryFromString(t, `1`)
+
+	_, err = base.Modify([]PathExpression{path}, nil, ModifySet)
+	if !ErrWrongParamcountToNativeFct.Equal(err) || ErrWrongParamcountToNativeFct.ToSQLError().Code != mysql.ErrWrongParamcountToNativeFct {
+		t.Fatalf("parameter count error = %v, want MySQL error 1582", err)
+	}
+	_, err = base.Modify([]PathExpression{path}, []BinaryJSON{value}, ModifySet)
+	if !ErrInvalidJSONPathWildcard.Equal(err) || ErrInvalidJSONPathWildcard.ToSQLError().Code != mysql.ErrInvalidJSONPathWildcard {
+		t.Fatalf("wildcard error = %v, want MySQL error 3149", err)
+	}
+}
+
 func TestBinaryJSONRemove(t *testing.T) {
 	var tests = []struct {
 		base     string
@@ -250,6 +270,27 @@ func TestBinaryJSONRemove(t *testing.T) {
 				t.Fatal("got nil, want error")
 			}
 		}
+	}
+}
+
+func TestBinaryJSONRemoveErrors(t *testing.T) {
+	base := mustParseBinaryFromString(t, `null`)
+	root, err := ParseJSONPathExpr("$")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wildcard, err := ParseJSONPathExpr("$[*]")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = base.Remove([]PathExpression{root})
+	if !ErrJSONVacuousPath.Equal(err) || ErrJSONVacuousPath.ToSQLError().Code != mysql.ErrJSONVacuousPath {
+		t.Fatalf("root path error = %v, want MySQL error 3153", err)
+	}
+	_, err = base.Remove([]PathExpression{wildcard})
+	if !ErrInvalidJSONPathWildcard.Equal(err) || ErrInvalidJSONPathWildcard.ToSQLError().Code != mysql.ErrInvalidJSONPathWildcard {
+		t.Fatalf("wildcard error = %v, want MySQL error 3149", err)
 	}
 }
 

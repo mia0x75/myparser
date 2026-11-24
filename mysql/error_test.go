@@ -25,3 +25,12 @@ func TestSQLError(t *testing.T) {
 		t.Fatalf("got %d, want > 0", len(e.Error()))
 	}
 }
+
+func TestJSONVacuousPathErrorMapping(t *testing.T) {
+	if got := NewErr(ErrJSONVacuousPath).Code; got != 3153 {
+		t.Fatalf("JSON vacuous path error code = %d, want 3153", got)
+	}
+	if got := NewErr(ErrJSONVacuousPath).State; got != "42000" {
+		t.Fatalf("JSON vacuous path SQLSTATE = %q, want 42000", got)
+	}
+}
