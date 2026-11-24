@@ -18,7 +18,8 @@ Requires **Go 1.27.3 or later**.
 go get github.com/mia0x75/myparser
 ```
 
-Import the driver to register literal and value-expression implementations:
+The parser calls the driver package directly for legacy literal conversion;
+callers do not need to import it explicitly:
 
 ```go
 package main
@@ -29,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/mia0x75/myparser"
-	_ "github.com/mia0x75/myparser/driver"
 	"github.com/mia0x75/myparser/format"
 )
 
