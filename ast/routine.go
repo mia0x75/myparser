@@ -347,7 +347,11 @@ func (n *CreateFunctionStmt) Accept(v Visitor) (Node, bool) {
 	}
 	n.Name = updated
 	for _, param := range n.Params {
-		if param == nil || param.Type == nil {
+		if param == nil {
+			// Restore rejects a missing parameter entry.
+			return n, false
+		}
+		if param.Type == nil {
 			continue
 		}
 		typeName, ok := acceptNode[*TypeName](v, param.Type)
@@ -463,7 +467,11 @@ func (n *CreateProcedureStmt) Accept(v Visitor) (Node, bool) {
 	}
 	n.Name = updated
 	for _, param := range n.Params {
-		if param == nil || param.Type == nil {
+		if param == nil {
+			// Restore rejects a missing parameter entry.
+			return n, false
+		}
+		if param.Type == nil {
 			continue
 		}
 		typeName, ok := acceptNode[*TypeName](v, param.Type)

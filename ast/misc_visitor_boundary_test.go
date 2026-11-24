@@ -224,6 +224,33 @@ func TestVisitorsRejectTypedNilChildReplacements(t *testing.T) {
 	}
 }
 
+// An incomplete AST must not pass Accept: its Restore will fail, and the
+// visitor contract treats ok as "the tree stayed structurally valid".
+func TestVisitorsRejectIncompleteStructures(t *testing.T) {
+	visitor := spBoundaryVisitor{leave: func(n Node) (Node, bool) { return n, true }}
+	functionName := &TableName{Name: QualifiedName{Parts: []lex.Ident{{Name: "f"}}}}
+	emptyTypeName := NewTypeName("ENUM")
+	emptyTypeName.Modifiers = []ExprNode{nil}
+	cases := []struct {
+		name string
+		root Node
+	}{
+		{"group item", &GroupItem{BaseGroupItem: pkast.BaseGroupItem{}}},
+		{"partition item", &PartitionItem{}},
+		{"row item", &RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ExprNode{nil}}}},
+		{"type modifier", emptyTypeName},
+		{"nil routine param", &CreateFunctionStmt{Name: functionName, Params: []*FuncParam{nil}}},
+		{"for bounds", &ForStmt{Query: nil}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := tc.root.Accept(visitor); ok {
+				t.Fatal("Accept accepted a structurally incomplete node")
+			}
+		})
+	}
+}
+
 func TestLoadRestoreOmitsAbsentFieldAndLineOptions(t *testing.T) {
 	n := &LoadDataStmt{Table: &TableName{Name: QualifiedName{Parts: []lex.Ident{{Name: "t"}}}}}
 	var out strings.Builder

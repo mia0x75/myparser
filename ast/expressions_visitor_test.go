@@ -292,9 +292,34 @@ func TestExpressionVisitorsRejectInvalidChildReplacements(t *testing.T) {
 }
 
 func TestRowRefusesNonExpressionChildren(t *testing.T) {
-	for _, wrong := range []ast.Node{nil, &ast.SelectStmt{}} {
+	// A nil slot is incomplete for Restore, so the traversal must fail
+	// before visiting any child.
+	{
 		child := pureIntLiteral("1")
 		row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ast.ExprNode{nil, child, child}}}
+		var entered, left []ast.Node
+		v := operatorVisitor{
+			enter: func(n ast.Node) (ast.Node, bool) {
+				entered = append(entered, n)
+				return n, false
+			},
+			leave: func(n ast.Node) (ast.Node, bool) {
+				left = append(left, n)
+				return n, true
+			},
+		}
+		if got, ok := row.Accept(v); ok || got != row {
+			t.Fatal("row with a nil slot passed Accept")
+		}
+		if len(entered) != 1 || entered[0] != row || len(left) != 0 {
+			t.Fatalf("nil slot visited children: entered=%v left=%v", entered, left)
+		}
+	}
+	// A wrong-type replacement must be refused without touching later
+	// slots.
+	for _, wrong := range []ast.Node{nil, &ast.SelectStmt{}} {
+		child := pureIntLiteral("1")
+		row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: []ast.ExprNode{child, child}}}
 		var entered, left []ast.Node
 		v := operatorVisitor{
 			enter: func(n ast.Node) (ast.Node, bool) {
@@ -309,34 +334,11 @@ func TestRowRefusesNonExpressionChildren(t *testing.T) {
 		if got, ok := row.Accept(v); ok || got != row {
 			t.Fatal("non-expression replacement must stop at the row")
 		}
-		if !reflect.DeepEqual(entered, []ast.Node{row, child}) || !reflect.DeepEqual(left, []ast.Node{child}) {
-			t.Fatal("nil slots must be skipped and wrong replacements must stop before the next slot")
+		if len(entered) != 2 || entered[0] != row || entered[1] != child || len(left) != 1 {
+			t.Fatalf("wrong replacement must stop before the next slot: entered=%v left=%v", entered, left)
 		}
-		if row.Items[1] != child || row.Items[2] != child {
+		if row.Items[0] != child || row.Items[1] != child {
 			t.Fatal("refused replacement changed the row items")
-		}
-	}
-}
-
-func TestRowVisitsEmptyAndNilSlots(t *testing.T) {
-	for _, items := range [][]ast.ExprNode{nil, {nil, nil}} {
-		row := &ast.RowExpr{BaseRowExpr: pkast.BaseRowExpr{Items: items}}
-		var entered, left []ast.Node
-		v := operatorVisitor{
-			enter: func(n ast.Node) (ast.Node, bool) {
-				entered = append(entered, n)
-				return n, false
-			},
-			leave: func(n ast.Node) (ast.Node, bool) {
-				left = append(left, n)
-				return n, true
-			},
-		}
-		if got, ok := row.Accept(v); !ok || got != row {
-			t.Fatal("empty row traversal lost outer identity")
-		}
-		if !reflect.DeepEqual(entered, []ast.Node{row}) || !reflect.DeepEqual(left, []ast.Node{row}) {
-			t.Fatal("empty rows must enter and leave only the outer node")
 		}
 	}
 }

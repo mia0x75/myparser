@@ -1552,8 +1552,9 @@ func (n *RowExpr) Accept(v Visitor) (Node, bool) {
 		return v.Leave(outer)
 	}
 	for i, val := range outer.Items {
-		if val == nil {
-			continue
+		if !nodePresent(val) {
+			// Restore rejects a missing row item; Accept must too.
+			return outer, false
 		}
 		expr, ok := acceptNode[ExprNode](v, val)
 		if !ok {

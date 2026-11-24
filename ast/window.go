@@ -46,17 +46,20 @@ func (n *PartitionItem) Accept(v Visitor) (Node, bool) {
 	if skip {
 		return v.Leave(item)
 	}
-	if item.Expr != nil {
-		updated, ok := item.Expr.Accept(v)
-		if !ok {
-			return item, false
-		}
-		expr, ok := updated.(ExprNode)
-		if !ok || !nodePresent(expr) {
-			return item, false
-		}
-		item.Expr = expr
+	if item.Expr == nil {
+		// Restore requires a partition expression; fail early so Accept
+		// success still means the tree is structurally valid.
+		return item, false
 	}
+	updated, ok := item.Expr.Accept(v)
+	if !ok {
+		return item, false
+	}
+	expr, ok := updated.(ExprNode)
+	if !ok || !nodePresent(expr) {
+		return item, false
+	}
+	item.Expr = expr
 	return v.Leave(item)
 }
 

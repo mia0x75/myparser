@@ -244,9 +244,8 @@ func TestSpP60NilSafe(t *testing.T) {
 
 	visitor := &forListVisitor{}
 	f.List = []StmtNode{&BeginEndStmt{}}
-	f.Accept(visitor)
-	if !visitor.visited {
-		t.Fatal("ForStmt.Accept skipped its body when range bounds are nil")
+	if _, ok := f.Accept(visitor); ok || visitor.visited {
+		t.Fatal("ForStmt.Accept must fail and stop before its body when the range bounds are nil")
 	}
 }
 

@@ -293,8 +293,10 @@ func (n *TypeName) Accept(v Visitor) (Node, bool) {
 		return v.Leave(outer)
 	}
 	for i, child := range outer.Modifiers {
-		if child == nil {
-			continue
+		if !nodePresent(child) {
+			// Restore rejects a missing modifier; Accept must fail instead
+			// of silently skipping the entry.
+			return outer, false
 		}
 		replacement, ok := child.Accept(v)
 		if !ok {

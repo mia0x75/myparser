@@ -1069,9 +1069,10 @@ func (n *ForStmt) Accept(v Visitor) (Node, bool) {
 		}
 		n.Query = updated
 	} else {
+		// The range form needs both bounds; Restore rejects a missing one.
 		for _, bound := range []*ExprNode{&n.LowerBound, &n.UpperBound} {
-			if *bound == nil {
-				continue
+			if !nodePresent(*bound) {
+				return n, false
 			}
 			updated, ok := acceptNode[ExprNode](v, *bound)
 			if !ok {
