@@ -1751,7 +1751,7 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 			ctx.WriteKeyword("INDEX IN ")
 			if err := n.Table.Restore(ctx); err != nil {
 				return errors.Annotate(err, "An error occurred while resotre ShowStmt.Table")
-			} // TODO: remember to check this case
+			}
 		case ShowColumns: // equivalent to SHOW FIELDS
 			restoreOptFull()
 			ctx.WriteKeyword("COLUMNS")
