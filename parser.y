@@ -2196,6 +2196,7 @@ CheckTableStmt:
 			Tables:  $3.([]*ast.TableName),
 			Options: $4.([]string),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2207,6 +2208,7 @@ RepairTableStmt:
 			Tables:  $4.([]*ast.TableName),
 			Options: $5.([]string),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2217,6 +2219,7 @@ OptimizeTableStmt:
 			Tp:     ast.TableMaintenanceOptimize,
 			Tables: $4.([]*ast.TableName),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2228,6 +2231,7 @@ ChecksumTableStmt:
 			Tables:  $3.([]*ast.TableName),
 			Options: $4.([]string),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2299,7 +2303,7 @@ BeginTransactionStmt:
 
 
 BinlogStmt:
-	binlog stringLit { $$ = &ast.BinlogStmt{Str: $2} }
+	binlog stringLit { $$ = &ast.BinlogStmt{Str: $2}; $$.SetSpan(yyVAL.span) }
 
 
 ColumnDefList:
@@ -2948,6 +2952,7 @@ CreateSequenceStmt:
 			Name:        $6.(*ast.TableName),
 			Options:     $7.([]*ast.SequenceOption),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2958,6 +2963,7 @@ DropSequenceStmt:
 			IfExists: $3.(bool),
 			Names:    $4.([]*ast.TableName),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2984,67 +2990,91 @@ SequenceOption:
 				tp.Zerofill = true
 			}
 		}
+		tp.SetSpan(yyVAL.span)
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionAs, Type: tp}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	increment by SequenceSignedInt
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionIncrement, $3)
+		opt := makeSequenceOption(ast.SequenceOptionIncrement, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	increment EqOpt SequenceSignedInt
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionIncrement, $3)
+		opt := makeSequenceOption(ast.SequenceOptionIncrement, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	minvalue EqOpt SequenceBoundValue
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionMinValue, $3)
+		opt := makeSequenceOption(ast.SequenceOptionMinValue, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	no minvalue
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoMinValue}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	nominvalue
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoMinValue}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	maxValue EqOpt SequenceBoundValue
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionMaxValue, $3)
+		opt := makeSequenceOption(ast.SequenceOptionMaxValue, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	no maxValue
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoMaxValue}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	nomaxvalue
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoMaxValue}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	start with SequenceStartValue
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionStart, $3)
+		opt := makeSequenceOption(ast.SequenceOptionStart, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	start EqOpt SequenceStartValue
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionStart, $3)
+		opt := makeSequenceOption(ast.SequenceOptionStart, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	cache EqOpt SequenceSignedInt
 	{
-		$$ = makeSequenceOption(ast.SequenceOptionCache, $3)
+		opt := makeSequenceOption(ast.SequenceOptionCache, $3)
+		opt.SetSpan(yyVAL.span)
+		$$ = opt
 	}
 |	nocache
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoCache}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	cycle
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionCycle}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	no cycle
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoCycle}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 |	nocycle
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceOptionNoCycle}
+		$$.(*ast.SequenceOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -5406,21 +5436,24 @@ IndexOption:
 		$$ = &ast.IndexOption{
 			KeyBlockSize: $3.(uint64),
 		}
+		$$.(*ast.IndexOption).SetSpan(yyVAL.span)
 	}
 |	IndexType
 	{
 		$$ = &ast.IndexOption {
 			Tp: $1.(model.IndexType),
 		}
+		$$.(*ast.IndexOption).SetSpan(yyVAL.span)
 	}
-|	typeSym btree { $$ = &ast.IndexOption{Tp: model.IndexTypeBtree} }
-|	typeSym hash  { $$ = &ast.IndexOption{Tp: model.IndexTypeHash} }
-|	typeSym rtree { $$ = &ast.IndexOption{Tp: model.IndexTypeRtree} }
+|	typeSym btree { $$ = &ast.IndexOption{Tp: model.IndexTypeBtree}; $$.(*ast.IndexOption).SetSpan(yyVAL.span) }
+|	typeSym hash  { $$ = &ast.IndexOption{Tp: model.IndexTypeHash}; $$.(*ast.IndexOption).SetSpan(yyVAL.span) }
+|	typeSym rtree { $$ = &ast.IndexOption{Tp: model.IndexTypeRtree}; $$.(*ast.IndexOption).SetSpan(yyVAL.span) }
 |	comment stringLit
 	{
 		$$ = &ast.IndexOption {
 			Comment: $2,
 		}
+		$$.(*ast.IndexOption).SetSpan(yyVAL.span)
 	}
 
 
@@ -6420,10 +6453,12 @@ FunctionCallNonKeyword:
 		x.LevelOrder = level.LevelOrder
 		x.Reverse = level.Reverse
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 |	weightString '(' Expression ',' WeightStringParam ',' WeightStringParam ',' WeightStringParam ')'
 	{
 		$$ = &ast.WeightStringExpr{Expr: $3, Params: []ast.ExprNode{$5, $7, $9}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinCurTime '(' FuncDatetimePrecListOpt ')'
 	{
@@ -7423,30 +7458,37 @@ XAStmt:
 	xa start XAIdent XAStartExtraOpt
 	{
 		$$ = &ast.XAStmt{Command: "START", XID: $3.(string), Extra: $4.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa begin XAIdent XAStartExtraOpt
 	{
 		$$ = &ast.XAStmt{Command: "BEGIN", XID: $3.(string), Extra: $4.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa end XAIdent XAEndExtraOpt
 	{
 		$$ = &ast.XAStmt{Command: "END", XID: $3.(string), Extra: $4.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa prepare XAIdent
 	{
 		$$ = &ast.XAStmt{Command: "PREPARE", XID: $3.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa commit XAIdent XACommitExtraOpt
 	{
 		$$ = &ast.XAStmt{Command: "COMMIT", XID: $3.(string), Extra: $4.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa rollback XAIdent
 	{
 		$$ = &ast.XAStmt{Command: "ROLLBACK", XID: $3.(string)}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 |	xa recover
 	{
 		$$ = &ast.XAStmt{Command: "RECOVER"}
+		$$.(*ast.XAStmt).SetSpan(yyVAL.span)
 	}
 
 
@@ -9240,6 +9282,7 @@ SetStatementStmt:
 			return 1
 		}
 		$$ = &ast.SetStatementStmt{Variables: $3.([]*ast.VariableAssignment), Stmt: $5}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9247,6 +9290,7 @@ StatementAssignment:
 	Identifier eq SetExpr
 	{
 		$$ = &ast.VariableAssignment{Target: syntaxVariableTarget(yylex, $1, yyS[yypt-2].span, ast.VariableTargetSystem, ast.VariablePrefixNone), Value: $3}
+		$$.(*ast.VariableAssignment).SetSpan(yyVAL.span)
 	}
 
 
@@ -10637,6 +10681,7 @@ SpSignalStmt:
 	signal SpConditionValue SpSignalInfoItemListOpt
 	{
 		$$ = &ast.SignalStmt{Condition: $2.(*ast.HandlerCondition), InfoItems: $3.([]*ast.SignalInfoItem)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -10644,6 +10689,7 @@ SpResignalStmt:
 	resignal SpConditionValueOpt SpSignalInfoItemListOpt
 	{
 		$$ = &ast.ResignalStmt{Condition: $2.(*ast.HandlerCondition), InfoItems: $3.([]*ast.SignalInfoItem)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -12412,11 +12458,11 @@ LoadDataSetItem:
  *********************************************************************/
 
 UnlockTablesStmt:
-	unlock TablesTerminalSym { $$ = &ast.UnlockTableStmt{} }
+	unlock TablesTerminalSym { $$ = &ast.UnlockTableStmt{}; $$.SetSpan(yyVAL.span) }
 
 
 LockTablesStmt:
-	lock TablesTerminalSym TableLockList { $$ = &ast.LockTableStmt{} }
+	lock TablesTerminalSym TableLockList { $$ = &ast.LockTableStmt{}; $$.SetSpan(yyVAL.span) }
 
 
 TablesTerminalSym:
@@ -12750,6 +12796,7 @@ ChangeMasterStmt:
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
 		}
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 /* https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
@@ -12763,6 +12810,7 @@ ChangeMasterStmt:
 			yyAppendErr(yylex, yyErrorf(yylex, "%v", err))
 			return 1
 		}
+		stmt.SetSpan(yyVAL.span)
 		$$ = stmt
 	}
 
@@ -13156,22 +13204,27 @@ ResetStmt:
 		options := $2.([]*ast.ResetStmt)
 		if len(options) == 1 {
 			$$ = options[0]
+			$$.SetSpan(yyVAL.span)
 		} else {
 			$$ = &ast.ResetStmt{Options: options}
+			$$.SetSpan(yyVAL.span)
 		}
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/reset-persist.html */
 |	reset persist
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetPersist}
+		$$.SetSpan(yyVAL.span)
 	}
 |	reset persist ResetPersistName
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, PersistName: $3.(ast.QualifiedName)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	reset persist ifKwd exists ResetPersistName
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetPersist, IfExists: true, PersistName: $5.(ast.QualifiedName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13186,37 +13239,44 @@ ResetOption:
 	master
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetMaster}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 |	master to NUM
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetMaster, Args: []ast.ExprNode{numericLiteral(yylex, $3, yyS[yypt].span)}}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/reset-slave.html */
 |	slave ResetAllOpt ChannelOpt
 	{
 		channel := $3.(*ast.ResetSuffix)
 		$$ = &ast.ResetStmt{Tp: ast.ResetSlave, All: $2.(bool), Channel: channel.Channel, HasChannel: channel.HasChannel}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/reset-replica.html */
 |	replica ResetAllOpt ChannelOpt
 	{
 		channel := $3.(*ast.ResetSuffix)
 		$$ = &ast.ResetStmt{Tp: ast.ResetReplica, All: $2.(bool), Channel: channel.Channel, HasChannel: channel.HasChannel}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 /* RESET BINARY LOGS AND GTIDS was added in MySQL 8.4.
    https://dev.mysql.com/doc/refman/8.4/en/reset-binary-logs-and-gtids.html */
 |	binaryType logs and gtids
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetBinaryLogsAndGTIDs}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 |	binaryType logs and gtids to NUM
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetBinaryLogsAndGTIDs, Args: []ast.ExprNode{numericLiteral(yylex, $6, yyS[yypt].span)}}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/reset */
 |	query cache
 	{
 		$$ = &ast.ResetStmt{Tp: ast.ResetQueryCache}
+		$$.(*ast.ResetStmt).SetSpan(yyVAL.span)
 	}
 
 
@@ -13534,6 +13594,7 @@ LoadXMLStmt:
 			x.RowTag = tag.RowTag
 			x.HasRowTag = tag.HasRowTag
 		}
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -13572,6 +13633,7 @@ RenameUserStmt:
 	rename user RenameUserPairList
 	{
 		$$ = &ast.RenameUserStmt{Pairs: $3.([]*ast.RenameUserPair)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13592,6 +13654,7 @@ RenameUserPair:
 	Username to Username
 	{
 		$$ = &ast.RenameUserPair{From: $1.(*auth.UserIdentity), To: $3.(*auth.UserIdentity)}
+		$$.(*ast.RenameUserPair).SetSpan(yyVAL.span)
 	}
 
 
@@ -13600,6 +13663,7 @@ ImportTableStmt:
 	import_ tableKwd from StringList
 	{
 		$$ = &ast.ImportTableStmt{Paths: typeStringValues($4.([]*pkast.BaseLiteralExpr))}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13626,10 +13690,12 @@ InstallComponentStmt:
 	install component StringList
 	{
 		$$ = &ast.InstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr))}
+		$$.SetSpan(yyVAL.span)
 	}
 |	install component StringList set ComponentSetValueList
 	{
 		$$ = &ast.InstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr)), SetValues: $5.([]*ast.ComponentSetValue)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13638,6 +13704,7 @@ UninstallComponentStmt:
 	uninstall component StringList
 	{
 		$$ = &ast.UninstallComponentStmt{URIs: typeStringValues($3.([]*pkast.BaseLiteralExpr))}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13670,6 +13737,7 @@ CloneStmt:
 	clone local data directory EqOpt stringLit
 	{
 		$$ = &ast.CloneStmt{Local: true, DataDir: $6}
+		$$.SetSpan(yyVAL.span)
 	}
 |	clone instance from Username ':' NUM identified by stringLit CloneSSL
 	{
@@ -13679,6 +13747,7 @@ CloneStmt:
 			Password: $9,
 			SSL:      $10.(string),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	clone instance from Username ':' NUM identified by stringLit data directory EqOpt stringLit CloneSSL
 	{
@@ -13689,6 +13758,7 @@ CloneStmt:
 			DataDir:  $13,
 			SSL:      $14.(string),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13705,6 +13775,7 @@ GetDiagnosticsStmt:
 	{
 		x := $4.(*ast.GetDiagnosticsStmt)
 		x.Stacked = $2.(bool)
+		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
 
@@ -13774,6 +13845,7 @@ DiagnosticsStatementItem:
 			return 1
 		}
 		item.Name = name
+		item.SetSpan(yyVAL.span)
 		$$ = item
 	}
 
@@ -13789,6 +13861,7 @@ DiagnosticsConditionItem:
 			return 1
 		}
 		item.Name = name
+		item.SetSpan(yyVAL.span)
 		$$ = item
 	}
 
