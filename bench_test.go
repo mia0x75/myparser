@@ -68,6 +68,17 @@ func BenchmarkStrictNestedCast(b *testing.B) {
 	}
 }
 
+func BenchmarkAdjacentStrings(b *testing.B) {
+	sql := "SELECT " + strings.Repeat("'aaaaaaaaaaaaaaaa' ", 1024)
+	parser := New()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := parser.ParseOneStmt(sql, "", ""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkParseSimple(b *testing.B) {
 	var table = []string{
 		"insert into t values (1), (2), (3)",

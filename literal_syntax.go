@@ -11,6 +11,27 @@ import (
 	"github.com/mia0x75/parserkit/loc"
 )
 
+// stringLiteralParts accumulates adjacent string fragments without copying
+// the growing value on every grammar reduction.
+type stringLiteralParts struct {
+	parts []string
+	span  loc.Span
+}
+
+func newStringLiteralParts(lit string, span loc.Span) *stringLiteralParts {
+	return &stringLiteralParts{parts: []string{lit}, span: span}
+}
+
+func appendStringLiteralParts(parts *stringLiteralParts, lit string, span loc.Span) *stringLiteralParts {
+	parts.parts = append(parts.parts, lit)
+	parts.span = span
+	return parts
+}
+
+func finalizeStringLiteral(l yyLexer, parts *stringLiteralParts) *ast.LiteralExpr {
+	return stringLiteral(l, strings.Join(parts.parts, ""), parts.span)
+}
+
 // Raw borrows immutable input, never the scanner's reusable decoding buffer.
 func syntaxLiteral(l yyLexer, kind pkast.LiteralKind, value string, span loc.Span) *ast.LiteralExpr {
 	literal := &ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: kind, Value: value}}

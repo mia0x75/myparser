@@ -854,7 +854,6 @@ type lastValueWindow struct {
 	SystemVariable                  /* System defined variable name */
 	UserVariable                    /* User defined variable name */
 	SubSelect                       /* Sub Select */
-	StringLiteral                   /* text literal */
 	ExpressionOpt                   /* Optional expression */
 	SignedLiteral                   /* Literal or NumLiteral with sign */
 	DefaultValueExpr                /* DefaultValueExpr(Now or Signed Literal) */
@@ -1006,6 +1005,7 @@ type lastValueWindow struct {
 
 
 %type	<item>
+	StringLiteral                   /* adjacent string fragments joined once */
 	BinaryOrMaster                  /* BINARY or MASTER keyword for PURGE */
 	KillOption                      /* optional KILL CONNECTION/QUERY */
 	CTEBody                         /* CTE query body */
@@ -5731,7 +5731,7 @@ Literal:
 	}
 |	StringLiteral %prec lowerThanStringLitToken
 	{
-		$$ = $1
+		$$ = finalizeStringLiteral(yylex, $1.(*stringLiteralParts))
 	}
 |	underscoreCS StringLiteral %prec lowerThanStringLitToken
 	{
@@ -5741,7 +5741,7 @@ Literal:
 			yyAppendErr(yylex, yyErrorf(yylex, "Get collation error for charset: %s", $1))
 			return 1
 		}
-		$$ = introduceLiteral(yylex, $2.(*ast.LiteralExpr), $1, yyS[yypt-1].span, yyVAL.span)
+		$$ = introduceLiteral(yylex, finalizeStringLiteral(yylex, $2.(*stringLiteralParts)), $1, yyS[yypt-1].span, yyVAL.span)
 	}
 |	underscoreCS hexLit
 	{
@@ -5774,11 +5774,11 @@ Literal:
 StringLiteral:
 	stringLit
 	{
-		$$ = stringLiteral(yylex, $1, yyS[yypt].span)
+		$$ = newStringLiteralParts($1, yyS[yypt].span)
 	}
 |	StringLiteral stringLit
 	{
-		$$ = stringLiteral(yylex, $1.(*ast.LiteralExpr).Value+$2, yyVAL.span)
+		$$ = appendStringLiteralParts($1.(*stringLiteralParts), $2, yyVAL.span)
 	}
 
 
@@ -8013,7 +8013,7 @@ WindowFrameStart:
 	}
 |	StringLiteral preceding
 	{
-		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: $1}, ExprOffset: yyS[yypt-1].offset}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Preceding, Expr: finalizeStringLiteral(yylex, $1.(*stringLiteralParts))}, ExprOffset: yyS[yypt-1].offset}
 		bound.SetSpan(yyVAL.span)
 		$$ = bound
 	}
@@ -8068,7 +8068,7 @@ WindowFrameBound:
 	}
 |	StringLiteral following
 	{
-		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: $1}, ExprOffset: yyS[yypt-1].offset}
+		bound := &ast.FrameBound{BaseWindowFrameBound: pkast.BaseWindowFrameBound{Type: ast.Following, Expr: finalizeStringLiteral(yylex, $1.(*stringLiteralParts))}, ExprOffset: yyS[yypt-1].offset}
 		bound.SetSpan(yyVAL.span)
 		$$ = bound
 	}
