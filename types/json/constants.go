@@ -5,7 +5,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/sqlerr"
 )
 
 // TypeCode indicates JSON type.
@@ -193,19 +192,19 @@ const (
 
 var (
 	// ErrInvalidJSONText means invalid JSON text.
-	ErrInvalidJSONText = sqlerr.ClassJSON.New(mysql.ErrInvalidJSONText, mysql.MySQLErrName[mysql.ErrInvalidJSONText])
+	ErrInvalidJSONText = mysql.ClassJSON.New(mysql.ErrInvalidJSONText, mysql.MySQLErrName[mysql.ErrInvalidJSONText])
 	// ErrInvalidJSONPath means invalid JSON path.
-	ErrInvalidJSONPath = sqlerr.ClassJSON.New(mysql.ErrInvalidJSONPath, mysql.MySQLErrName[mysql.ErrInvalidJSONPath])
+	ErrInvalidJSONPath = mysql.ClassJSON.New(mysql.ErrInvalidJSONPath, mysql.MySQLErrName[mysql.ErrInvalidJSONPath])
 	// ErrInvalidJSONData means invalid JSON data.
-	ErrInvalidJSONData = sqlerr.ClassJSON.New(mysql.ErrInvalidJSONData, mysql.MySQLErrName[mysql.ErrInvalidJSONData])
+	ErrInvalidJSONData = mysql.ClassJSON.New(mysql.ErrInvalidJSONData, mysql.MySQLErrName[mysql.ErrInvalidJSONData])
 	// ErrInvalidJSONPathWildcard means invalid JSON path that contain wildcard characters.
-	ErrInvalidJSONPathWildcard = sqlerr.ClassJSON.New(mysql.ErrInvalidJSONPathWildcard, mysql.MySQLErrName[mysql.ErrInvalidJSONPathWildcard])
+	ErrInvalidJSONPathWildcard = mysql.ClassJSON.New(mysql.ErrInvalidJSONPathWildcard, mysql.MySQLErrName[mysql.ErrInvalidJSONPathWildcard])
 	// ErrInvalidJSONContainsPathType means invalid JSON contains path type.
-	ErrInvalidJSONContainsPathType = sqlerr.ClassJSON.New(mysql.ErrInvalidJSONContainsPathType, mysql.MySQLErrName[mysql.ErrInvalidJSONContainsPathType])
+	ErrInvalidJSONContainsPathType = mysql.ClassJSON.New(mysql.ErrInvalidJSONContainsPathType, mysql.MySQLErrName[mysql.ErrInvalidJSONContainsPathType])
 )
 
 func init() {
-	sqlerr.ErrClassToMySQLCodes[sqlerr.ClassJSON] = map[sqlerr.ErrCode]uint16{
+	mysql.ErrClassToMySQLCodes[mysql.ClassJSON] = map[mysql.ErrCode]uint16{
 		mysql.ErrInvalidJSONText:             mysql.ErrInvalidJSONText,
 		mysql.ErrInvalidJSONPath:             mysql.ErrInvalidJSONPath,
 		mysql.ErrInvalidJSONData:             mysql.ErrInvalidJSONData,

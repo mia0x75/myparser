@@ -1,4 +1,4 @@
-package myparser
+package parser
 
 import (
 	"fmt"
@@ -16,7 +16,6 @@ import (
 	"github.com/mia0x75/myparser/model"
 	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/opcode"
-	"github.com/mia0x75/myparser/sqlerr"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 	"github.com/mia0x75/parserkit/loc"
@@ -698,7 +697,7 @@ func RunErrMsgTest(t *testing.T, table []testErrMsgCase) {
 		_, _, err := parser.Parse(tt.src, "", "")
 		comment := fmt.Sprintf("source %v", tt.src)
 		if tt.err != nil {
-			if !sqlerr.ErrorEqual(err, tt.err) {
+			if !mysql.ErrorEqual(err, tt.err) {
 				t.Fatalf("%s: got %v, want %v", comment, err, tt.err)
 			}
 		} else {

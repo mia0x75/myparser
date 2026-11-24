@@ -7,9 +7,8 @@ import (
 	"fmt"
 
 	"github.com/mia0x75/myparser/errors"
-
 	"github.com/mia0x75/myparser/format"
-	"github.com/mia0x75/myparser/sqlerr"
+	"github.com/mia0x75/myparser/mysql"
 )
 
 // UserIdentity represents username and hostname.
@@ -86,9 +85,9 @@ func CheckScrambledPassword(salt, hpwd, auth []byte) bool {
 
 	crypt := sha1.New()
 	_, err := crypt.Write(salt)
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	_, err = crypt.Write(hpwd)
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	hash := crypt.Sum(nil)
 	// token = scrambleHash XOR stage1Hash
 	for i := range hash {
@@ -103,7 +102,7 @@ func CheckScrambledPassword(salt, hpwd, auth []byte) bool {
 func Sha1Hash(bs []byte) []byte {
 	crypt := sha1.New()
 	_, err := crypt.Write(bs)
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	return crypt.Sum(nil)
 }
 

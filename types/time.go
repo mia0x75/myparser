@@ -12,17 +12,16 @@ import (
 
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/sqlerr"
 )
 
 // Portable analogs of some common call errors.
 var (
-	ErrInvalidTimeFormat      = sqlerr.ClassTypes.New(mysql.ErrTruncatedWrongValue, "invalid time format: '%v'")
+	ErrInvalidTimeFormat      = mysql.ClassTypes.New(mysql.ErrTruncatedWrongValue, "invalid time format: '%v'")
 	ErrInvalidYearFormat      = errors.New("invalid year format")
 	ErrInvalidYear            = errors.New("invalid year")
 	ErrZeroDate               = errors.New("datetime zero in date")
-	ErrIncorrectDatetimeValue = sqlerr.ClassTypes.New(mysql.ErrTruncatedWrongValue, "Incorrect datetime value: '%s'")
-	ErrTruncatedWrongValue    = sqlerr.ClassTypes.New(mysql.ErrTruncatedWrongValue, mysql.MySQLErrName[mysql.ErrTruncatedWrongValue])
+	ErrIncorrectDatetimeValue = mysql.ClassTypes.New(mysql.ErrTruncatedWrongValue, "Incorrect datetime value: '%s'")
+	ErrTruncatedWrongValue    = mysql.ClassTypes.New(mysql.ErrTruncatedWrongValue, mysql.MySQLErrName[mysql.ErrTruncatedWrongValue])
 )
 
 // Time format without fractional seconds precision.
@@ -199,12 +198,12 @@ func (t Time) String() string {
 	if t.Type == mysql.TypeDate {
 		// We control the format, so no error would occur.
 		str, err := t.DateFormat("%Y-%m-%d")
-		sqlerr.Log(errors.Trace(err))
+		mysql.Log(errors.Trace(err))
 		return str
 	}
 
 	str, err := t.DateFormat("%Y-%m-%d %H:%i:%s")
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	if t.Fsp > 0 {
 		tmp := fmt.Sprintf(".%06d", t.Time.Microsecond())
 		str = str + tmp[:1+t.Fsp]
@@ -257,7 +256,7 @@ func (t Time) ToNumber() *MyDecimal {
 	// We skip checking error here because time formatted string can be parsed certainly.
 	dec := new(MyDecimal)
 	err = dec.FromString([]byte(s))
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	return dec
 }
 
@@ -588,7 +587,7 @@ func (d Duration) ToNumber() *MyDecimal {
 	// We skip checking error here because time formatted string can be parsed certainly.
 	dec := new(MyDecimal)
 	err := dec.FromString([]byte(s))
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	return dec
 }
 

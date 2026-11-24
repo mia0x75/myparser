@@ -8,7 +8,6 @@ import (
 
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/sqlerr"
 	"github.com/mia0x75/myparser/types/json"
 )
 
@@ -616,7 +615,7 @@ func DatumsToString(datums []Datum, handleSpecialValue bool) (string, error) {
 // If an error occurs, it will print a log instead of returning an error.
 func DatumsToStrNoErr(datums []Datum) string {
 	str, err := DatumsToString(datums, true)
-	sqlerr.Log(errors.Trace(err))
+	mysql.Log(errors.Trace(err))
 	return str
 }
 

@@ -6,17 +6,16 @@ import (
 	"github.com/mia0x75/myparser/errors"
 
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/sqlerr"
 )
 
 const (
-	codeCollationCharsetMismatch = sqlerr.ErrCode(mysql.ErrCollationCharsetMismatch)
-	codeUnknownCollation         = sqlerr.ErrCode(mysql.ErrUnknownCollation)
+	codeCollationCharsetMismatch = mysql.ErrCode(mysql.ErrCollationCharsetMismatch)
+	codeUnknownCollation         = mysql.ErrCode(mysql.ErrUnknownCollation)
 )
 
 var (
-	ErrUnknownCollation         = sqlerr.ClassDDL.New(codeUnknownCollation, mysql.MySQLErrName[mysql.ErrUnknownCollation])
-	ErrCollationCharsetMismatch = sqlerr.ClassDDL.New(codeCollationCharsetMismatch, mysql.MySQLErrName[mysql.ErrCollationCharsetMismatch])
+	ErrUnknownCollation         = mysql.ClassDDL.New(codeUnknownCollation, mysql.MySQLErrName[mysql.ErrUnknownCollation])
+	ErrCollationCharsetMismatch = mysql.ClassDDL.New(codeCollationCharsetMismatch, mysql.MySQLErrName[mysql.ErrCollationCharsetMismatch])
 )
 
 // Charset is a charset.

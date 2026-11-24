@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/mia0x75/myparser/mysql"
-	"github.com/mia0x75/myparser/sqlerr"
 )
 
 func testIsTypeBlob(t *testing.T, tp byte, expect bool) {
@@ -177,7 +176,7 @@ func TestTruncate(t *testing.T) {
 		if f != tt.Expect {
 			t.Fatalf("got %#v, want %#v", f, tt.Expect)
 		}
-		if !sqlerr.ErrorEqual(err, tt.Err) {
+		if !mysql.ErrorEqual(err, tt.Err) {
 			t.Fatalf("err %v", err)
 		}
 	}

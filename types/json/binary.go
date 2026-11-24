@@ -15,7 +15,7 @@ import (
 
 	"github.com/mia0x75/myparser/errors"
 	"github.com/mia0x75/myparser/hack"
-	"github.com/mia0x75/myparser/sqlerr"
+	"github.com/mia0x75/myparser/mysql"
 )
 
 /*
@@ -96,7 +96,7 @@ type BinaryJSON struct {
 // String implements fmt.Stringer interface.
 func (bj BinaryJSON) String() string {
 	out, err := bj.MarshalJSON()
-	sqlerr.Log(err)
+	mysql.Log(err)
 	return string(out)
 }
 
