@@ -51,6 +51,41 @@ func TestGetAllCharsets(t *testing.T) {
 	}
 }
 
+// Charset metadata getters must hand out copies: mutating one result may
+// not change later lookups or what the parser records in its ASTs.
+func TestGettersReturnCopies(t *testing.T) {
+	byName, err := GetCollationByName(CollationUTF8MB4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName.CharsetName = "mutated"
+	byName.IsDefault = false
+
+	cs, co, err := GetCharsetInfoByID(46)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs != "utf8mb4" || co != CollationUTF8MB4 {
+		t.Fatalf("GetCharsetInfoByID = %q/%q after collation mutation, want utf8mb4/%s", cs, co, CollationUTF8MB4)
+	}
+
+	for _, collation := range GetCollations() {
+		if collation.Name == CollationUTF8MB4 {
+			collation.Name = "mutated"
+		}
+	}
+	if cs, co, err = GetCharsetInfoByID(46); err != nil || cs != "utf8mb4" || co != CollationUTF8MB4 {
+		t.Fatalf("GetCharsetInfoByID = %q/%q, %v after slice mutation, want utf8mb4/%s", cs, co, err, CollationUTF8MB4)
+	}
+
+	descs := GetAllCharsets()
+	descs[0].Name = "mutated"
+	desc, err := GetCharsetDesc("utf8")
+	if err != nil || desc.Name != "utf8" {
+		t.Fatalf("GetCharsetDesc = %+v, %v after description mutation, want utf8", desc, err)
+	}
+}
+
 func testGetDefaultCollation(t *testing.T, charset string, expectCollation string, succ bool) {
 	b, err := GetDefaultCollation(charset)
 	if !succ {

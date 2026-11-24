@@ -100,8 +100,14 @@ type Desc struct {
 }
 
 // GetAllCharsets gets all charset descriptions in the local charsets.
+// Callers get copies so package tables stay read-only to them.
 func GetAllCharsets() []*Desc {
-	return descs
+	copies := make([]*Desc, len(descs))
+	for i, desc := range descs {
+		orig := *desc
+		copies[i] = &orig
+	}
+	return copies
 }
 
 // ValidCharsetAndCollation checks the charset and the collation validity
@@ -158,10 +164,11 @@ func GetCharsetInfo(cs string) (string, string, error) {
 	return c.Name, c.DefaultCollation, nil
 }
 
-// GetCharsetDesc gets charset descriptions in the local charsets.
+// GetCharsetDesc gets a copy of the charset description for cs.
 func GetCharsetDesc(cs string) (*Desc, error) {
 	if desc, ok := charsetDescs[strings.ToLower(cs)]; ok {
-		return desc, nil
+		orig := *desc
+		return &orig, nil
 	}
 	return nil, errors.Errorf("Unknown charset %s", cs)
 }
@@ -177,17 +184,25 @@ func GetCharsetInfoByID(coID int) (string, string, error) {
 	return "", "", errors.Errorf("Unknown charset id %d", coID)
 }
 
-// GetCollations returns a list for all collations.
+// GetCollations returns copies of all collations so the package tables
+// cannot be mutated through the result.
 func GetCollations() []*Collation {
-	return collations
+	copies := make([]*Collation, len(collations))
+	for i, c := range collations {
+		orig := *c
+		copies[i] = &orig
+	}
+	return copies
 }
 
+// GetCollationByName returns a copy of the collation with the given name.
 func GetCollationByName(name string) (*Collation, error) {
 	collation, ok := collationsNameMap[strings.ToLower(name)]
 	if !ok {
 		return nil, ErrUnknownCollation.GenWithStackByArgs(name)
 	}
-	return collation, nil
+	orig := *collation
+	return &orig, nil
 }
 
 const (
