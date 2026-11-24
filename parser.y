@@ -2776,6 +2776,7 @@ DefaultValueExpr:
 |	SpatialFunctionName '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	'(' Expression ')'
 	{
@@ -2792,9 +2793,9 @@ DefaultValueExpr:
 	}
 
 NowSymOptionFraction:
-	NowSym                 { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt].span)}} }
-|	NowSymFunc '(' ')'     { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-2].span)}} }
-|	NowSymFunc '(' NUM ')' { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-3].span), Args: []ast.ExprNode{numericLiteral(yylex, $3, yyS[yypt-1].span)}}} }
+	NowSym                 { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt].span)}}; $$.SetSpan(yyVAL.span) }
+|	NowSymFunc '(' ')'     { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-2].span)}}; $$.SetSpan(yyVAL.span) }
+|	NowSymFunc '(' NUM ')' { $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, "CURRENT_TIMESTAMP", yyS[yypt-3].span), Args: []ast.ExprNode{numericLiteral(yylex, $3, yyS[yypt-1].span)}}}; $$.SetSpan(yyVAL.span) }
 
 
 /*
@@ -4943,7 +4944,7 @@ ExplainTarget:
 	}
 |	into SpName ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $3, Into: explainIntoStmt($2.(*ast.VariableTarget)), Schema: lex.Ident{Span: loc.InvalidSpan()}}
+		$$ = &ast.ExplainStmt{Stmt: $3, Into: explainIntoStmt($2.(*ast.VariableTarget), loc.Cover(yyS[yypt-2].span, yyS[yypt-1].span)), Schema: lex.Ident{Span: loc.InvalidSpan()}}
 	}
 |	forKwd database Identifier ExplainableStmt
 	{
@@ -4951,7 +4952,7 @@ ExplainTarget:
 	}
 |	into SpName forKwd database Identifier ExplainableStmt
 	{
-		$$ = &ast.ExplainStmt{Stmt: $6, Into: explainIntoStmt($2.(*ast.VariableTarget)), Schema: syntaxIdent(yylex, $5, yyS[yypt-1].span)}
+		$$ = &ast.ExplainStmt{Stmt: $6, Into: explainIntoStmt($2.(*ast.VariableTarget), loc.Cover(yyS[yypt-5].span, yyS[yypt-4].span)), Schema: syntaxIdent(yylex, $5, yyS[yypt-1].span)}
 	}
 
 
@@ -6355,27 +6356,33 @@ FunctionCallKeyword:
 			return 1
 		}
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: args}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	interval '(' Expression ',' ExpressionList ')'
 	{
 		args := append([]ast.ExprNode{$3}, $5.([]ast.ExprNode)...)
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: args}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	SpatialFunctionName '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinUser '('	ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	FunctionNameOptionalBraces OptionalBraces
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-1].span)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinCurDate '(' ')'
     {
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-2].span)}}
+		$$.SetSpan(yyVAL.span)
     }
 |	FunctionNameDatetimePrecision FuncDatetimePrec
 	{
@@ -6384,6 +6391,7 @@ FunctionCallKeyword:
 			args = append(args, $2.(ast.ExprNode))
 		}
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-1].span), Args: args}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	charType '(' ExpressionList ')'
 	{
@@ -6395,6 +6403,7 @@ FunctionCallKeyword:
 				Args: append(args, nilVal),
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	charType '(' ExpressionList using CharsetName ')'
 	{
@@ -6406,25 +6415,30 @@ FunctionCallKeyword:
 				Args: append(args, charset1),
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	dateType  stringLit
 	{
 		expr := stringLiteral(yylex, $2, yyS[yypt].span)
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.DateLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	timeType  stringLit
 	{
 		expr := stringLiteral(yylex, $2, yyS[yypt].span)
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.TimeLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	timestampType  stringLit
 	{
 		expr := stringLiteral(yylex, $2, yyS[yypt].span)
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.TimestampLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	insert '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.InsertFunc, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	mod '(' BitExpr ',' BitExpr ')'
 	{
@@ -6433,6 +6447,7 @@ FunctionCallKeyword:
 |	password '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.PasswordFunc, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -6463,10 +6478,12 @@ FunctionCallNonKeyword:
 |	builtinCurTime '(' FuncDatetimePrecListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinSysDate '(' FuncDatetimePrecListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	FunctionNameDateArithMultiForms '(' Expression ',' Expression ')'
 	{
@@ -6480,6 +6497,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, "DAY", loc.InvalidSpan()),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	FunctionNameDateArithMultiForms '(' Expression ',' interval Expression TimeUnit ')'
 	{
@@ -6493,6 +6511,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, $7, yyS[yypt-1].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	FunctionNameDateArith '(' Expression ',' interval Expression TimeUnit ')'
 	{
@@ -6506,6 +6525,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, $7, yyS[yypt-1].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinExtract '(' TimeUnit from Expression ')'
 	{
@@ -6516,6 +6536,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, $3, yyS[yypt-3].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	getFormat '(' GetFormatSelector ','  Expression ')'
 	{
@@ -6526,10 +6547,12 @@ FunctionCallNonKeyword:
 			},
 			FormatSelector: syntaxIdent(yylex, $3, yyS[yypt-3].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinPosition '(' BitExpr in Expression ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: []ast.ExprNode{$3, $5}}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinSubstring '(' Expression ',' Expression ')'
 	{
@@ -6539,6 +6562,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$3, $5},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinSubstring '(' Expression from Expression ')'
 	{
@@ -6548,6 +6572,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$3, $5},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinSubstring '(' Expression ',' Expression ',' Expression ')'
 	{
@@ -6557,6 +6582,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$3, $5, $7},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinSubstring '(' Expression from Expression forKwd Expression ')'
 	{
@@ -6566,6 +6592,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$3, $5, $7},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	timestampAdd '(' TimestampUnit ',' Expression ',' Expression ')'
 	{
@@ -6576,6 +6603,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, $3, yyS[yypt-5].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	timestampDiff '(' TimestampUnit ',' Expression ',' Expression ')'
 	{
@@ -6586,6 +6614,7 @@ FunctionCallNonKeyword:
 			},
 			Unit: syntaxIdent(yylex, $3, yyS[yypt-5].span),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinTrim '(' Expression ')'
 	{
@@ -6595,6 +6624,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$3},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinTrim '(' Expression from Expression ')'
 	{
@@ -6604,6 +6634,7 @@ FunctionCallNonKeyword:
 				Args: []ast.ExprNode{$5, $3},
 			},
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinTrim '(' TrimDirection from Expression ')'
 	{
@@ -6615,6 +6646,7 @@ FunctionCallNonKeyword:
 			},
 			TrimDirection: $3.(ast.TrimDirectionType),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	builtinTrim '(' TrimDirection Expression from Expression ')'
 	{
@@ -6625,6 +6657,7 @@ FunctionCallNonKeyword:
 			},
 			TrimDirection: $3.(ast.TrimDirectionType),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -7005,6 +7038,7 @@ FunctionCallGeneric:
 			return 1
 		}
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: args}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	identifier '(' ExpressionListOpt ')' WindowingClause
 	{
@@ -7957,6 +7991,7 @@ ProcedureAnalyseClause:
 	procedure analyse '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.ProcedureAnalyseClause{Args: $4.([]ast.ExprNode)}
+		$$.(*ast.ProcedureAnalyseClause).SetSpan(yyVAL.span)
 	}
 
 
@@ -8290,6 +8325,7 @@ WindowFuncCall:
 		// MariaDB scalar LAST_VALUE without OVER: evaluates all arguments and returns the last.
 		args := append([]ast.ExprNode{$3}, $5.([]ast.ExprNode)...)
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-5].span), Args: args}}
+		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
 |	nthValue '(' Expression ',' Expression ')' OptFromFirstLast OptNullTreatment WindowingClause
 	{
@@ -9878,7 +9914,7 @@ ShowTargetFilterable:
 
 ShowLikeOrWhereOpt:
 	/* EMPTY */        { $$ = nil }
-|	like SimpleExpr  { $$ = &ast.PatternLikeExpr{Pattern: $2, Escape: '\\'} }
+|	like SimpleExpr  { $$ = &ast.PatternLikeExpr{Pattern: $2, Escape: '\\'}; $$.(*ast.PatternLikeExpr).SetSpan(yyVAL.span) }
 |	where Expression { $$ = $2 }
 
 
@@ -12514,41 +12550,49 @@ ReplicaControlStmt:
 	start slave ReplicaStartSuffix
 	{
 		$$ = newReplicaControlStmt(true, false, false, $3.(*ast.ReplicaSuffix))
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.4/en/start-replica.html */
 |	start replica ReplicaStartSuffix
 	{
 		$$ = newReplicaControlStmt(true, true, false, $3.(*ast.ReplicaSuffix))
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/stop-slave.html */
 |	stop slave ReplicaStopSuffix
 	{
 		$$ = newReplicaControlStmt(false, false, false, $3.(*ast.ReplicaSuffix))
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.4/en/stop-replica.html */
 |	stop replica ReplicaStopSuffix
 	{
 		$$ = newReplicaControlStmt(false, true, false, $3.(*ast.ReplicaSuffix))
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/start-replica */
 |	start all slaves ReplicaThreadOpt
 	{
 		$$ = newReplicaControlStmt(true, false, true, &ast.ReplicaSuffix{Threads: $4.([]string)})
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/start-replica */
 |	start all replicas ReplicaThreadOpt
 	{
 		$$ = newReplicaControlStmt(true, true, true, &ast.ReplicaSuffix{Threads: $4.([]string)})
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/stop-replica */
 |	stop all slaves ReplicaThreadOpt
 	{
 		$$ = newReplicaControlStmt(false, false, true, &ast.ReplicaSuffix{Threads: $4.([]string)})
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/stop-replica */
 |	stop all replicas ReplicaThreadOpt
 	{
 		$$ = newReplicaControlStmt(false, true, true, &ast.ReplicaSuffix{Threads: $4.([]string)})
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -13121,16 +13165,16 @@ ReplicationIDList:
 
 /* https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
 ReplicationPrimaryKeyCheckValue:
-	streamKwd { $$ = &ast.ReplicationOptionValue{Keyword: "STREAM"} }
-|	on { $$ = &ast.ReplicationOptionValue{Keyword: "ON"} }
-|	off { $$ = &ast.ReplicationOptionValue{Keyword: "OFF"} }
-|	generateKwd { $$ = &ast.ReplicationOptionValue{Keyword: "GENERATE"} }
+	streamKwd { $$ = &ast.ReplicationOptionValue{Keyword: "STREAM"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	on { $$ = &ast.ReplicationOptionValue{Keyword: "ON"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	off { $$ = &ast.ReplicationOptionValue{Keyword: "OFF"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	generateKwd { $$ = &ast.ReplicationOptionValue{Keyword: "GENERATE"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
 
 
 /* https://dev.mysql.com/doc/refman/8.4/en/change-replication-source-to.html */
 ReplicationAssignGTIDValue:
-	off { $$ = &ast.ReplicationOptionValue{Keyword: "OFF"} }
-|	local { $$ = &ast.ReplicationOptionValue{Keyword: "LOCAL"} }
+	off { $$ = &ast.ReplicationOptionValue{Keyword: "OFF"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	local { $$ = &ast.ReplicationOptionValue{Keyword: "LOCAL"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
 |	stringLit
 	{
 		if !validReplicationUUID($1) {
@@ -13151,18 +13195,19 @@ ReplicationPrivilegeValue:
 			return 1
 		}
 		$$ = &ast.ReplicationOptionValue{User: user}
+		$$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span)
 	}
 |	null { $$ = syntaxLiteral(yylex, pkast.LiteralNull, "null", yyS[yypt].span) }
 
 
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
 ReplicationUseGTIDValue:
-	no { $$ = &ast.ReplicationOptionValue{Keyword: "NO"} }
-|	currentPos { $$ = &ast.ReplicationOptionValue{Keyword: "CURRENT_POS"} }
-|	slavePos { $$ = &ast.ReplicationOptionValue{Keyword: "SLAVE_POS"} }
+	no { $$ = &ast.ReplicationOptionValue{Keyword: "NO"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	currentPos { $$ = &ast.ReplicationOptionValue{Keyword: "CURRENT_POS"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
+|	slavePos { $$ = &ast.ReplicationOptionValue{Keyword: "SLAVE_POS"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
 /* https://github.com/MariaDB/server/blob/12.3/sql/lex.h */
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/replication-statements/change-master-to */
-|	replicaPos { $$ = &ast.ReplicationOptionValue{Keyword: "REPLICA_POS"} }
+|	replicaPos { $$ = &ast.ReplicationOptionValue{Keyword: "REPLICA_POS"}; $$.(*ast.ReplicationOptionValue).SetSpan(yyVAL.span) }
 |	defaultKwd { $$ = &ast.DefaultExpr{} }
 
 
@@ -13725,10 +13770,12 @@ ComponentSetValue:
 	global Identifier eq SetExpr
 	{
 		$$ = &ast.ComponentSetValue{Scope: "GLOBAL", Name: $2, Value: $4}
+		$$.(*ast.ComponentSetValue).SetSpan(yyVAL.span)
 	}
 |	persist Identifier eq SetExpr
 	{
 		$$ = &ast.ComponentSetValue{Scope: "PERSIST", Name: $2, Value: $4}
+		$$.(*ast.ComponentSetValue).SetSpan(yyVAL.span)
 	}
 
 

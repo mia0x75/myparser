@@ -488,11 +488,13 @@ func makeSequenceOption(tp ast.SequenceOptionType, value ast.ExprNode) *ast.Sequ
 }
 
 // explainIntoStmt builds the INTO clause of MySQL's EXPLAIN ... INTO @var.
-func explainIntoStmt(target *ast.VariableTarget) *ast.SelectIntoStatement {
-	return &ast.SelectIntoStatement{
+func explainIntoStmt(target *ast.VariableTarget, span loc.Span) *ast.SelectIntoStatement {
+	stmt := &ast.SelectIntoStatement{
 		Tp:      ast.SelectIntoVarList,
 		Targets: []*ast.VariableTarget{target},
 	}
+	stmt.SetSpan(span)
+	return stmt
 }
 
 func syntaxVariableTarget(l yyLexer, name string, span loc.Span, kind ast.VariableTargetKind, prefix ast.VariablePrefix) *ast.VariableTarget {
