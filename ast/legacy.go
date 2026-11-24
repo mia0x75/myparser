@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 
+	pkast "github.com/mia0x75/parserkit/ast"
+
 	"github.com/mia0x75/myparser/format"
 )
 
@@ -18,8 +20,11 @@ func ExprFlag(expr ExprNode) uint64 {
 		return FlagHasReference
 	case *DefaultExpr:
 		return FlagHasDefault
-	case *PositionExpr, *ValuesExpr:
+	case *ValuesExpr:
 		return FlagHasReference
+	case *PositionExpr:
+		// P is the parameterized position; N alone is a plain reference.
+		return FlagHasReference | ExprFlag(expr.P)
 	case *VariableExpr:
 		return FlagHasVariable | ExprFlag(expr.Value)
 	case *IsNullExpr:
@@ -102,7 +107,44 @@ func ExprFlag(expr ExprNode) uint64 {
 		for _, arg := range expr.Args {
 			flag |= ExprFlag(arg)
 		}
-		return flag | callTailFlags(expr.OrderBy, expr.Separator, expr.Limit)
+		return flag | callTailFlags(expr.OrderBy, expr.Separator, expr.Limit) |
+			windowSpecFlags(&expr.Spec)
+	}
+	return 0
+}
+
+// windowSpecFlags walks the partition/order/frame subtrees of a window
+// spec, which the generic call tail scan does not reach.
+func windowSpecFlags(spec *WindowSpec) uint64 {
+	var flag uint64
+	if spec.PartitionBy != nil {
+		if clause := spec.PartitionBy.WindowPartitionClauseCore(); clause != nil {
+			for _, item := range clause.Items {
+				if item != nil {
+					if core := item.WindowPartitionItemCore(); core != nil {
+						flag |= ExprFlag(core.Expr)
+					}
+				}
+			}
+		}
+	}
+	if clause, ok := spec.OrderBy.(*OrderByClause); ok {
+		flag |= callTailFlags(clause, nil, nil)
+	}
+	if spec.Frame != nil {
+		if core := spec.Frame.WindowFrameClauseCore(); core != nil {
+			flag |= frameBoundFlags(core.Extent.Start) | frameBoundFlags(core.Extent.End)
+		}
+	}
+	return flag
+}
+
+func frameBoundFlags(bound pkast.WindowFrameBoundNode) uint64 {
+	if bound == nil {
+		return 0
+	}
+	if core := bound.WindowFrameBoundCore(); core != nil {
+		return ExprFlag(core.Expr)
 	}
 	return 0
 }

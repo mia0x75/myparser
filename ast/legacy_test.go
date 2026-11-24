@@ -158,6 +158,7 @@ func TestMigratedExprFlagSemantics(t *testing.T) {
 		{name: "IsTruthExpr", expr: &ast.IsTruthExpr{Expr: ref}, want: ast.FlagHasReference},
 		{name: "ParenthesesExpr", expr: &ast.ParenthesesExpr{Expr: ref}, want: ast.FlagHasReference},
 		{name: "PositionExpr", expr: &ast.PositionExpr{N: 1, P: &sharedPureExpr{}}, want: ast.FlagHasReference},
+		{name: "PositionExpr param", expr: &ast.PositionExpr{N: 1, P: ast.NewParamMarkerExpr(0)}, want: ast.FlagHasReference | ast.FlagHasParamMarker},
 		{name: "MemberOfExpr", expr: &ast.MemberOfExpr{Value: ref, Array: &sharedPureExpr{}}, want: ast.FlagHasReference},
 		{name: "IsJSONExpr", expr: &ast.IsJSONExpr{Expr: ref}, want: ast.FlagHasReference},
 		{name: "ValuesExpr", expr: &ast.ValuesExpr{Column: &ast.ColumnRef{}}, want: ast.FlagHasReference},

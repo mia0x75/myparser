@@ -489,6 +489,18 @@ func TestMTRPhase5ExpressionFlags(t *testing.T) {
 	if got := ast.ExprFlag(weight); got != ast.FlagHasFunc|ast.FlagHasVariable|ast.FlagHasParamMarker {
 		t.Fatalf("numeric parameter child flags were lost: %d", got)
 	}
+
+	// Window spec subtrees carry their own parameters and variables.
+	windowParser := New()
+	windowParser.EnableWindowFunc(true)
+	windowStmt, err := windowParser.ParseOneStmt("select row_number() over (partition by ? order by @v)", "", "")
+	if err != nil {
+		t.Fatalf("parse window spec: %v", err)
+	}
+	window := windowStmt.(*ast.SelectStmt).Fields.Items[0].Expr.(*ast.WindowFuncExpr)
+	if got := ast.ExprFlag(window); got != ast.FlagHasWindowFunc|ast.FlagHasParamMarker|ast.FlagHasVariable {
+		t.Fatalf("window spec flags: %d, want window|param|variable", got)
+	}
 }
 
 func assertMTRPhase5VisitorControls(t *testing.T, node ast.Node, isChild func(ast.Node) bool) {
