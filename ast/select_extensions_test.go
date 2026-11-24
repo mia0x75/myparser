@@ -460,6 +460,17 @@ func TestSelectStmtRestoreShortWrite(t *testing.T) {
 	}
 }
 
+// A failed write must stay ahead of a later validation error from the
+// same restore.
+func TestSelectStmtRestoreKeepsFirstWriteError(t *testing.T) {
+	literal := &ast.LiteralExpr{BaseLiteralExpr: pkast.BaseLiteralExpr{Kind: pkast.LiteralInteger, Value: "not numeric"}}
+	original := &ast.SelectStmt{Fields: &ast.FieldList{Items: []*pkast.SelectItem{{Expr: literal}}}}
+	err := original.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, selExtShortWriter{}))
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("Restore lost the write error: %v", err)
+	}
+}
+
 // --- SelectStmt.Accept: skip-children must not walk LockedTables ---
 
 func TestSelectStmtAcceptSkipDoesNotWalkLockedTables(t *testing.T) {

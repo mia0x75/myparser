@@ -1,6 +1,8 @@
 package ast
 
 import (
+	"fmt"
+
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 	"github.com/mia0x75/parserkit/loc"
@@ -352,8 +354,8 @@ func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.SelectStmtOpts != nil && n.StraightJoin {
 		ctx.WriteKeyword("STRAIGHT_JOIN ")
 	}
+	// A select without a projection is not restorable SQL.
 	if n.Fields == nil || len(n.Fields.Items) == 0 {
-		// A select without a projection is not restorable SQL.
 		return errors.New("restore select: missing projection")
 	}
 	for i, field := range n.Fields.Items {
@@ -361,6 +363,11 @@ func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 			ctx.WritePlain(",")
 		}
 		if err := field.Restore(ctx); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// Keep the first write error ahead of a later validation
+				// failure from the same restore.
+				return fmt.Errorf("%w: %w", ctxErr, errors.Annotatef(err, "An error occurred while restore SelectStmt.Fields[%d]", i))
+			}
 			return errors.Annotatef(err, "An error occurred while restore SelectStmt.Fields[%d]", i)
 		}
 	}
