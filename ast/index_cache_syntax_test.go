@@ -138,7 +138,7 @@ func TestIndexCacheSyntaxThreeTablesMixedLists(t *testing.T) {
 	stmt := &ast.CacheIndexStmt{
 		Tables: []*ast.CacheIndexTable{
 			cacheIndexTable(), // omitted
-			&ast.CacheIndexTable{Table: &ast.TableName{}, IndexNames: []lex.Ident{}}, // empty
+			{Table: &ast.TableName{}, IndexNames: []lex.Ident{}}, // empty
 			cacheIndexTable("a"), // named
 		},
 		Target: &ast.CacheIndexTarget{Kind: ast.CacheIndexIdentifierTarget, Name: lex.Ident{Name: "c"}},
