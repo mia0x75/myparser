@@ -92,6 +92,29 @@ func TestPositionExprFormat(t *testing.T) {
 	}
 }
 
+// The parameterized position restores the parameter, not the numeric
+// fallback.
+func TestPositionExprRestoreParameter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		node *PositionExpr
+		want string
+	}{
+		{"numeric", &PositionExpr{N: 3}, "3"},
+		{"param", &PositionExpr{P: NewParamMarkerExprAt(loc.InvalidSpan(), 0)}, "?"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sb strings.Builder
+			if err := tc.node.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags, &sb)); err != nil {
+				t.Fatal(err)
+			}
+			if sb.String() != tc.want {
+				t.Fatalf("Restore() = %q, want %q", sb.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestReadOnlyChecker(t *testing.T) {
 	plain := &SelectStmt{Where: &PositionExpr{N: 1}}
 	if !IsReadOnly(plain) {

@@ -1098,6 +1098,14 @@ func (n *PositionExpr) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
 		return nilRestoreError("PositionExpr")
 	}
+	if n.P != nil {
+		// P is the parameterized position (e.g. ORDER BY ?); restoring it
+		// keeps the parameter marker instead of the numeric fallback.
+		if !nodePresent(n.P) {
+			return errors.New("restore PositionExpr: nil parameter")
+		}
+		return n.P.Restore(ctx)
+	}
 	ctx.WritePlainf("%d", n.N)
 	return ctx.Err()
 }
