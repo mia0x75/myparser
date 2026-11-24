@@ -21,7 +21,7 @@ func NewParamMarkerExpr(index int) *ParamMarkerExpr {
 
 // NewParamMarkerExprAt creates a parameter with independent source and index data.
 func NewParamMarkerExprAt(span loc.Span, index int) *ParamMarkerExpr {
-	n := &ParamMarkerExpr{BaseParameterExpr: pkast.BaseParameterExpr{Index: index}}
+	n := &ParamMarkerExpr{BaseParameterExpr: *pkast.NewBaseParameterExpr(index)}
 	n.SetSpan(span)
 	return n
 }
