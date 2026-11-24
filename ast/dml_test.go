@@ -355,6 +355,16 @@ func TestSelectItemRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "SELECT %s", extractNodeFunc)
 }
 
+// A select without a projection cannot be rendered back to SQL.
+func TestSelectWithoutProjectionFailsRestore(t *testing.T) {
+	for _, stmt := range []Node{&SelectStmt{}, &SelectStmt{Fields: &FieldList{}}} {
+		var out strings.Builder
+		if err := stmt.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &out)); err == nil {
+			t.Fatalf("Restore accepted an empty projection: %q", out.String())
+		}
+	}
+}
+
 func TestFieldListRestore(t *testing.T) {
 	testCases := []NodeRestoreTestCase{
 		{"*", "*"},

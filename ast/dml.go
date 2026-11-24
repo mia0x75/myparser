@@ -352,14 +352,16 @@ func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.SelectStmtOpts != nil && n.StraightJoin {
 		ctx.WriteKeyword("STRAIGHT_JOIN ")
 	}
-	if n.Fields != nil {
-		for i, field := range n.Fields.Items {
-			if i != 0 {
-				ctx.WritePlain(",")
-			}
-			if err := field.Restore(ctx); err != nil {
-				return errors.Annotatef(err, "An error occurred while restore SelectStmt.Fields[%d]", i)
-			}
+	if n.Fields == nil || len(n.Fields.Items) == 0 {
+		// A select without a projection is not restorable SQL.
+		return errors.New("restore select: missing projection")
+	}
+	for i, field := range n.Fields.Items {
+		if i != 0 {
+			ctx.WritePlain(",")
+		}
+		if err := field.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore SelectStmt.Fields[%d]", i)
 		}
 	}
 

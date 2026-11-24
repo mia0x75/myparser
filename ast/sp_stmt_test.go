@@ -126,11 +126,9 @@ func TestSpP60DeclareCondition(t *testing.T) {
 
 func TestSpP60DeclareCursor(t *testing.T) {
 	// DeclareCursorStmt with Select as QueryNode
-	// TableStmt is a valid QueryNode
-	q := &SelectStmt{}
 	stmt := &DeclareCursorStmt{
 		Name:   lex.Ident{Name: "c1", Raw: "c1"},
-		Select: q,
+		Select: &SelectStmt{Fields: &FieldList{Items: []*pkast.SelectItem{{Expr: &WildcardExpr{}}}}},
 	}
 	got := spP60Restore(t, stmt)
 	if !strings.Contains(got, "DECLARE") || !strings.Contains(got, "CURSOR FOR") {
@@ -141,10 +139,9 @@ func TestSpP60DeclareCursor(t *testing.T) {
 
 func TestSpP60ForQueryNode(t *testing.T) {
 	// ForStmt with Query as QueryNode
-	q := &SelectStmt{}
 	stmt := &ForStmt{
 		Variable: lex.Ident{Name: "i", Raw: "i"},
-		Query:    q,
+		Query:    &SelectStmt{Fields: &FieldList{Items: []*pkast.SelectItem{{Expr: &WildcardExpr{}}}}},
 	}
 	got := spP60Restore(t, stmt)
 	if !strings.Contains(got, "FOR") || !strings.Contains(got, "IN") {

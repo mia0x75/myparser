@@ -449,6 +449,7 @@ func TestProcedureAnalyseRestoreShortWrite(t *testing.T) {
 
 func TestSelectStmtRestoreShortWrite(t *testing.T) {
 	original := &ast.SelectStmt{}
+	original.Fields = &ast.FieldList{Items: []*pkast.SelectItem{{Expr: &ast.WildcardExpr{}}}}
 	original.LockTp = ast.SelectLockForUpdate
 	original.LockedTables = []*ast.TableName{
 		{BaseTableRef: pkast.BaseTableRef{Name: qualifiedNameOf("t1")}},
