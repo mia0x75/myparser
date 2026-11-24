@@ -29,6 +29,9 @@ func (n *JoinExpr) Restore(ctx *format.RestoreCtx) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("JoinExpr")
+	}
 	if n == nil || !joinRelationPresent(n.Left) {
 		return fmt.Errorf("restore join: missing left relation")
 	}

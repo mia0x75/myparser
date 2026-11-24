@@ -326,6 +326,9 @@ func (*FuncCallExpr) functionExpression() {}
 
 // Restore implements Node interface.
 func (n *FuncCallExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("FuncCallExpr")
+	}
 	if err := n.validateSyntaxArgs(); err != nil {
 		return err
 	}

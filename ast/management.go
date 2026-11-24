@@ -27,6 +27,9 @@ type ChangeMasterStmt struct {
 
 // Restore implements Node interface.
 func (n *ChangeMasterStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ChangeMasterStmt")
+	}
 	if n.Replica {
 		ctx.WriteKeyword("CHANGE REPLICATION SOURCE")
 	} else {
@@ -54,6 +57,9 @@ func (n *ChangeMasterStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ChangeMasterStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ChangeMasterStmt](newNode)
 	if !ok {
@@ -106,6 +112,9 @@ type ReplicaControlStmt struct {
 
 // Restore implements Node interface.
 func (n *ReplicaControlStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ReplicaControlStmt")
+	}
 	if n.Start {
 		ctx.WriteKeyword("START ")
 	} else {
@@ -169,6 +178,9 @@ func (n *ReplicaControlStmt) restoreChannel(ctx *format.RestoreCtx) {
 
 // Accept implements Node Accept interface.
 func (n *ReplicaControlStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ReplicaControlStmt](newNode)
 	if !ok {
@@ -254,6 +266,9 @@ func (n *ReplicationOptionValue) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *ReplicationOptionValue) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ReplicationOptionValue](newNode)
 	if !ok {
@@ -312,6 +327,9 @@ type ResetStmt struct {
 }
 
 func (n *ResetStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ResetStmt")
+	}
 	ctx.WriteKeyword("RESET ")
 	if len(n.Options) != 0 {
 		for i, option := range n.Options {
@@ -383,6 +401,9 @@ func (n *ResetStmt) restoreOption(ctx *format.RestoreCtx) error {
 }
 
 func (n *ResetStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ResetStmt](newNode)
 	if !ok {
@@ -416,6 +437,9 @@ type ShutdownStmt struct {
 }
 
 func (n *ShutdownStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ShutdownStmt")
+	}
 	ctx.WriteKeyword("SHUTDOWN")
 	if n.WaitForAllSlaves {
 		ctx.WriteKeyword(" WAIT FOR ALL SLAVES")
@@ -424,6 +448,9 @@ func (n *ShutdownStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *ShutdownStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	outer, ok := nodeAs[*ShutdownStmt](newNode)
 	if !ok {
@@ -1204,6 +1231,9 @@ func (n *LoadXMLStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *LoadXMLStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*LoadXMLStmt](newNode)
 	if !ok {
@@ -1247,6 +1277,9 @@ type RenameUserStmt struct {
 }
 
 func (n *RenameUserStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("RenameUserStmt")
+	}
 	ctx.WriteKeyword("RENAME USER ")
 	for i, pair := range n.Pairs {
 		if i != 0 {
@@ -1260,6 +1293,9 @@ func (n *RenameUserStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *RenameUserStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*RenameUserStmt](newNode)
 	if !ok {
@@ -1287,6 +1323,9 @@ type RenameUserPair struct {
 }
 
 func (n *RenameUserPair) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("RenameUserPair")
+	}
 	if err := restoreUserIdentity(ctx, n.From); err != nil {
 		return errors.Annotate(err, "An error occurred while restore RenameUserPair.From")
 	}
@@ -1298,6 +1337,9 @@ func (n *RenameUserPair) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *RenameUserPair) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	outer, ok := nodeAs[*RenameUserPair](newNode)
 	if !ok {
@@ -1343,6 +1385,9 @@ type ImportTableStmt struct {
 }
 
 func (n *ImportTableStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ImportTableStmt")
+	}
 	ctx.WriteKeyword("IMPORT TABLE FROM ")
 	for i, path := range n.Paths {
 		if i != 0 {
@@ -1354,6 +1399,9 @@ func (n *ImportTableStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *ImportTableStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	outer, ok := nodeAs[*ImportTableStmt](newNode)
 	if !ok {
@@ -1486,6 +1534,9 @@ func (n *ComponentSetValue) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *ComponentSetValue) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ComponentSetValue](newNode)
 	if !ok {
@@ -1512,6 +1563,9 @@ type InstallComponentStmt struct {
 }
 
 func (n *InstallComponentStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("InstallComponentStmt")
+	}
 	ctx.WriteKeyword("INSTALL COMPONENT ")
 	for i, uri := range n.URIs {
 		if i != 0 {
@@ -1534,6 +1588,9 @@ func (n *InstallComponentStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *InstallComponentStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*InstallComponentStmt](newNode)
 	if !ok {
@@ -1561,6 +1618,9 @@ type UninstallComponentStmt struct {
 }
 
 func (n *UninstallComponentStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("UninstallComponentStmt")
+	}
 	ctx.WriteKeyword("UNINSTALL COMPONENT ")
 	for i, uri := range n.URIs {
 		if i != 0 {
@@ -1572,6 +1632,9 @@ func (n *UninstallComponentStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *UninstallComponentStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	outer, ok := nodeAs[*UninstallComponentStmt](newNode)
 	if !ok {
@@ -1599,6 +1662,9 @@ type CloneStmt struct {
 }
 
 func (n *CloneStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("CloneStmt")
+	}
 	ctx.WriteKeyword("CLONE ")
 	if n.Local {
 		ctx.WriteKeyword("LOCAL DATA DIRECTORY ")
@@ -1626,6 +1692,9 @@ func (n *CloneStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *CloneStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	outer, ok := nodeAs[*CloneStmt](newNode)
 	if !ok {
@@ -1716,6 +1785,9 @@ func (n *DiagnosticsItem) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *DiagnosticsItem) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*DiagnosticsItem](newNode)
 	if !ok {
@@ -1745,6 +1817,9 @@ type GetDiagnosticsStmt struct {
 }
 
 func (n *GetDiagnosticsStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("GetDiagnosticsStmt")
+	}
 	ctx.WriteKeyword("GET ")
 	if n.Stacked {
 		ctx.WriteKeyword("STACKED")
@@ -1774,6 +1849,9 @@ func (n *GetDiagnosticsStmt) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *GetDiagnosticsStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*GetDiagnosticsStmt](newNode)
 	if !ok {

@@ -248,6 +248,9 @@ func (n *CreateFunctionStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateFunctionStmt")
+	}
 	if n == nil || n.Name == nil {
 		return errors.New("restore create function statement: missing name")
 	}
@@ -323,6 +326,9 @@ func (n *CreateFunctionStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *CreateFunctionStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*CreateFunctionStmt](newNode)
 	if !ok {
@@ -393,6 +399,9 @@ func (n *CreateProcedureStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateProcedureStmt")
+	}
 	if n == nil || n.Definer == nil {
 		return errors.New("restore create procedure statement: missing definer")
 	}
@@ -433,6 +442,9 @@ func (n *CreateProcedureStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *CreateProcedureStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*CreateProcedureStmt](newNode)
 	if !ok {
@@ -495,6 +507,9 @@ func (n *AlterFunctionStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *AlterFunctionStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*AlterFunctionStmt](newNode)
 	if !ok {
@@ -536,6 +551,9 @@ func (n *AlterProcedureStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *AlterProcedureStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*AlterProcedureStmt](newNode)
 	if !ok {
@@ -631,6 +649,9 @@ func (n *CreateTriggerStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *CreateTriggerStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*CreateTriggerStmt](newNode)
 	if !ok {
@@ -680,6 +701,9 @@ func (n *CreateEventStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateEventStmt")
+	}
 	if n == nil || n.Definer == nil {
 		return errors.New("restore create event statement: missing definer")
 	}
@@ -723,6 +747,9 @@ func (n *CreateEventStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *CreateEventStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*CreateEventStmt](newNode)
 	if !ok {
@@ -773,6 +800,9 @@ type AlterEventStmt struct {
 func (n *AlterEventStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("AlterEventStmt")
 	}
 	if n == nil || n.Definer == nil {
 		return errors.New("restore alter event statement: missing definer")
@@ -827,6 +857,9 @@ func (n *AlterEventStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *AlterEventStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*AlterEventStmt](newNode)
 	if !ok {
@@ -878,6 +911,9 @@ func (n *ReturnStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("ReturnStmt")
+	}
 	if n == nil || !nodePresent(n.Expr) {
 		return errors.New("restore return statement: missing expression")
 	}
@@ -890,6 +926,9 @@ func (n *ReturnStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ReturnStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*ReturnStmt](newNode)
 	if !ok {

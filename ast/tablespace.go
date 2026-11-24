@@ -141,6 +141,9 @@ func (n *CreateTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateTablespaceStmt")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing tablespace name")
 	}
@@ -205,6 +208,9 @@ type AlterTablespaceStmt struct {
 func (n *AlterTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("AlterTablespaceStmt")
 	}
 	if n == nil || !n.Name.Present() || n.RenameTo.Present() && len(n.Options) != 0 {
 		return errors.New("ast: invalid altered tablespace")
@@ -273,6 +279,9 @@ type DropTablespaceStmt struct {
 func (n *DropTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("DropTablespaceStmt")
 	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing tablespace name")

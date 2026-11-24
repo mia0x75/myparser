@@ -35,6 +35,9 @@ func (n *PartitionItem) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *PartitionItem) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	item, ok := entered.(*PartitionItem)
 	if !ok || item == nil {

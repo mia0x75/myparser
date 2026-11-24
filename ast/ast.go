@@ -3,11 +3,18 @@
 package ast
 
 import (
+	"fmt"
 	"reflect"
 
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
 )
+
+// nilRestoreError keeps typed-nil Restore calls from panicking while preserving
+// a clear message for callers that only see the error interface.
+func nilRestoreError(kind string) error {
+	return fmt.Errorf("restore %s: nil node", kind)
+}
 
 // Node is the basic element of the AST.
 // Interfaces embed Node should have 'Node' name suffix.

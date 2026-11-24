@@ -38,6 +38,9 @@ type IndexHint struct {
 
 // Restore IndexHint (The const field uses switch to facilitate understanding)
 func (n *IndexHint) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("IndexHint")
+	}
 	indexHintType := ""
 	switch n.HintType {
 	case 1:

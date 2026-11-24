@@ -95,6 +95,9 @@ func (n *BetweenExpr) Format(w io.Writer) {
 
 // Accept implements Node interface.
 func (n *BetweenExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*BetweenExpr](newNode)
 	if !valid {
@@ -171,6 +174,9 @@ func (n *BinaryOperationExpr) Format(w io.Writer) {
 
 // Accept implements Node interface.
 func (n *BinaryOperationExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skipChildren := v.Enter(n)
 	enterNode, ok := nodeAs[*BinaryOperationExpr](entered)
 	if !ok {
@@ -226,6 +232,9 @@ func (n *WhenClause) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *WhenClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*WhenClause](newNode)
 	if !valid {
@@ -322,6 +331,9 @@ func (n *CaseExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *CaseExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*CaseExpr](newNode)
 	if !valid {
@@ -451,6 +463,9 @@ func (n *CollateExpr) Format(w io.Writer) {
 
 // Accept implements Node interface.
 func (n *CollateExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*CollateExpr](newNode)
 	if !valid {
@@ -515,6 +530,9 @@ func (n *CompareSubqueryExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *CompareSubqueryExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*CompareSubqueryExpr](newNode)
 	if !valid {
@@ -544,6 +562,9 @@ type ColumnRef struct {
 
 // Restore implements Node interface.
 func (n *ColumnRef) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ColumnRef")
+	}
 	if err := restoreQualifiedName(ctx, n.Name); err != nil {
 		return errors.Trace(err)
 	}
@@ -557,6 +578,9 @@ func (n *ColumnRef) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *ColumnRef) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*ColumnRef](newNode)
 	if !ok {
@@ -577,6 +601,9 @@ type DefaultExpr struct {
 
 // Restore implements Node interface.
 func (n *DefaultExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("DefaultExpr")
+	}
 	ctx.WriteKeyword("DEFAULT")
 	if len(n.Name.Parts) != 0 {
 		ctx.WritePlain("(")
@@ -595,6 +622,9 @@ func (n *DefaultExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *DefaultExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*DefaultExpr](newNode)
 	if !ok {
@@ -639,6 +669,9 @@ func (n *ExistsSubqueryExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *ExistsSubqueryExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*ExistsSubqueryExpr](newNode)
 	if !valid {
@@ -726,6 +759,9 @@ func (n *PatternInExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *PatternInExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*PatternInExpr](newNode)
 	if !valid {
@@ -794,6 +830,9 @@ func (n *IsNullExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *IsNullExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*IsNullExpr](newNode)
 	if !valid {
@@ -860,6 +899,9 @@ func (n *IsTruthExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *IsTruthExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*IsTruthExpr](newNode)
 	if !valid {
@@ -951,6 +993,9 @@ func (n *PatternLikeExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *PatternLikeExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*PatternLikeExpr](newNode)
 	if !valid {
@@ -1013,6 +1058,9 @@ func (n *ParenthesesExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *ParenthesesExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*ParenthesesExpr](newNode)
 	if !valid {
@@ -1045,6 +1093,9 @@ type PositionExpr struct {
 
 // Restore implements Node interface.
 func (n *PositionExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("PositionExpr")
+	}
 	ctx.WritePlainf("%d", n.N)
 	return ctx.Err()
 }
@@ -1056,6 +1107,9 @@ func (n *PositionExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *PositionExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*PositionExpr](newNode)
 	if !valid {
@@ -1121,6 +1175,9 @@ func (n *PatternRegexpExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *PatternRegexpExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*PatternRegexpExpr](newNode)
 	if !valid {
@@ -1181,6 +1238,9 @@ func (n *MemberOfExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *MemberOfExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*MemberOfExpr](newNode)
 	if !valid {
@@ -1262,6 +1322,9 @@ func (n *IsJSONExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *IsJSONExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*IsJSONExpr](newNode)
 	if !valid {
@@ -1351,6 +1414,9 @@ func (n *MatchAgainst) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *MatchAgainst) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*MatchAgainst](newNode)
 	if !valid {
@@ -1402,6 +1468,9 @@ func (n *SoundsLikeExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *SoundsLikeExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, valid := nodeAs[*SoundsLikeExpr](newNode)
 	if !valid {
@@ -1469,6 +1538,9 @@ func (n *RowExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *RowExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*RowExpr](entered)
 	if !ok {
@@ -1519,6 +1591,9 @@ func (n *UnaryOperationExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *UnaryOperationExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skipChildren := v.Enter(n)
 	enterNode, ok := nodeAs[*UnaryOperationExpr](entered)
 	if !ok {
@@ -1643,6 +1718,9 @@ func (n *VariableExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *VariableExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	if skipChildren {
 		replacement, ok := nodeAs[ExprNode](newNode)
@@ -1680,6 +1758,9 @@ type MaxValueExpr struct {
 
 // Restore implements Node interface.
 func (n *MaxValueExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("MaxValueExpr")
+	}
 	ctx.WriteKeyword("MAXVALUE")
 	return ctx.Err()
 }
@@ -1691,6 +1772,9 @@ func (n *MaxValueExpr) Format(w io.Writer) {
 
 // Accept implements Node Accept interface.
 func (n *MaxValueExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*MaxValueExpr](newNode)
 	if !ok {

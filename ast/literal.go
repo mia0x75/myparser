@@ -22,6 +22,9 @@ type LiteralExpr struct {
 
 // Restore normalizes literal spelling without consulting connection metadata.
 func (n *LiteralExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("LiteralExpr")
+	}
 	switch n.Kind {
 	case pkast.LiteralNull:
 		ctx.WriteKeyword("NULL")
@@ -146,6 +149,9 @@ func (n *LiteralExpr) Format(w io.Writer) {
 }
 
 func (n *LiteralExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, _ := v.Enter(n)
 	outer, ok := entered.(*LiteralExpr)
 	if !ok || outer == nil {

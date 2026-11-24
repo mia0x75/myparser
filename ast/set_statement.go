@@ -52,6 +52,9 @@ func restoreSetStatementVariable(ctx *format.RestoreCtx, variable *VariableAssig
 
 // Accept implements Node interface.
 func (n *SetStatementStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*SetStatementStmt](newNode)
 	if !ok {

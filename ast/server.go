@@ -28,6 +28,9 @@ func (n *ServerOption) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("ServerOption")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing server option name")
 	}
@@ -72,6 +75,9 @@ type CreateServerStmt struct {
 func (n *CreateServerStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("CreateServerStmt")
 	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing server name")
@@ -140,6 +146,9 @@ func (n *AlterServerStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("AlterServerStmt")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing server name")
 	}
@@ -204,6 +213,9 @@ type DropServerStmt struct {
 func (n *DropServerStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("DropServerStmt")
 	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing server name")

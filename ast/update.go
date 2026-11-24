@@ -22,6 +22,9 @@ func (n *UpdateStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("UpdateStmt")
+	}
 	if n == nil || !resultSetPresent(n.Table) || len(n.Assignments) == 0 {
 		return fmt.Errorf("restore UpdateStmt: missing table or assignments")
 	}

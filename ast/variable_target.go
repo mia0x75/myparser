@@ -68,6 +68,9 @@ type VariableTarget struct {
 
 // Restore implements Node interface.
 func (n *VariableTarget) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("VariableTarget")
+	}
 	switch n.Kind {
 	case VariableTargetUser:
 		ctx.WritePlain("@")
@@ -104,6 +107,9 @@ func (n *VariableTarget) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *VariableTarget) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, _ := v.Enter(n)
 	target, ok := nodeAs[*VariableTarget](newNode)
 	if !ok {

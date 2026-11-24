@@ -48,6 +48,9 @@ func (n *OrderByClause) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *OrderByClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	clause, ok := entered.(*OrderByClause)
 	if !ok || clause == nil {

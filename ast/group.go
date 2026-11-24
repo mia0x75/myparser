@@ -37,6 +37,9 @@ func (n *GroupItem) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *GroupItem) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	item, ok := entered.(*GroupItem)
 	if !ok || item == nil {
@@ -110,6 +113,9 @@ func (n *GroupByClause) Restore(ctx *format.RestoreCtx) error {
 }
 
 func (n *GroupByClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	clause, ok := entered.(*GroupByClause)
 	if !ok || clause == nil {

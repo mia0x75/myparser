@@ -106,6 +106,9 @@ func (n *CreateResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateResourceGroupStmt")
+	}
 	if n == nil || !n.Name.Present() || !n.Type.Present() {
 		return errors.New("ast: missing resource group name or type")
 	}
@@ -176,6 +179,9 @@ func (n *AlterResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("AlterResourceGroupStmt")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing resource group name")
 	}
@@ -237,6 +243,9 @@ type DropResourceGroupStmt struct {
 func (n *DropResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("DropResourceGroupStmt")
 	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing resource group name")

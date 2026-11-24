@@ -107,6 +107,9 @@ func (n *BeginEndStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *BeginEndStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*BeginEndStmt](newNode)
 	if !ok {
@@ -193,6 +196,9 @@ func (n *DeclareStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *DeclareStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*DeclareStmt](newNode)
 	if !ok {
@@ -293,6 +299,9 @@ func (n *DeclareConditionStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("DeclareConditionStmt")
+	}
 	if n == nil || n.Condition == nil {
 		return errors.New("restore declare condition statement: missing condition")
 	}
@@ -304,6 +313,9 @@ func (n *DeclareConditionStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *DeclareConditionStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*DeclareConditionStmt](newNode)
 	if !ok {
@@ -339,6 +351,9 @@ func (n *DeclareCursorStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *DeclareCursorStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*DeclareCursorStmt](newNode)
 	if !ok {
@@ -395,6 +410,9 @@ func (n *DeclareHandlerStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("DeclareHandlerStmt")
+	}
 	if n == nil || len(n.Conditions) == 0 {
 		return errors.New("restore declare handler statement: missing conditions")
 	}
@@ -421,6 +439,9 @@ func (n *DeclareHandlerStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *DeclareHandlerStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*DeclareHandlerStmt](newNode)
 	if !ok {
@@ -454,6 +475,9 @@ var _ Node = (*IfClause)(nil)
 func (n *IfClause) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("IfClause")
 	}
 	if n == nil || !nodePresent(n.Condition) {
 		return errors.New("restore if clause: missing condition")
@@ -519,6 +543,9 @@ type IfStmt struct {
 func (n *IfStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("IfStmt")
 	}
 	if n == nil || len(n.Conditions) == 0 {
 		return errors.New("restore if statement: missing branches")
@@ -600,6 +627,9 @@ func (n *CaseWhenClause) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CaseWhenClause")
+	}
 	if n == nil || !nodePresent(n.Expr) {
 		return errors.New("restore case when clause: missing expression")
 	}
@@ -658,6 +688,9 @@ type CaseStmt struct {
 func (n *CaseStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("CaseStmt")
 	}
 	if n == nil || len(n.Whens) == 0 {
 		return errors.New("restore case statement: missing branches")
@@ -764,6 +797,9 @@ func (n *WhileStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("WhileStmt")
+	}
 	if n == nil || !nodePresent(n.Condition) {
 		return errors.New("restore while statement: missing condition")
 	}
@@ -789,6 +825,9 @@ func (n *WhileStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *WhileStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*WhileStmt](newNode)
 	if !ok {
@@ -832,6 +871,9 @@ func (n *RepeatStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("RepeatStmt")
+	}
 	if n == nil || !nodePresent(n.Condition) {
 		return errors.New("restore repeat statement: missing condition")
 	}
@@ -857,6 +899,9 @@ func (n *RepeatStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *RepeatStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*RepeatStmt](newNode)
 	if !ok {
@@ -917,6 +962,9 @@ func (n *LoopStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *LoopStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*LoopStmt](newNode)
 	if !ok {
@@ -1002,6 +1050,9 @@ func (n *ForStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ForStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*ForStmt](newNode)
 	if !ok {
@@ -1059,6 +1110,9 @@ func (n *LeaveStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *LeaveStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*LeaveStmt](newNode)
 	if !ok {
@@ -1092,6 +1146,9 @@ func (n *IterateStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *IterateStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*IterateStmt](newNode)
 	if !ok {
@@ -1123,6 +1180,9 @@ func (n *OpenStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *OpenStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*OpenStmt](newNode)
 	if !ok {
@@ -1154,6 +1214,9 @@ func (n *CloseStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *CloseStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*CloseStmt](newNode)
 	if !ok {
@@ -1211,6 +1274,9 @@ func (n *FetchStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node interface.
 func (n *FetchStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*FetchStmt](newNode)
 	if !ok {
@@ -1253,6 +1319,9 @@ func (n *SignalStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("SignalStmt")
+	}
 	if n == nil || n.Condition == nil {
 		return errors.New("restore signal statement: missing condition")
 	}
@@ -1281,6 +1350,9 @@ func (n *SignalStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *SignalStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*SignalStmt](newNode)
 	if !ok {
@@ -1348,6 +1420,9 @@ func (n *ResignalStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ResignalStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	stmt, ok := nodeAs[*ResignalStmt](newNode)
 	if !ok {

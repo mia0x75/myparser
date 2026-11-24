@@ -61,6 +61,9 @@ func (n *TableName) TableRefCore() *pkast.BaseTableRef {
 
 // Restore implements Node interface.
 func (n *TableName) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("TableName")
+	}
 	if err := restoreQualifiedName(ctx, n.Name); err != nil {
 		return errors.Annotate(err, "An error occurred while restore TableName.Name")
 	}
@@ -717,6 +720,9 @@ func (n *ValuesStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ValuesStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	n, ok := newNode.(*ValuesStmt)
 	if !ok || n == nil {
@@ -763,6 +769,9 @@ func (n *TableStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *TableStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	n, ok := newNode.(*TableStmt)
 	if !ok || n == nil {
@@ -892,6 +901,9 @@ func (n *LoadDataStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *LoadDataStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := nodeAs[*LoadDataStmt](newNode)
 	if !ok {
@@ -950,6 +962,9 @@ type FieldsClause struct {
 
 // Restore for FieldsClause
 func (n *FieldsClause) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("FieldsClause")
+	}
 	if n.Terminated != "\t" || n.Escaped != '\\' {
 		ctx.WriteKeyword(" FIELDS")
 		if n.Terminated != "\t" {
@@ -980,6 +995,9 @@ type LinesClause struct {
 
 // Restore for LinesClause
 func (n *LinesClause) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("LinesClause")
+	}
 	if n.Starting != "" || n.Terminated != "\n" {
 		ctx.WriteKeyword(" LINES")
 		if n.Starting != "" {
@@ -1255,6 +1273,9 @@ func (n *InsertStmt) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *InsertStmt) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := newNode.(*InsertStmt)
 	if !ok || outer == nil {
@@ -1370,6 +1391,9 @@ func (n *Limit) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *Limit) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	outer, ok := newNode.(*Limit)
 	if !ok || outer == nil {
@@ -1848,6 +1872,9 @@ func (n *WindowSpec) WindowSpecCore() *pkast.BaseWindowSpec {
 
 // Restore implements Node interface.
 func (n *WindowSpec) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("WindowSpec")
+	}
 	if n.Name.Present() {
 		ctx.WriteIdent(n.Name)
 		if n.OnlyAlias {
@@ -1897,6 +1924,9 @@ func (n *WindowSpec) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *WindowSpec) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	var ok bool
 	n, ok = newNode.(*WindowSpec)
@@ -1985,6 +2015,9 @@ func (n *PartitionByClause) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *PartitionByClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	clause, ok := newNode.(*PartitionByClause)
 	if !ok || clause == nil {
@@ -2032,6 +2065,9 @@ type FrameClause struct {
 
 // Restore implements Node interface.
 func (n *FrameClause) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("FrameClause")
+	}
 	if n.Extent.Start == nil || n.Extent.Start.WindowFrameBoundCore() == nil ||
 		n.Extent.End == nil || n.Extent.End.WindowFrameBoundCore() == nil {
 		return errors.New("window frame requires start and end bounds")
@@ -2073,6 +2109,9 @@ func (n *FrameClause) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *FrameClause) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	var ok bool
 	n, ok = newNode.(*FrameClause)
@@ -2141,6 +2180,9 @@ func (n *FrameBound) WindowFrameBoundCore() *pkast.BaseWindowFrameBound {
 
 // Restore implements Node interface.
 func (n *FrameBound) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("FrameBound")
+	}
 	if n.Type != CurrentRow && n.Type != Preceding && n.Type != Following {
 		return errors.New("unsupported window frame bound direction")
 	}
@@ -2183,6 +2225,9 @@ func (n *FrameBound) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *FrameBound) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	newNode, skipChildren := v.Enter(n)
 	var ok bool
 	n, ok = newNode.(*FrameBound)

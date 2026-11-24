@@ -27,7 +27,10 @@ func NewParamMarkerExprAt(span loc.Span, index int) *ParamMarkerExpr {
 }
 
 // Restore implements Node interface.
-func (*ParamMarkerExpr) Restore(ctx *format.RestoreCtx) error {
+func (n *ParamMarkerExpr) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ParamMarkerExpr")
+	}
 	ctx.WritePlain("?")
 	return ctx.Err()
 }
@@ -42,6 +45,9 @@ func (n *ParamMarkerExpr) SetOrder(index int) { n.Index = index }
 
 // Accept implements Node interface.
 func (n *ParamMarkerExpr) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, _ := v.Enter(n)
 	marker, ok := entered.(*ParamMarkerExpr)
 	if !ok || marker == nil {

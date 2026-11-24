@@ -136,6 +136,9 @@ func (n *CreateLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("CreateLogfileGroupStmt")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing logfile group name")
 	}
@@ -192,6 +195,9 @@ func (n *AlterLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if n == nil {
+		return nilRestoreError("AlterLogfileGroupStmt")
+	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing logfile group name")
 	}
@@ -246,6 +252,9 @@ type DropLogfileGroupStmt struct {
 func (n *DropLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("DropLogfileGroupStmt")
 	}
 	if n == nil || !n.Name.Present() {
 		return errors.New("ast: missing logfile group name")

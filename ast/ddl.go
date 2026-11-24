@@ -72,6 +72,9 @@ type DatabaseOption struct {
 
 // Restore implements Node interface.
 func (n *DatabaseOption) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("DatabaseOption")
+	}
 	switch n.Tp {
 	case DatabaseOptionCharset:
 		ctx.WriteKeyword("CHARACTER SET")
@@ -99,6 +102,9 @@ type CreateDatabaseStmt struct {
 
 // Restore implements Node interface.
 func (n *CreateDatabaseStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("CreateDatabaseStmt")
+	}
 	ctx.WriteKeyword("CREATE DATABASE ")
 	if n.IfNotExists {
 		ctx.WriteKeyword("IF NOT EXISTS ")
@@ -146,6 +152,9 @@ type AlterDatabaseStmt struct {
 
 // Restore implements Node interface.
 func (n *AlterDatabaseStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("AlterDatabaseStmt")
+	}
 	ctx.WriteKeyword("ALTER DATABASE")
 	if !n.AlterDefaultDatabase {
 		ctx.WritePlain(" ")
@@ -192,6 +201,9 @@ type DropDatabaseStmt struct {
 
 // Restore implements Node interface.
 func (n *DropDatabaseStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("DropDatabaseStmt")
+	}
 	ctx.WriteKeyword("DROP DATABASE ")
 	if n.IfExists {
 		ctx.WriteKeyword("IF EXISTS ")
@@ -545,6 +557,9 @@ type ColumnOption struct {
 
 // Restore implements Node interface.
 func (n *ColumnOption) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("ColumnOption")
+	}
 	switch n.Tp {
 	case ColumnOptionNoOption:
 		return ctx.Err()
@@ -684,6 +699,9 @@ type IndexOption struct {
 
 // Restore implements Node interface.
 func (n *IndexOption) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("IndexOption")
+	}
 	hasPrevOption := false
 	if n.KeyBlockSize > 0 {
 		ctx.WriteKeyword("KEY_BLOCK_SIZE")
@@ -852,6 +870,9 @@ type PeriodDefinition struct {
 
 // Restore implements Node interface.
 func (n *PeriodDefinition) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("PeriodDefinition")
+	}
 	ctx.WriteKeyword("PERIOD FOR ")
 	ctx.WriteIdent(n.Name)
 	ctx.WritePlain(" (")
@@ -1408,6 +1429,9 @@ type RenameTableStmt struct {
 func (n *RenameTableStmt) Restore(ctx *format.RestoreCtx) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if n == nil {
+		return nilRestoreError("RenameTableStmt")
 	}
 	if n == nil || len(n.Renames) == 0 {
 		return errors.New("restore rename table: missing renames")
@@ -2813,6 +2837,9 @@ type TruncateTableStmt struct {
 
 // Restore implements Node interface.
 func (n *TruncateTableStmt) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("TruncateTableStmt")
+	}
 	ctx.WriteKeyword("TRUNCATE TABLE ")
 	if err := n.Table.Restore(ctx); err != nil {
 		return errors.Annotate(err, "An error occurred while restore TruncateTableStmt.Table")

@@ -35,6 +35,9 @@ func (n *ReplicationOption) Restore(ctx *format.RestoreCtx) error {
 
 // Accept implements Node Accept interface.
 func (n *ReplicationOption) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skipChildren := v.Enter(n)
 	outer, ok := entered.(*ReplicationOption)
 	if !ok || outer == nil {

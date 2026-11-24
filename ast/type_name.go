@@ -146,6 +146,9 @@ func (n *TypeName) writeModifiers(ctx *format.RestoreCtx, count int, separator s
 }
 
 func (n *TypeName) Restore(ctx *format.RestoreCtx) error {
+	if n == nil {
+		return nilRestoreError("TypeName")
+	}
 	if err := n.validateKeyword(); err != nil {
 		return err
 	}
@@ -279,6 +282,9 @@ func (n *TypeName) FormatAsCastType(w io.Writer) {
 }
 
 func (n *TypeName) Accept(v Visitor) (Node, bool) {
+	if n == nil {
+		return nil, false
+	}
 	entered, skip := v.Enter(n)
 	outer, ok := entered.(*TypeName)
 	if !ok || outer == nil {
