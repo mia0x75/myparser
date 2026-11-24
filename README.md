@@ -316,6 +316,13 @@ editing it manually. Generation downloads
 `golang.org/x/tools/cmd/goyacc@v0.52.0`; lint uses golangci-lint v2.15.0.
 Both need access to the configured Go module proxy on their first run.
 
+Some MTR compatibility files and helper tools are local-only and excluded via
+`.git/info/exclude`: `compat_mtr_remaining_test.go`, `cmd/mtrcheck/`,
+`testdata/mtr/`, `scripts/`, and the `mtrcheck` binary. They exist in this
+working tree and are discovered by `go test ./...`, but a fresh clone and CI do
+not receive them. A local all-green run therefore covers more tests than CI;
+do not treat local-only MTR tests as release gates.
+
 GitHub Actions runs the Makefile checks, CodeQL analysis, and Conventional Commit
 PR-title validation. Dependabot checks Go modules and GitHub Actions daily.
 Dependabot PRs, including major updates, are automatically approved and queued
