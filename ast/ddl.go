@@ -1555,15 +1555,8 @@ func (n *CreateViewStmt) Restore(ctx *format.RestoreCtx) error {
 	ctx.WriteKeyword(" DEFINER")
 	ctx.WritePlain(" = ")
 
-	// todo Use n.Definer.Restore(ctx) to replace this part
-	if n.Definer.CurrentUser {
-		ctx.WriteKeyword("current_user")
-	} else {
-		ctx.WriteName(n.Definer.Username)
-		if n.Definer.Hostname != "" {
-			ctx.WritePlain("@")
-			ctx.WriteName(n.Definer.Hostname)
-		}
+	if err := n.Definer.Restore(ctx); err != nil {
+		return errors.Annotate(err, "restore view definer")
 	}
 
 	ctx.WriteKeyword(" SQL SECURITY ")
@@ -1664,15 +1657,8 @@ func (n *AlterViewStmt) Restore(ctx *format.RestoreCtx) error {
 	ctx.WriteKeyword(" DEFINER")
 	ctx.WritePlain(" = ")
 
-	// todo Use n.Definer.Restore(ctx) to replace this part
-	if n.Definer.CurrentUser {
-		ctx.WriteKeyword("current_user")
-	} else {
-		ctx.WriteName(n.Definer.Username)
-		if n.Definer.Hostname != "" {
-			ctx.WritePlain("@")
-			ctx.WriteName(n.Definer.Hostname)
-		}
+	if err := n.Definer.Restore(ctx); err != nil {
+		return errors.Annotate(err, "restore view definer")
 	}
 
 	ctx.WriteKeyword(" SQL SECURITY ")
