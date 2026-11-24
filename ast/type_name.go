@@ -236,16 +236,9 @@ func (n *TypeName) RestoreAsCastType(ctx *format.RestoreCtx) error {
 	if width, ok := n.number(0); keyword == "FLOAT" && ok && width > 24 {
 		keyword = "DOUBLE"
 	}
-	// Legacy sized BINARY casts restore an empty target; unsized ones repeat BINARY.
-	if n.Keyword() == "BINARY" {
-		if len(n.Modifiers) == 0 {
-			ctx.WriteKeyword("BINARY BINARY")
-		}
-		return ctx.Err()
-	}
 	ctx.WriteKeyword(keyword)
 	switch keyword {
-	case "CHAR", "VARCHAR", "DATETIME", "TIME", "INTERVAL DAY_SECOND":
+	case "CHAR", "VARCHAR", "DATETIME", "TIME", "INTERVAL DAY_SECOND", "BINARY":
 		if len(n.Modifiers) != 0 {
 			if err := n.writeModifiers(ctx, 1, ","); err != nil {
 				return err

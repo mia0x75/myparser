@@ -28,8 +28,8 @@ func TestTypeNameRestore(t *testing.T) {
 		{"overflow fsp", "TIME", "TIME", "TIME(18446744073709551615)", []string{"18446744073709551615"}},
 		{"float normalization", "FLOAT", "DOUBLE(25,3)", "DOUBLE", []string{"25", "3"}},
 		{"integer cast", "INT", "INT", "INT", nil},
-		{"legacy unsized binary cast", "BINARY", "BINARY", "BINARY BINARY", nil},
-		{"legacy sized binary cast", "BINARY", "BINARY(8)", "", []string{"8"}},
+		{"unsized binary cast", "BINARY", "BINARY", "BINARY", nil},
+		{"sized binary cast", "BINARY", "BINARY(8)", "BINARY(8)", []string{"8"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			node := ast.NewTypeName(tc.keyword)
