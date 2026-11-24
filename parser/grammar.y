@@ -5778,12 +5778,11 @@ OnDuplicateKeyUpdate:
  *  Replace Statements
  *  See https://dev.mysql.com/doc/refman/5.7/en/replace.html
  *
- *  TODO: support PARTITION
  **********************************************************************************/
 ReplaceIntoStmt:
-	replace TableOptimizerHints PriorityOpt IntoOpt TableName InsertValues
+	replace TableOptimizerHints PriorityOpt IntoOpt TableName PartitionNameListOpt InsertValues
 	{
-		x := $6.(*ast.InsertStmt)
+		x := $7.(*ast.InsertStmt)
 		if x.RowAlias != nil {
 			yyAppendErr(yylex, yyErrorf(yylex, "REPLACE does not accept a row alias"))
 			return 1
@@ -5791,6 +5790,10 @@ ReplaceIntoStmt:
 		x.IsReplace = true
 		x.Priority = $3.(mysql.PriorityEnum)
 		tn := $5.(*ast.TableName)
+		tn.PartitionNames = $6.([]lex.Ident)
+		if len(tn.PartitionNames) > 0 {
+			tn.SetSpan(loc.Cover(tn.Span(), yyS[yypt-1].span))
+		}
 		x.Table = tn
 		x.SetSpan(yyVAL.span)
 		$$ = x

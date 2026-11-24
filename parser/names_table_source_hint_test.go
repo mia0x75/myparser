@@ -39,7 +39,7 @@ func TestTableSourceHintRoundtripMatrix(t *testing.T) {
 		{"delete_before", "DELETE x FROM t AS x USE INDEX(i)", "DELETE `x` FROM `t` AS `x` USE INDEX (`i`)"},
 		{"delete_using", "DELETE FROM x USING t AS x USE INDEX(i)", "DELETE FROM `x` USING `t` AS `x` USE INDEX (`i`)"},
 		{"insert_partition", "INSERT INTO t PARTITION(p0) (a) VALUES(1)", "INSERT INTO `t` PARTITION(`p0`) (`a`) VALUES (1)"},
-		{"replace_partition", "REPLACE INTO t PARTITION(p0) (a) VALUES(1)", ""},
+		{"replace_partition", "REPLACE INTO t PARTITION(p0) (a) VALUES(1)", "REPLACE INTO `t` PARTITION(`p0`) (`a`) VALUES (1)"},
 		{"load_xml_partition", "LOAD XML INFILE 'f.xml' INTO TABLE t PARTITION(p0)", "LOAD XML INFILE 'f.xml' INTO TABLE `t` PARTITION(`p0`)"},
 		{"cache_index_partition", "CACHE INDEX t PARTITION(p0) KEY(i) IN DEFAULT", "CACHE INDEX `t` PARTITION(`p0`) INDEX (`i`) IN DEFAULT"},
 		{"load_index_partition", "LOAD INDEX INTO CACHE t PARTITION(p0) KEY(i) IGNORE LEAVES", "LOAD INDEX INTO CACHE `t` PARTITION(`p0`) INDEX (`i`) IGNORE LEAVES"},

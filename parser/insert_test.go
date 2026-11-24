@@ -307,12 +307,33 @@ func TestReplaceForms(t *testing.T) {
 		if !stmt.IsReplace || stmt.Priority != mysql.NoPriority {
 			t.Fatalf("IsReplace=%v Priority=%v, want replace with no priority", stmt.IsReplace, stmt.Priority)
 		}
+		if got, want := stmt.Table.Span(), stmt.Table.(*ast.TableName).Name.Span; got != want {
+			t.Fatalf("table span = %#v, want name span %#v", got, want)
+		}
 		checkInsertSourceSlots(t, stmt, true, false, false, false)
 	})
 	t.Run("replace with priority", func(t *testing.T) {
 		stmt := parseInsert(t, "replace low_priority into t values (1)")
 		if !stmt.IsReplace || stmt.Priority != mysql.LowPriority {
 			t.Fatalf("Priority = %v, want low priority", stmt.Priority)
+		}
+	})
+	t.Run("partition target", func(t *testing.T) {
+		sql := "replace into t partition (p0, p1) values (1)"
+		stmt := parseInsert(t, sql)
+		if !stmt.IsReplace {
+			t.Fatal("statement is not REPLACE")
+		}
+		table := stmt.Table.(*ast.TableName)
+		if got := table.PartitionNames; len(got) != 2 || got[0].Name != "p0" || got[1].Name != "p1" {
+			t.Fatalf("PartitionNames = %#v, want [p0 p1]", got)
+		}
+		if got, want := restoreStmt(t, stmt), "REPLACE INTO `t` PARTITION(`p0`, `p1`) VALUES (1)"; got != want {
+			t.Fatalf("restore = %q, want %q", got, want)
+		}
+		wantSpan := loc.Span{Start: 13, End: loc.ByteOffset(strings.Index(sql, " values"))}
+		if got := table.Span(); got != wantSpan {
+			t.Fatalf("table span = %#v, want %#v", got, wantSpan)
 		}
 	})
 }
