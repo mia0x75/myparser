@@ -1658,6 +1658,7 @@ AlterTableStmt:
 |	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $7.([]lex.Ident), MaxNumBuckets: $8.(uint64) }
+		$$.SetSpan(yyVAL.span)
 	}
 |	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList index IndexNameList BucketsOpt
 	{
@@ -1668,6 +1669,7 @@ AlterTableStmt:
 			IndexFlag: true,
 			MaxNumBuckets: $10.(uint64),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2111,6 +2113,7 @@ AnalyzeTableStmt:
 		st.TableNames = $4.([]*ast.TableName)
 		st.NoWriteToBinLog = $2.(bool)
 		$$ = st
+		$$.SetSpan(yyVAL.span)
 	 }
 |	analyze NoWriteToBinLogAliasOpt tables TableNameList AnalyzePersistentOpt
 	{
@@ -2118,14 +2121,17 @@ AnalyzeTableStmt:
 		st.TableNames = $4.([]*ast.TableName)
 		st.NoWriteToBinLog = $2.(bool)
 		$$ = st
+		$$.SetSpan(yyVAL.span)
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName index IndexNameList
 	{
 		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, IndexNames: $6.([]lex.Ident), IndexFlag: true, NoWriteToBinLog: $2.(bool) }
+		$$.SetSpan(yyVAL.span)
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName partition PartitionNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{ TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $6.([]lex.Ident), MaxNumBuckets: $7.(uint64), NoWriteToBinLog: $2.(bool) }
+		$$.SetSpan(yyVAL.span)
 	}
 |	analyze NoWriteToBinLogAliasOpt tableKwd TableName partition PartitionNameList index IndexNameList BucketsOpt
 	{
@@ -2137,6 +2143,7 @@ AnalyzeTableStmt:
 			MaxNumBuckets: $9.(uint64),
 			NoWriteToBinLog: $2.(bool),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2144,10 +2151,12 @@ BackupStmt:
 	backup lock TableName
 	{
 		$$ = &ast.BackupStmt{Table: $3.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	backup unlock
 	{
 		$$ = &ast.BackupStmt{Unlock: true}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -2157,6 +2166,7 @@ AnalyzePersistentOpt:
 |	persistent forKwd columns AnalyzeColumnList indexes AnalyzeIndexList
 	{
 		$$ = &ast.AnalyzeTableStmt{Persistent: true, Columns: $4.([]lex.Ident), IndexNames: $6.([]lex.Ident)}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 
 
@@ -2266,14 +2276,26 @@ AssignmentList:
 
 
 BeginTransactionStmt:
-	/* EMPTY */ begin                            { $$ = &ast.BeginStmt{} }
+	/* EMPTY */ begin
+	{
+		$$ = &ast.BeginStmt{}
+		$$.SetSpan(yyVAL.span)
+	}
 |	begin not atomic SpStmtListOpt end
 	{
 		$$ = &ast.BeginEndStmt{NotAtomic: true, List: $4.([]ast.StmtNode)}
 		$$.SetSpan(yyVAL.span)
 	}
-|	start transaction                          { $$ = &ast.BeginStmt{} }
-|	start transaction with consistent snapshot { $$ = &ast.BeginStmt{} }
+|	start transaction
+	{
+		$$ = &ast.BeginStmt{}
+		$$.SetSpan(yyVAL.span)
+	}
+|	start transaction with consistent snapshot
+	{
+		$$ = &ast.BeginStmt{}
+		$$.SetSpan(yyVAL.span)
+	}
 
 
 BinlogStmt:
@@ -2403,6 +2425,7 @@ CommitStmt:
 	commit TransactionWorkOpt TransactionChainReleaseOpt
 	{
 		$$ = &ast.CommitStmt{TransactionOptions: $3.(ast.TransactionOptions)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3856,6 +3879,7 @@ CreateViewStmt:
 		    x.CheckOption = model.CheckOptionCascaded
 		}
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 
 AlterViewStmt:
@@ -3887,6 +3911,7 @@ AlterViewStmt:
 			x.CheckOption = model.CheckOptionCascaded
 		}
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -3923,6 +3948,7 @@ CreateFunctionStmt:
 			Characteristics: $15.(*ast.RoutineCharacteristics),
 			Body:            body,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	create OrReplace ViewAlgorithm ViewDefiner ViewSQLSecurity function IfNotExists RoutineName FuncParams returns Type RoutineCharacteristicList SpStmtOpt
 	{
@@ -3945,6 +3971,7 @@ CreateFunctionStmt:
 			Characteristics: $12.(*ast.RoutineCharacteristics),
 			Body:            body,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	create OrReplace ViewAlgorithm ViewDefiner ViewSQLSecurity function IfNotExists TableName returns UDFReturnType soname stringLit
 	{
@@ -3955,6 +3982,7 @@ CreateFunctionStmt:
 			ReturnType:  $10.(*ast.TypeName),
 			Soname:      $12,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 |	create aggregate function IfNotExists TableName returns UDFReturnType soname stringLit
 	{
@@ -3965,6 +3993,7 @@ CreateFunctionStmt:
 			ReturnType:  $7.(*ast.TypeName),
 			Soname:      $9,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4015,6 +4044,7 @@ AlterFunctionStmt:
 			Name:            $3.(*ast.TableName),
 			Characteristics: $4.(*ast.RoutineCharacteristics),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4029,6 +4059,7 @@ AlterProcedureStmt:
 			Name:            $3.(*ast.TableName),
 			Characteristics: $4.(*ast.RoutineCharacteristics),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4066,6 +4097,7 @@ CreateTriggerStmt:
 			x.OtherTriggerName = order[1].(lex.Ident)
 		}
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4098,6 +4130,7 @@ CreateEventStmt:
 			x.CommentSpecified = true
 		}
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4120,6 +4153,7 @@ AlterEventStmt:
 			return 1
 		}
 		$$ = x
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4127,34 +4161,42 @@ AlterEventClause:
 	EventSchedule
 	{
 		$$ = &ast.AlterEventStmt{Schedule: $1.(*ast.EventSchedule)}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	on completion preserve
 	{
 		$$ = &ast.AlterEventStmt{OnCompletion: true, Preserve: true}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	on completion not preserve
 	{
 		$$ = &ast.AlterEventStmt{OnCompletion: true, Preserve: false}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	enable
 	{
 		$$ = &ast.AlterEventStmt{Status: ast.EventStatusEnable}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	disable %prec empty
 	{
 		$$ = &ast.AlterEventStmt{Status: ast.EventStatusDisable}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	disable on slave
 	{
 		$$ = &ast.AlterEventStmt{Status: ast.EventStatusDisableOnSlave}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	comment stringLit
 	{
 		$$ = &ast.AlterEventStmt{Comment: $2, CommentSpecified: true}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	rename to TableName
 	{
 		$$ = &ast.AlterEventStmt{RenameName: $3.(*ast.TableName)}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 
 
@@ -4162,6 +4204,7 @@ AlterEventClauses:
 	/* EMPTY */
 	{
 		$$ = &ast.AlterEventStmt{}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	AlterEventClauses AlterEventClause
 	{
@@ -4185,6 +4228,7 @@ AlterEventClauses:
 			acc.RenameName = c.RenameName
 		}
 		$$ = acc
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 
 
@@ -4460,6 +4504,7 @@ ReturnStmt:
 	returnKwd Expression
 	{
 		$$ = &ast.ReturnStmt{Expr: $2.(ast.ExprNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4517,6 +4562,7 @@ DoStmt:
 		$$ = &ast.DoStmt {
 			Exprs: $2.([]ast.ExprNode),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4524,10 +4570,12 @@ CallStmt:
 	call RoutineName
 	{
 		$$ = &ast.CallStmt{Name: $2.(*ast.TableName), Args: []ast.ExprNode{}}
+		$$.SetSpan(yyVAL.span)
 	}
 |	call RoutineName '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.CallStmt{Name: $2.(*ast.TableName), Args: $4.([]ast.ExprNode)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4642,6 +4690,7 @@ DropIndexStmt:
 	drop index IfExists Identifier on TableName
 	{
 		$$ = &ast.DropIndexStmt{IfExists: $3.(bool), IndexName: syntaxIdent(yylex, $4, yyS[yypt-2].span), Table: $6.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4649,10 +4698,12 @@ DropTableStmt:
 	drop TemporaryOpt TableOrTables TableNameList RestrictOrCascadeOpt
 	{
 		$$ = &ast.DropTableStmt{Tables: $4.([]*ast.TableName), Temporary: $2.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	drop TemporaryOpt TableOrTables ifKwd exists TableNameList RestrictOrCascadeOpt
 	{
 		$$ = &ast.DropTableStmt{IfExists: true, Tables: $6.([]*ast.TableName), Temporary: $2.(bool)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4660,11 +4711,13 @@ DropViewStmt:
 	drop view TableNameList RestrictOrCascadeOpt
 	{
 		$$ = &ast.DropTableStmt{Tables: $3.([]*ast.TableName), IsView: true}
+		$$.SetSpan(yyVAL.span)
 	}
 |
 	drop view ifKwd exists TableNameList RestrictOrCascadeOpt
 	{
 		$$ = &ast.DropTableStmt{IfExists: true, Tables: $5.([]*ast.TableName), IsView: true}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4672,6 +4725,7 @@ DropFunctionStmt:
 	drop function IfExists TableName
 	{
 		$$ = &ast.DropFunctionStmt{IfExists: $3.(bool), Name: $4.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4679,6 +4733,7 @@ DropProcedureStmt:
 	drop procedure IfExists TableName
 	{
 		$$ = &ast.DropProcedureStmt{IfExists: $3.(bool), Name: $4.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4686,6 +4741,7 @@ DropTriggerStmt:
 	drop trigger IfExists TableName
 	{
 		$$ = &ast.DropTriggerStmt{IfExists: $3.(bool), Name: $4.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4693,6 +4749,7 @@ DropEventStmt:
 	drop event IfExists TableName
 	{
 		$$ = &ast.DropEventStmt{IfExists: $3.(bool), Name: $4.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4700,10 +4757,12 @@ DropUserStmt:
 	drop user UsernameList
 	{
 		$$ = &ast.DropUserStmt{IsDropRole: false, IfExists: false, UserList: $3.([]*auth.UserIdentity)}
+		$$.SetSpan(yyVAL.span)
 	}
 |	drop user ifKwd exists UsernameList
 	{
 		$$ = &ast.DropUserStmt{IsDropRole: false, IfExists: true, UserList: $5.([]*auth.UserIdentity)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -4715,6 +4774,7 @@ DropRoleStmt:
 			tmp = append(tmp, &auth.UserIdentity{Username:r.Username, Hostname: r.Hostname})
 		}
 		$$ = &ast.DropUserStmt{IsDropRole: true, IfExists: false, UserList: tmp}
+		$$.SetSpan(yyVAL.span)
 	}
 |	drop role ifKwd exists RolenameList {
 		tmp := make([]*auth.UserIdentity, 0, 10)
@@ -4723,6 +4783,7 @@ DropRoleStmt:
 			tmp = append(tmp, &auth.UserIdentity{Username:r.Username, Hostname: r.Hostname})
 		}
 		$$ = &ast.DropUserStmt{IsDropRole: true, IfExists: true, UserList: tmp}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9107,6 +9168,7 @@ SetStmt:
 			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://dev.mysql.com/doc/refman/8.0/en/set-variable.html */
 |	set persistOnly VariableAssignmentList
@@ -9120,9 +9182,18 @@ SetStmt:
 			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
+		$$.SetSpan(yyVAL.span)
 	}
-|	set password eq PasswordOpt                { $$ = &ast.SetPwdStmt{Password: $4.(string)} }
-|	set password forKwd Username eq PasswordOpt { $$ = &ast.SetPwdStmt{User: $4.(*auth.UserIdentity), Password: $6.(string)} }
+|	set password eq PasswordOpt
+	{
+		$$ = &ast.SetPwdStmt{Password: $4.(string)}
+		$$.SetSpan(yyVAL.span)
+	}
+|	set password forKwd Username eq PasswordOpt
+	{
+		$$ = &ast.SetPwdStmt{User: $4.(*auth.UserIdentity), Password: $6.(string)}
+		$$.SetSpan(yyVAL.span)
+	}
 |	set global transaction TransactionChars
 	{
 		vars := $4.([]*ast.VariableAssignment)
@@ -9133,6 +9204,7 @@ SetStmt:
 			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
+		$$.SetSpan(yyVAL.span)
 	}
 |	set session transaction TransactionChars
 	{
@@ -9144,6 +9216,7 @@ SetStmt:
 			}
 		}
 		$$ = &ast.SetStmt{Variables: vars}
+		$$.SetSpan(yyVAL.span)
 	}
 |	set transaction TransactionChars
 	{
@@ -9155,6 +9228,7 @@ SetStmt:
 			}
 		}
 		$$ = &ast.SetStmt{Variables: assigns}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9185,7 +9259,11 @@ StatementAssignmentList:
 
 
 SetRoleStmt:
-	set role SetRoleOpt { $$ = $3.(*ast.SetRoleStmt) }
+	set role SetRoleOpt
+	{
+		$$ = $3.(*ast.SetRoleStmt)
+		$$.SetSpan(yyVAL.span)
+	}
 
 
 SetDefaultRoleStmt:
@@ -9196,6 +9274,7 @@ SetDefaultRoleStmt:
 			RoleList: tmp.RoleList,
 			UserList: $6.([]*auth.UserIdentity),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -9787,6 +9866,7 @@ FlushStmt:
 		tmp := $3.(*ast.FlushStmt)
 		tmp.NoWriteToBinLog = $2.(bool)
 		$$ = tmp
+		$$.SetSpan(yyVAL.span)
 	}
 
 FlushOption:
@@ -9795,12 +9875,14 @@ FlushOption:
 		$$ = &ast.FlushStmt{
 			Tp: ast.FlushPrivileges,
 		}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	status
 	{
 		$$ = &ast.FlushStmt{
 			Tp: ast.FlushStatus,
 		}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 |	TableOrTables TableNameListOpt WithReadLockOpt
 	{
@@ -9809,6 +9891,7 @@ FlushOption:
 			Tables: $2.([]*ast.TableName),
 			ReadLock: $3.(bool),
 		}
+		$$.(ast.Node).SetSpan(yyVAL.span)
 	}
 
 
@@ -10568,10 +10651,12 @@ SpStartTransactionStmt:
 	start transaction
 	{
 		$$ = &ast.BeginStmt{}
+		$$.SetSpan(yyVAL.span)
 	}
 |	start transaction with consistent snapshot
 	{
 		$$ = &ast.BeginStmt{}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -11043,6 +11128,7 @@ TruncateTableStmt:
 	truncate OptTable TableName
 	{
 		$$ = &ast.TruncateTableStmt{Table: $3.(*ast.TableName)}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -11647,7 +11733,11 @@ UseStmt:
 
 
 PurgeStmt:
-	purge BinaryOrMaster logs { $$ = &ast.PurgeStmt{Binary: $2.(bool)} }
+	purge BinaryOrMaster logs
+	{
+		$$ = &ast.PurgeStmt{Binary: $2.(bool)}
+		$$.SetSpan(yyVAL.span)
+	}
 ;
 
 BinaryOrMaster:
@@ -11681,6 +11771,7 @@ CreateUserStmt:
 			TslOptions: $5.([]*ast.TslOption),
 			ResourceOptions: $6.([]*ast.ResourceOption),
 			PasswordOrLockOptions: $7.([]*ast.PasswordOrLockOption),		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -11692,6 +11783,7 @@ CreateRoleStmt:
 			IfNotExists: $3.(bool),
 			Specs: $4.([]*ast.UserSpec),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -11703,6 +11795,7 @@ AlterUserStmt:
 			IfExists: $3.(bool),
 			Specs: $4.([]*ast.UserSpec),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 | 	alter user IfExists user '(' ')' identified by AuthString
 	{
@@ -11714,6 +11807,7 @@ AlterUserStmt:
 			IfExists: $3.(bool),
 			CurrentAuth: auth,
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -11984,6 +12078,7 @@ GrantRoleStmt:
 			Roles: $2.([]*auth.RoleIdentity),
 			Users: $4.([]*auth.UserIdentity),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -12103,6 +12198,7 @@ RevokeRoleStmt:
 			Roles: $2.([]*auth.RoleIdentity),
 			Users: $4.([]*auth.UserIdentity),
 		}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
@@ -12348,7 +12444,11 @@ TableLockList:
  * See https://dev.mysql.com/doc/refman/5.7/en/kill.html
  *******************************************************************/
 KillStmt:
-	kill KillOption Expression { $$ = newKillStmt($2.(bool), $3) }
+	kill KillOption Expression
+	{
+		$$ = newKillStmt($2.(bool), $3)
+		$$.SetSpan(yyVAL.span)
+	}
 
 
 KillOption:
@@ -13147,15 +13247,18 @@ ShutdownStmt:
 	shutdown
 	{
 		$$ = &ast.ShutdownStmt{}
+		$$.SetSpan(yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/shutdown */
 |	shutdown wait forKwd all slaves
 	{
 		$$ = &ast.ShutdownStmt{WaitForAllSlaves: true}
+		$$.SetSpan(yyVAL.span)
 	}
 |	shutdown wait forKwd all replicas
 	{
 		$$ = &ast.ShutdownStmt{WaitForAllSlaves: true}
+		$$.SetSpan(yyVAL.span)
 	}
 
 
