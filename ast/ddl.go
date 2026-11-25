@@ -2322,6 +2322,7 @@ type AlterTableSpec struct {
 	OldColumnName     *QualifiedName
 	NewColumnName     *QualifiedName
 	Position          *ColumnPosition
+	ReferOpt          ReferOptionType
 	LockType          LockType
 	Algorithm         AlterAlgorithm
 	Comment           string
@@ -2424,7 +2425,10 @@ func (n *AlterTableSpec) Restore(ctx *format.RestoreCtx) error {
 		if err := restoreQualifiedName(ctx, *n.OldColumnName); err != nil {
 			return errors.Annotate(err, "An error occurred while restore AlterTableSpec.OldColumnName")
 		}
-	// TODO: RestrictOrCascadeOpt not support
+		if n.ReferOpt != ReferOptionNoOption {
+			ctx.WritePlain(" ")
+			ctx.WriteKeyword(n.ReferOpt.String())
+		}
 	case AlterTableDropPrimaryKey:
 		ctx.WriteKeyword("DROP PRIMARY KEY")
 	case AlterTableDropIndex:

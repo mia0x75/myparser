@@ -1069,6 +1069,7 @@ type lastValueWindow struct {
 	DefaultTrueDistinctOpt          /* Distinct option which defaults to true */
 	BuggyDefaultFalseDistinctOpt    /* Distinct option which accepts DISTINCT ALL and defaults to false */
 	RequireClause                   /* Encrypted connections options */
+	RestrictOrCascadeOpt            /* optional RESTRICT or CASCADE */
 	EqOpt                           /* = or empty */
 	EscapedTableRef                 /* escaped table reference */
 	ExpressionList                  /* expression list */
@@ -1781,8 +1782,9 @@ AlterTableSpec:
 |	drop ColumnKeywordOpt ColumnName RestrictOrCascadeOpt
 	{
 		$$ = &ast.AlterTableSpec{
-			Tp: ast.AlterTableDropColumn,
+			Tp:            ast.AlterTableDropColumn,
 			OldColumnName: namePointer($3.(ast.QualifiedName)),
+			ReferOpt:      $4.(ast.ReferOptionType),
 		}
 		$$.(*ast.AlterTableSpec).SetSpan(yyVAL.span)
 	}
@@ -4819,9 +4821,9 @@ DropRoleStmt:
 
 
 RestrictOrCascadeOpt:
-	/* EMPTY */ {}
-|	restrict
-|	cascade
+	/* EMPTY */ { $$ = ast.ReferOptionNoOption }
+|	restrict    { $$ = ast.ReferOptionRestrict }
+|	cascade     { $$ = ast.ReferOptionCascade }
 
 
 TableOrTables:
