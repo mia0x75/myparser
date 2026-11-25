@@ -48,7 +48,6 @@ var builtinFuncs = map[string]struct{}{
 	"lag": {}, "first_value": {}, "last_value": {}, "nth_value": {}, "cube": {}, "rollup": {},
 	"grouping": {}, "json_arrayagg": {}, "json_objectagg": {},
 	"dateliteral": {}, "timeliteral": {}, "timestampliteral": {},
-	"tidb_version": {}, "tidb_is_ddl_owner": {}, "tidb_parse_tso": {},
 }
 
 func isBuiltinFunc(name string) bool {

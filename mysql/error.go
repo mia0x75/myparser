@@ -118,9 +118,7 @@ const (
 	ClassTable
 	ClassTypes
 	ClassGlobal
-	ClassMockTikv
 	ClassJSON
-	ClassTiKV
 	ClassSession
 	ClassPlugin
 	// Add more as needed.
@@ -146,9 +144,7 @@ var errClz2Str = map[ErrClass]string{
 	ClassTable:      "table",
 	ClassTypes:      "types",
 	ClassGlobal:     "global",
-	ClassMockTikv:   "mocktikv",
 	ClassJSON:       "json",
-	ClassTiKV:       "tikv",
 	ClassSession:    "session",
 	ClassPlugin:     "plugin",
 }

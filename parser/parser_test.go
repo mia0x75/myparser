@@ -214,7 +214,7 @@ func TestSimple(t *testing.T) {
 		"auto_increment", "after", "begin", "bit", "bool", "boolean", "charset", "columns", "commit",
 		"date", "datediff", "datetime", "deallocate", "do", "from_days", "end", "engine", "engines", "execute", "first", "full",
 		"local", "names", "offset", "password", "prepare", "quick", "rollback", "session", "signed",
-		"start", "global", "tables", "tablespace", "text", "time", "timestamp", "tidb", "transaction", "truncate", "unknown",
+		"start", "global", "tables", "tablespace", "text", "time", "timestamp", "transaction", "truncate", "unknown",
 		"value", "warnings", "year", "now", "substr", "subpartition", "subpartitions", "substring", "mode", "any", "some", "user", "identified",
 		"collation", "comment", "avg_row_length", "checksum", "compression", "connection", "key_block_size",
 		"max_rows", "min_rows", "national", "quarter", "escape", "grants", "status", "fields", "triggers",
@@ -1347,9 +1347,6 @@ func TestBuiltin(t *testing.T) {
 
 		{`SELECT LOCATE('bar', 'foobarbar');`, true, "SELECT LOCATE('bar', 'foobarbar')"},
 		{`SELECT LOCATE('bar', 'foobarbar', 5);`, true, "SELECT LOCATE('bar', 'foobarbar', 5)"},
-
-		{`SELECT tidb_version();`, true, "SELECT TIDB_VERSION()"},
-		{`SELECT tidb_is_ddl_owner();`, true, "SELECT TIDB_IS_DDL_OWNER()"},
 
 		// for time fsp
 		{"CREATE TABLE t( c1 TIME(2), c2 DATETIME(2), c3 TIMESTAMP(2) );", true, "CREATE TABLE `t` (`c1` TIME(2),`c2` DATETIME(2),`c3` TIMESTAMP(2))"},
@@ -2606,20 +2603,20 @@ func TestInsertRowAlias(t *testing.T) {
 
 func TestHintError(t *testing.T) {
 	parser := New()
-	stmt, warns, err := parser.Parse("select /*+ tidb_unknow(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err := parser.Parse("select /*+ unknownhint(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 	if len(warns) != 1 {
 		t.Fatalf("got %#v, want %#v", len(warns), 1)
 	}
-	if warns[0].Error() != "line 1 column 32 near \"tidb_unknow(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
-		t.Fatalf("got %#v, want %#v", warns[0].Error(), "line 1 column 32 near \"tidb_unknow(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
+	if warns[0].Error() != "line 1 column 32 near \"unknownhint(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
+		t.Fatalf("got %#v, want %#v", warns[0].Error(), "line 1 column 32 near \"unknownhint(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
 	}
 	if len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("got %#v, want %#v", len(stmt[0].(*ast.SelectStmt).TableHints), 0)
 	}
-	stmt, warns, err = parser.Parse("select /*+ tidb_unknow(T1,t2, 1) TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err = parser.Parse("select /*+ unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
 	if len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("got %#v, want %#v", len(stmt[0].(*ast.SelectStmt).TableHints), 0)
 	}
@@ -2629,21 +2626,21 @@ func TestHintError(t *testing.T) {
 	if len(warns) != 1 {
 		t.Fatalf("got %#v, want %#v", len(warns), 1)
 	}
-	if warns[0].Error() != "line 1 column 53 near \"tidb_unknow(T1,t2, 1) TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
-		t.Fatalf("got %#v, want %#v", warns[0].Error(), "line 1 column 53 near \"tidb_unknow(T1,t2, 1) TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
+	if warns[0].Error() != "line 1 column 53 near \"unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
+		t.Fatalf("got %#v, want %#v", warns[0].Error(), "line 1 column 53 near \"unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
 	}
-	stmt, warns, err = parser.Parse("select c1, c2 from /*+ tidb_unknow(T1,t2) */ t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err = parser.Parse("select c1, c2 from /*+ unknownhint(T1,t2) */ t1, t2 where t1.c1 = t2.c1", "", "")
 	if err != nil || len(warns) != 0 || len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("hint outside its legal position must be ignored: error %v, warnings %v", err, warns)
 	}
-	_, _, err = parser.Parse("select1 /*+ TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	_, _, err = parser.Parse("select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
-	if err.Error() != "line 1 column 7 near \"select1 /*+ TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
-		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 7 near \"select1 /*+ TIDB_INLJ(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
+	if err.Error() != "line 1 column 7 near \"select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
+		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 7 near \"select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
 	}
-	_, _, err = parser.Parse("select /*+ TIDB_INLJ(t1, T2) */ c1, c2 fromt t1, t2 where t1.c1 = t2.c1", "", "")
+	_, _, err = parser.Parse("select /*+ UNKNOWN_A(t1, T2) */ c1, c2 fromt t1, t2 where t1.c1 = t2.c1", "", "")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
@@ -4392,8 +4389,6 @@ func TestWindowFunctions(t *testing.T) {
 		{`SELECT FIRST_VALUE(year) OVER (w ORDER BY year ASC) AS first FROM sales WINDOW w AS (PARTITION BY country);`, true, "SELECT FIRST_VALUE(`year`) OVER (`w` ORDER BY `year`) AS `first` FROM `sales` WINDOW `w` AS (PARTITION BY `country`)"},
 		{`SELECT RANK() OVER w1 FROM t WINDOW w1 AS (w2), w2 AS (), w3 AS (w1);`, true, "SELECT RANK() OVER `w1` FROM `t` WINDOW `w1` AS (`w2`),`w2` AS (),`w3` AS (`w1`)"},
 		{`SELECT RANK() OVER w1 FROM t WINDOW w1 AS (w2), w2 AS (w3), w3 AS (w1);`, true, "SELECT RANK() OVER `w1` FROM `t` WINDOW `w1` AS (`w2`),`w2` AS (`w3`),`w3` AS (`w1`)"},
-
-		{`select tidb_parse_tso(1)`, true, "SELECT TIDB_PARSE_TSO(1)"},
 		{`select from_unixtime(404411537129996288)`, true, "SELECT FROM_UNIXTIME(404411537129996288)"},
 		{`select from_unixtime(404411537129996288.22)`, true, "SELECT FROM_UNIXTIME(404411537129996288.22)"},
 

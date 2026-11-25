@@ -125,10 +125,6 @@ func FindColumnInfo(cols []*ColumnInfo, name string) *ColumnInfo {
 	return nil
 }
 
-// ExtraHandleID is the column ID of column which we need to append to schema to occupy the handle's position
-// for use of execution phase.
-const ExtraHandleID = -1
-
 const (
 	// TableInfoVersion0 means the table info version is 0.
 	// Upgrade from v2.1.1 or v2.1.2 to v2.1.3 and later, and then execute a "change/modify column" statement
@@ -145,9 +141,6 @@ const (
 	// CurrLatestTableInfoVersion means the latest table info
 	CurrLatestTableInfoVersion = TableInfoVersion1
 )
-
-// ExtraHandleName is the name of ExtraHandle Column.
-var ExtraHandleName = NewCIStr("_tidb_rowid")
 
 // TableInfo provides meta data describing a DB table.
 type TableInfo struct {
@@ -280,18 +273,6 @@ func (t *TableInfo) FindIndexByName(idxName string) *IndexInfo {
 		}
 	}
 	return nil
-}
-
-// NewExtraHandleColInfo mocks a column info for extra handle column.
-func NewExtraHandleColInfo() *ColumnInfo {
-	colInfo := &ColumnInfo{
-		ID:   ExtraHandleID,
-		Name: ExtraHandleName,
-	}
-	colInfo.Flag = mysql.PriKeyFlag
-	colInfo.Tp = mysql.TypeLonglong
-	colInfo.Flen, colInfo.Decimal = mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeLonglong)
-	return colInfo
 }
 
 // ColumnIsInIndex checks whether c is included in any indices of t.
