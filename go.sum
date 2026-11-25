@@ -1,2 +1,4 @@
+github.com/mia0x75/parserkit v1.0.0 h1:QIvDcFgrGHO8IPLuE+W5W2VgRBOMU3/mCfDg/Y5Mco4=
+github.com/mia0x75/parserkit v1.0.0/go.mod h1:Mf0n/NFLLtSBdBTDFnkKXogiWzqlJbpXm3p+AV5IORQ=
 golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
 golang.org/x/text v0.43.0/go.mod h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=
