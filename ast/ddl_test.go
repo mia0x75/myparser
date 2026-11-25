@@ -12,9 +12,9 @@ import (
 
 func TestDDLVisitorCover(t *testing.T) {
 	ce := &checkExpr{}
-	constraint := &Constraint{BaseConstraint: pkast.BaseConstraint{Keys: []pkast.IndexKeyPartNode{&IndexKeyPart{}, &IndexKeyPart{}}, Refer: &ReferenceDef{}}, Option: &IndexOption{}}
+	constraint := &Constraint{BaseConstraint: pkast.BaseConstraint{Keys: []pkast.IndexKeyPartNode{&IndexKeyPart{}, &IndexKeyPart{}}, Refer: &ReferenceDef{BaseReferenceDef: pkast.BaseReferenceDef{Table: &TableName{}, Columns: []pkast.IndexKeyPartNode{&IndexKeyPart{}}}}}, Option: &IndexOption{}}
 
-	alterTableSpec := &AlterTableSpec{Constraint: constraint, Options: []*TableOption{{}}, NewTable: &TableName{}, NewColumns: []*ColumnDef{{Name: QualifiedName{Parts: nil}}}, OldColumnName: &QualifiedName{Parts: nil}, Position: &ColumnPosition{RelativeColumn: &QualifiedName{Parts: nil}}}
+	alterTableSpec := &AlterTableSpec{Constraint: constraint, Options: []*TableOption{{}}, NewTable: &TableName{}, NewColumns: []*ColumnDef{{Name: QualifiedName{Parts: nil}, Options: []*ColumnOption{{Expr: ce}}}}, OldColumnName: &QualifiedName{Parts: nil}, Position: &ColumnPosition{RelativeColumn: &QualifiedName{Parts: nil}}}
 
 	stmts := []struct {
 		node             Node
@@ -29,8 +29,7 @@ func TestDDLVisitorCover(t *testing.T) {
 		{&RenameTableStmt{Renames: []*TableRename{{Table: &TableName{}, NewTable: &TableName{}}}}, 0, 0},
 		{&TruncateTableStmt{Table: &TableName{}}, 0, 0},
 
-		// TODO: cover children
-		{&AlterTableStmt{Table: &TableName{}, Specs: []*AlterTableSpec{alterTableSpec}}, 0, 0},
+		{&AlterTableStmt{Table: &TableName{}, Specs: []*AlterTableSpec{alterTableSpec}}, 1, 1},
 		{&CreateIndexStmt{Table: &TableName{}}, 0, 0},
 		{&CreateTableStmt{BaseCreateTableStmt: pkast.BaseCreateTableStmt{Table: &TableName{}}, ReferTable: &TableName{}}, 0, 0},
 		{&CreateViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
@@ -49,6 +48,7 @@ func TestDDLVisitorCover(t *testing.T) {
 		{&AlterEventStmt{Name: &TableName{}, RenameName: &TableName{}}, 0, 0},
 		{&ReturnStmt{Expr: ce}, 1, 1},
 		{&AlterTableSpec{}, 0, 0},
+		{alterTableSpec, 1, 1},
 		{&ColumnDef{Name: QualifiedName{Parts: nil}, Options: []*ColumnOption{{Expr: ce}}}, 1, 1},
 		{&ColumnOption{Expr: ce}, 1, 1},
 		{&ColumnPosition{RelativeColumn: &QualifiedName{Parts: nil}}, 0, 0},
