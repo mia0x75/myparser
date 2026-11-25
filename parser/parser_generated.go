@@ -17167,8 +17167,8 @@ yydefault:
 					}
 					expr = &ast.PositionExpr{N: position}
 				case pkast.LiteralInteger:
-					if position, err := strconv.ParseInt(literal.Value, 10, 64); err == nil {
-						expr = &ast.PositionExpr{N: int(position)}
+					if position, err := strconv.Atoi(literal.Value); err == nil {
+						expr = &ast.PositionExpr{N: position}
 					}
 				}
 				if position, ok := expr.(*ast.PositionExpr); ok {
