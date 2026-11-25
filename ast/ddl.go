@@ -2250,8 +2250,6 @@ const (
 	AlterTablePartition
 	AlterTableEnableKeys
 	AlterTableDisableKeys
-
-	// TODO: Add more actions
 )
 
 // LockType is the type for AlterTableSpec.

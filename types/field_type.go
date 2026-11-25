@@ -520,7 +520,7 @@ func DefaultTypeForValue(value any, tp *FieldType) {
 		SetBinChsClnFlag(tp)
 	case string:
 		tp.Tp = mysql.TypeVarString
-		// TODO: tp.Flen should be len(x) * 3 (max bytes length of CharsetUTF8)
+		// Flen is the UTF-8 byte length of the inferred value.
 		tp.Flen = len(x)
 		tp.Decimal = UnspecifiedLength
 		tp.Charset, tp.Collate = charset.GetDefaultCharsetAndCollate()

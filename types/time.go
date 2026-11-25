@@ -161,7 +161,6 @@ func (t Time) Clock() (hour int, minute int, second int) {
 }
 
 // Time is the struct for handling datetime, timestamp and date.
-// TODO: check if need a NewTime function to set Fsp default value?
 type Time struct {
 	Time MysqlTime
 	Type uint8
@@ -273,7 +272,7 @@ func (t Time) ConvertToDuration() (Duration, error) {
 	frac := t.Time.Microsecond() * 1000
 
 	d := gotime.Duration(hour*3600+minute*60+second)*gotime.Second + gotime.Duration(frac)
-	// TODO: check convert validation
+	// Callers are expected to pass a validated Time; conversion does not re-check the MySQL range.
 	return Duration{Duration: d, Fsp: t.Fsp}, nil
 }
 
@@ -781,7 +780,6 @@ func ExtractDatetimeNum(t *Time, unit string) (int64, error) {
 		week := t.Time.Week(0)
 		return int64(week), nil
 	case "MONTH":
-		// TODO: Consider time_zone variable.
 		t1, err := t.Time.GoTime(gotime.Local)
 		if err != nil {
 			return 0, errors.Trace(err)

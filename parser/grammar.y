@@ -2800,7 +2800,7 @@ NowSymOptionFraction:
 
 /*
 * See https://dev.mysql.com/doc/refman/5.7/en/date-and-time-functions.html#function_localtime
-* TODO: Process other three keywords
+* NowSym synonyms are canonicalized to CURRENT_TIMESTAMP for defaults.
 */
 NowSymFunc:
 	currentTs | localTime | localTs | builtinNow

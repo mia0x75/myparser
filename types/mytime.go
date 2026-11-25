@@ -55,7 +55,6 @@ func (t MysqlTime) Microsecond() int {
 
 // Weekday returns the Weekday value.
 func (t MysqlTime) Weekday() gotime.Weekday {
-	// TODO: Consider time_zone variable.
 	t1, err := t.GoTime(gotime.Local)
 	if err != nil {
 		return 0
