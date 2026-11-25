@@ -235,12 +235,6 @@ func TestModelTableInfo0Percent(t *testing.T) {
 	if table.IsView() {
 		t.Fatal("IsView: want false")
 	}
-
-	// GetDBID
-	db := &DBInfo{ID: 7, Name: NewCIStr("db"), Tables: []*TableInfo{table}}
-	if got := table.GetDBID(db.ID); got != 7 {
-		t.Fatalf("GetDBID: got %d, want 7", got)
-	}
 }
 
 func TestModelHistoryInfo(t *testing.T) {

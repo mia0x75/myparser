@@ -168,14 +168,6 @@ type TableInfo struct {
 	// UpdateTS is used to record the timestamp of updating the table's schema information.
 	// These changing schema operations don't include 'truncate table' and 'rename table'.
 	UpdateTS uint64 `json:"update_timestamp"`
-	// OldSchemaID :
-	// Because auto increment ID has schemaID as prefix,
-	// We need to save original schemaID to keep autoID unchanged
-	// while renaming a table from one database to another.
-	// TODO: Remove it.
-	// Now it only uses for compatibility with the old version that already uses this field.
-	OldSchemaID int64 `json:"old_schema_id,omitempty"`
-
 	// ShardRowIDBits specify if the implicit row ID is sharded.
 	ShardRowIDBits uint64
 
@@ -200,15 +192,6 @@ func (t *TableInfo) GetPartitionInfo() *PartitionInfo {
 // GetUpdateTime gets the table's updating time.
 func (t *TableInfo) GetUpdateTime() time.Time {
 	return TSConvert2Time(t.UpdateTS)
-}
-
-// GetDBID returns the schema ID that is used to create an allocator.
-// TODO: Remove it after removing OldSchemaID.
-func (t *TableInfo) GetDBID(dbID int64) int64 {
-	if t.OldSchemaID != 0 {
-		return t.OldSchemaID
-	}
-	return dbID
 }
 
 // Clone clones TableInfo.
