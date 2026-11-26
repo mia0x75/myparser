@@ -316,16 +316,6 @@ func explainIntoStmt(target *ast.VariableTarget, span loc.Span) *ast.SelectIntoS
 	return stmt
 }
 
-// validateFunctionCall applies argument rules that both pinned servers
-// enforce. Other function calls remain generic.
-func validateSourceFunctionCall(l yyLexer, offset int, name string, args []ast.ExprNode) error {
-	source := yyGetParser(l).src
-	if offset >= 0 && offset < len(source) && (source[offset] == '`' || source[offset] == '"') {
-		return nil
-	}
-	return validateFunctionCall(name, args)
-}
-
 // reservedRoleNames are the MySQL keywords and labels that must be quoted when
 // they are used as role names.
 var reservedRoleNames = map[string]struct{}{
@@ -350,37 +340,6 @@ func isReservedRoleName(src string, offset int, name string) bool {
 		return false
 	}
 	return offset < 0 || offset >= len(src) || (src[offset] != '`' && src[offset] != '"')
-}
-
-func validateFunctionCall(name string, args []ast.ExprNode) error {
-	switch strings.ToUpper(name) {
-	case "LOG":
-		if len(args) == 0 || len(args) > 2 {
-			return fmt.Errorf("LOG requires one or two arguments")
-		}
-	case "NOW":
-		if len(args) != 1 {
-			return nil
-		}
-		if literal, ok := args[0].(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralBoolean {
-			return nil
-		}
-		if literal, ok := args[0].(*ast.LiteralExpr); ok && literal.Kind == pkast.LiteralInteger {
-			if _, err := strconv.ParseUint(literal.Value, 10, 64); err == nil {
-				return nil
-			}
-		}
-		return fmt.Errorf("NOW precision must be a non-negative integer")
-	case "JSON_ARRAYAGG":
-		if len(args) != 1 {
-			return fmt.Errorf("JSON_ARRAYAGG requires one argument")
-		}
-	case "JSON_OBJECTAGG":
-		if len(args) != 2 {
-			return fmt.Errorf("JSON_OBJECTAGG requires two arguments")
-		}
-	}
-	return nil
 }
 
 // setSelectInto stores the structured INTO clause and keeps the legacy
