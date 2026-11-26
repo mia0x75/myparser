@@ -16,7 +16,7 @@ import (
 // mgmtParse parses one statement; fatal on syntax errors.
 func mgmtParse(t *testing.T, sql string) ast.StmtNode {
 	t.Helper()
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatalf("parse %q: %v", sql, err)
 	}
@@ -157,7 +157,7 @@ func TestMgmtOptimizerHintParserReuse(t *testing.T) {
 		mgmtRoundTrip(t, sql)
 	}
 	// Unsupported hint content parses with a warning and no hints.
-	stmts, warns, err := New().Parse("SELECT /*+ bka(t) */ 1", "", "")
+	stmts, warns, err := New().ParseWithWarnings("SELECT /*+ bka(t) */ 1")
 	if err != nil {
 		t.Fatalf("parse unsupported hint: %v", err)
 	}

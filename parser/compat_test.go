@@ -194,12 +194,12 @@ func TestCompatRoundTrip(t *testing.T) {
 		"explain format=tree for connection 3",
 	}
 	for _, sql := range cases {
-		stmt, err := New().ParseOneStmt(sql, "", "")
+		stmt, err := New().ParseOneStmt(sql)
 		if err != nil {
 			t.Fatalf("parse %q: %v", sql, err)
 		}
 		got := restoreStmt(t, stmt)
-		if _, err := New().ParseOneStmt(got, "", ""); err != nil {
+		if _, err := New().ParseOneStmt(got); err != nil {
 			t.Fatalf("reparse %q (from %q): %v", got, sql, err)
 		}
 	}
@@ -645,7 +645,7 @@ func TestManagementStatements(t *testing.T) {
 	for _, src := range cases {
 		stmt := mustParseOne(t, src)
 		restored := restoreStmt(t, stmt)
-		if _, err := New().ParseOneStmt(restored, "", ""); err != nil {
+		if _, err := New().ParseOneStmt(restored); err != nil {
 			t.Fatalf("source %q: restore %q: reparse: %v", src, restored, err)
 		}
 	}
@@ -658,7 +658,7 @@ func TestManagementStatements(t *testing.T) {
 		"install component 'file://component1' set var1 = 1",
 		"install component 'file://component1' set persist_only var1 = 1",
 	} {
-		if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+		if _, err := New().ParseOneStmt(src); err == nil {
 			t.Fatalf("%q: expected parse error", src)
 		}
 	}
@@ -804,7 +804,7 @@ func TestGetDiagnostics(t *testing.T) {
 		"get diagnostics condition 1 @a = 1",
 	}
 	for _, src := range invalid {
-		if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+		if _, err := New().ParseOneStmt(src); err == nil {
 			t.Fatalf("%q: expected parse error", src)
 		}
 	}

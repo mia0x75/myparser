@@ -192,7 +192,7 @@ func TestManagementNamesBoundary(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -218,7 +218,7 @@ func TestManagementNamesBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := p.ParseOneStmt("SELECT other FROM elsewhere", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("SELECT other FROM elsewhere"); err != nil {
 				t.Fatal(err)
 			}
 			after, err := json.Marshal(stmt)
@@ -242,7 +242,7 @@ func TestManagementGrantNameBoundary(t *testing.T) {
 				}
 				sql := verb + " SELECT ON " + object + tail
 				p := New()
-				stmt, err := p.ParseOneStmt(sql, "", "")
+				stmt, err := p.ParseOneStmt(sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -293,7 +293,7 @@ func TestManagementGrantNameBoundary(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := p.ParseOneStmt("SELECT 1", "", ""); err != nil {
+				if _, err := p.ParseOneStmt("SELECT 1"); err != nil {
 					t.Fatal(err)
 				}
 				after, err := json.Marshal(obj)
@@ -312,7 +312,7 @@ func TestManagementANSINameBoundary(t *testing.T) {
 	p := New()
 	p.SetSQLMode(mysql.ModeANSIQuotes)
 	for _, sql := range []string{`ALTER TABLESPACE "旧" RENAME TO ""`, `INSTALL PLUGIN "p.名" SONAME 'lib.so'`, `SELECT * FROM JSON_TABLE(j, '$' COLUMNS ("" INT PATH '$')) jt`} {
-		stmt, err := p.ParseOneStmt(sql, "", "")
+		stmt, err := p.ParseOneStmt(sql)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -117,7 +117,7 @@ func TestManagementBuiltinTableNames(t *testing.T) {
 						{name: "no parentheses", sql: "create table " + name + " as select 1 as a", accepted: true},
 					} {
 						t.Run(tc.name, func(t *testing.T) {
-							stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+							stmt, err := parser.ParseOneStmt(tc.sql)
 							if !tc.accepted {
 								if err == nil {
 									t.Fatal("accepted an ambiguous built-in table name")

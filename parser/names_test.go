@@ -363,7 +363,7 @@ func TestSyntaxNameSpellingAndReuse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parser.SetSQLMode(tc.mode)
 			sql := "SELECT " + tc.expr
-			stmt, err := parser.ParseOneStmt(sql, "", "")
+			stmt, err := parser.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestSyntaxNameSpellingAndReuse(t *testing.T) {
 			if err := ref.Restore(myformat.NewRestoreCtx(myformat.DefaultRestoreFlags, &before)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := parser.ParseOneStmt("SELECT `other``name`", "", ""); err != nil {
+			if _, err := parser.ParseOneStmt("SELECT `other``name`"); err != nil {
 				t.Fatal(err)
 			}
 			if err := ref.Restore(myformat.NewRestoreCtx(myformat.DefaultRestoreFlags, &after)); err != nil {
@@ -413,7 +413,7 @@ func TestSyntaxNameSpellingAndReuse(t *testing.T) {
 
 func TestTableNameKeepsQualifiedPartsAndSpans(t *testing.T) {
 	const sql = "CREATE TABLE `a.b`.`T``x` (id INT)"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestTableNameSpanOnDirectConstructionPaths(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt(tc.sql, "", "")
+			stmt, err := New().ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -528,7 +528,7 @@ func TestSyntaxNameRestrictions(t *testing.T) {
 		{"quoted dot period", "CREATE TABLE t (x INT, PERIOD FOR p (`start.col`, end_col))", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := New().ParseOneStmt(tc.sql, "", "")
+			_, err := New().ParseOneStmt(tc.sql)
 			if tc.errorText == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -552,7 +552,7 @@ func TestReplicationOptionSyntaxSpelling(t *testing.T) {
 		{"connection without user", "start replica password='p' default_auth='a' plugin_dir='d'", []string{"password", "default_auth", "plugin_dir"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt(tc.sql, "", "")
+			stmt, err := New().ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}

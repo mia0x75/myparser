@@ -38,7 +38,7 @@ func TestWindowFrameNodeSpans(t *testing.T) {
 	sql := "SELECT SUM(a) OVER (ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM t"
 	p := New()
 	p.EnableWindowFunc(true)
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestWindowFrameNodeSpans(t *testing.T) {
 
 func TestSelectCoreNodeSpans(t *testing.T) {
 	sql := "WITH c AS (SELECT 1) SELECT x FROM t GROUP BY x HAVING x > 0"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestAlterColumnDefinitionSpans(t *testing.T) {
 	for _, clause := range []string{"ADD `名` INT DEFAULT 1", "MODIFY `名` INT DEFAULT 1"} {
 		t.Run(clause, func(t *testing.T) {
 			sql := "ALTER TABLE t " + clause
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,7 +113,7 @@ func TestAlterColumnDefinitionSpans(t *testing.T) {
 
 func TestTableAndPartitionOptionSpans(t *testing.T) {
 	sql := "CREATE TABLE t (a INT) ENGINE=InnoDB COMMENT='table' PARTITION BY RANGE (a) (PARTITION p VALUES LESS THAN MAXVALUE COMMENT='partition')"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestTableAndPartitionOptionSpans(t *testing.T) {
 
 func TestAlterTableCharsetOptionSpans(t *testing.T) {
 	sql := "ALTER TABLE t CONVERT TO CHARACTER SET utf8 COLLATE utf8_bin"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestTopLevelStatementSpans(t *testing.T) {
 		"SHUTDOWN",
 	}
 	for _, sql := range sqls {
-		stmt, err := New().ParseOneStmt(sql, "", "")
+		stmt, err := New().ParseOneStmt(sql)
 		if err != nil {
 			t.Errorf("parse %q: %v", sql, err)
 			continue
@@ -237,7 +237,7 @@ func TestProgramReductionSpans(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sql := "/* 源码 */ CREATE PROCEDURE p() " + tc.body
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -269,7 +269,7 @@ func TestSetVariableReductionSpans(t *testing.T) {
 	} {
 		t.Run(tc.assignment, func(t *testing.T) {
 			sql := "SET " + tc.assignment
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -333,7 +333,7 @@ func TestShowIndexKeepsOneDatabaseSource(t *testing.T) {
 
 func TestDatabaseReferenceMultiStatementSpans(t *testing.T) {
 	const input = "/* start */ use dba; show events in dbb where 1; explain for schema dbc select 1;"
-	stmts, _, err := New().Parse(input, "", "")
+	stmts, _, err := New().ParseWithWarnings(input)
 	if err != nil || len(stmts) != 3 {
 		t.Fatalf("statements=%d err=%v", len(stmts), err)
 	}

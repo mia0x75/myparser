@@ -29,7 +29,7 @@ func TestDialectCompatibilityLastValue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(tt.windowFunc)
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatalf("union parse rejected: %v", err)
 			}
@@ -76,7 +76,7 @@ func TestDialectExecutableComments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := New()
 			for target, want := range map[Dialect]int{DialectMySQL: tt.mysql, DialectMariaDB: tt.mariadb} {
-				stmt, err := parser.ParseOneStmtForDialect(tt.sql, "", "", target)
+				stmt, err := parser.ParseOneStmtForDialect(tt.sql, target)
 				if err != nil {
 					t.Fatalf("%s: %v", target, err)
 				}
@@ -84,7 +84,7 @@ func TestDialectExecutableComments(t *testing.T) {
 					t.Fatalf("%s fields = %d, want %d", target, got, want)
 				}
 			}
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,10 +106,10 @@ func TestDialectExecutableComments(t *testing.T) {
 		{name: "skip MariaDB-only invalid body", sql: `SELECT 1 /*M!100000 + */`, target: DialectMySQL},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := New().ParseOneStmtForDialect(tt.sql, "", "", tt.target); err != nil {
+			if _, err := New().ParseOneStmtForDialect(tt.sql, tt.target); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := New().ParseOneStmt(tt.sql, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(tt.sql); err == nil {
 				t.Fatal("union silently skipped an executed invalid body")
 			}
 		})
@@ -134,7 +134,7 @@ func TestDialectCompatibilitySelectAggregates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatalf("union parse: %v", err)
 			}
@@ -150,7 +150,7 @@ func TestDialectCompatibilitySelectAggregates(t *testing.T) {
 				if len(issues) != 0 && tt.sql[issues[0].Offset:issues[0].Offset+issues[0].Length] != issues[0].Highlight {
 					t.Fatalf("invalid source range: %#v", issues[0])
 				}
-				_, err := parser.ParseOneStmtForDialect(tt.sql, "", "", target)
+				_, err := parser.ParseOneStmtForDialect(tt.sql, target)
 				if (err != nil) != (code != "") {
 					t.Fatalf("%s strict parse = %v", target, err)
 				}
@@ -168,7 +168,7 @@ func TestDialectCompatibilitySelectAggregates(t *testing.T) {
 		t.Run(sql, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			if _, err := parser.ParseOneStmt(sql, "", ""); err == nil {
+			if _, err := parser.ParseOneStmt(sql); err == nil {
 				t.Fatal("accepted invalid aggregate call")
 			}
 		})
@@ -205,7 +205,7 @@ func TestDialectCompatibilityVerifiedBoundaries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := New()
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatalf("union parse rejected verified boundary: %v", err)
 			}
@@ -242,13 +242,13 @@ func TestDialectCompatibilityVerifiedBoundaries(t *testing.T) {
 func TestDialectCompatibilityStrictAPI(t *testing.T) {
 	sql := "SELECT CAST(1 AS JSON)"
 	parser := New()
-	if _, err := parser.ParseOneStmt(sql, "", ""); err != nil {
+	if _, err := parser.ParseOneStmt(sql); err != nil {
 		t.Fatalf("default union parse: %v", err)
 	}
-	if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err != nil {
+	if _, err := parser.ParseOneStmtForDialect(sql, DialectMySQL); err != nil {
 		t.Fatalf("MySQL strict parse: %v", err)
 	}
-	if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMariaDB); err == nil {
+	if _, err := parser.ParseOneStmtForDialect(sql, DialectMariaDB); err == nil {
 		t.Fatal("MariaDB strict parse accepted CAST AS JSON")
 	} else {
 		var compatibilityErr *DialectCompatibilityError
@@ -289,14 +289,14 @@ func TestDialectCompatibilityHighFrequencyDDLAndShow(t *testing.T) {
 			if after := restoreStmt(t, stmt); after != before {
 				t.Fatalf("compatibility check mutated AST: %q -> %q", before, after)
 			}
-			if _, err := parser.ParseOneStmtForDialect(tc.sql, "", "", tc.target); err == nil {
+			if _, err := parser.ParseOneStmtForDialect(tc.sql, tc.target); err == nil {
 				t.Fatal("strict API accepted incompatible syntax")
 			}
 			other := DialectMySQL
 			if tc.target == DialectMySQL {
 				other = DialectMariaDB
 			}
-			if _, err := parser.ParseOneStmtForDialect(tc.sql, "", "", other); err != nil {
+			if _, err := parser.ParseOneStmtForDialect(tc.sql, other); err != nil {
 				t.Fatalf("counterpart dialect rejected: %v", err)
 			}
 		})
@@ -310,7 +310,7 @@ func TestDialectCompatibilityHighFrequencyDDLAndShow(t *testing.T) {
 	} {
 		t.Run(sql, func(t *testing.T) {
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
-				if _, err := New().ParseOneStmtForDialect(sql, "", "", target); err != nil {
+				if _, err := New().ParseOneStmtForDialect(sql, target); err != nil {
 					t.Fatalf("control rejected for %s: %v", target, err)
 				}
 			}
@@ -338,7 +338,7 @@ func TestDialectCompatibilityWindowFramesAndViewWith(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -353,7 +353,7 @@ func TestDialectCompatibilityWindowFramesAndViewWith(t *testing.T) {
 						want = ""
 					}
 					issues := parser.CheckDialectCompatibility(stmt, tc.sql, target)
-					_, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target)
+					_, err := parser.ParseOneStmtForDialect(tc.sql, target)
 					if want == "" {
 						if len(issues) != 0 || err != nil {
 							t.Fatalf("control rejected: issues=%#v err=%v", issues, err)
@@ -390,7 +390,7 @@ func TestDialectCompatibilityWindowFramesAndViewWith(t *testing.T) {
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
 				parser := New()
 				parser.EnableWindowFunc(true)
-				if _, err := parser.ParseOneStmtForDialect(sql, "", "", target); err != nil {
+				if _, err := parser.ParseOneStmtForDialect(sql, target); err != nil {
 					t.Fatalf("control rejected for %s: %v", target, err)
 				}
 			}
@@ -404,7 +404,7 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 	// The exact MTR regression statement (window_functions_bugs.test:469-481):
 	// both frame bounds are INT64_MAX-class, so MariaDB sees two issues.
 	mtr := "SELECT SUM(a) OVER(ORDER BY a ROWS BETWEEN 9223372036854775807 FOLLOWING AND 9223372036854775807 FOLLOWING) as `sum` FROM t"
-	stmt, err := parser.ParseOneStmt(mtr, "", "")
+	stmt, err := parser.ParseOneStmt(mtr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,21 +417,21 @@ func TestDialectCompatibilityWindowHugeFrameBound(t *testing.T) {
 			t.Fatalf("issue code = %s", issue.Code)
 		}
 	}
-	if _, err := parser.ParseOneStmtForDialect(mtr, "", "", DialectMySQL); err != nil {
+	if _, err := parser.ParseOneStmtForDialect(mtr, DialectMySQL); err != nil {
 		t.Fatalf("mysql dialect must accept the frame (it clamps): %v", err)
 	}
-	if _, err := parser.ParseOneStmtForDialect(mtr, "", "", DialectUnion); err != nil {
+	if _, err := parser.ParseOneStmtForDialect(mtr, DialectUnion); err != nil {
 		t.Fatalf("union dialect must accept the frame: %v", err)
 	}
 	// Threshold boundary: 2^60-1 stays legal, 2^60 is the first flagged bound.
 	small := "SELECT SUM(a) OVER (ROWS BETWEEN 1152921504606846975 PRECEDING AND 2 FOLLOWING) FROM t"
-	if stmt, err := parser.ParseOneStmt(small, "", ""); err != nil {
+	if stmt, err := parser.ParseOneStmt(small); err != nil {
 		t.Fatal(err)
 	} else if issues := parser.CheckDialectCompatibility(stmt, small, DialectMariaDB); len(issues) != 0 {
 		t.Fatalf("below-threshold bound flagged: %#v", issues)
 	}
 	big := "SELECT SUM(a) OVER (ROWS BETWEEN 1152921504606846976 PRECEDING AND 2 FOLLOWING) FROM t"
-	if stmt, err := parser.ParseOneStmt(big, "", ""); err != nil {
+	if stmt, err := parser.ParseOneStmt(big); err != nil {
 		t.Fatal(err)
 	} else if issues := parser.CheckDialectCompatibility(stmt, big, DialectMariaDB); len(issues) != 1 || issues[0].Code != IssueMariaDBWindowHugeFrameBound {
 		t.Fatalf("threshold bound not flagged: %#v", issues)
@@ -447,7 +447,7 @@ func TestDialectCompatibilityRecursiveCteTail(t *testing.T) {
 		t.Run(sql[:40], func(t *testing.T) {
 			p := New()
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -455,13 +455,13 @@ func TestDialectCompatibilityRecursiveCteTail(t *testing.T) {
 			if len(issues) != 1 || issues[0].Code != IssueMySQLRecursiveCteTail {
 				t.Fatalf("mysql issues = %#v", issues)
 			}
-			if _, err := p.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err == nil {
+			if _, err := p.ParseOneStmtForDialect(sql, DialectMySQL); err == nil {
 				t.Fatal("mysql strict accepted illegal recursive CTE tail")
 			}
 			// MariaDB accepts (verified against live 12.3.3).
 			p2 := New()
 			p2.EnableWindowFunc(true)
-			if _, err := p2.ParseOneStmtForDialect(sql, "", "", DialectMariaDB); err != nil {
+			if _, err := p2.ParseOneStmtForDialect(sql, DialectMariaDB); err != nil {
 				t.Fatalf("mariadb rejected: %v", err)
 			}
 		})
@@ -474,7 +474,7 @@ func TestDialectCompatibilityRecursiveCteTail(t *testing.T) {
 		t.Run("control "+sql[:30], func(t *testing.T) {
 			p := New()
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -495,7 +495,7 @@ func TestDialectCompatibilityCorrelatedWindowInSubquery(t *testing.T) {
 		t.Run(sql[:40], func(t *testing.T) {
 			p := New()
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -503,13 +503,13 @@ func TestDialectCompatibilityCorrelatedWindowInSubquery(t *testing.T) {
 			if len(issues) != 1 || issues[0].Code != IssueMySQLCorrelatedWindowInSubq {
 				t.Fatalf("mysql issues = %#v", issues)
 			}
-			if _, err := p.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err == nil {
+			if _, err := p.ParseOneStmtForDialect(sql, DialectMySQL); err == nil {
 				t.Fatal("mysql strict accepted correlated window in subquery")
 			}
 			// MariaDB accepts (verified against live 12.3.3).
 			p2 := New()
 			p2.EnableWindowFunc(true)
-			if _, err := p2.ParseOneStmtForDialect(sql, "", "", DialectMariaDB); err != nil {
+			if _, err := p2.ParseOneStmtForDialect(sql, DialectMariaDB); err != nil {
 				t.Fatalf("mariadb rejected: %v", err)
 			}
 		})
@@ -523,7 +523,7 @@ func TestDialectCompatibilityCorrelatedWindowInSubquery(t *testing.T) {
 			p := New()
 			p.EnableWindowFunc(true)
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
-				stmt, err := p.ParseOneStmt(sql, "", "")
+				stmt, err := p.ParseOneStmt(sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -547,7 +547,7 @@ func TestDialectCompatibilityMySQLSysdateAndNotAtomic(t *testing.T) {
 	} {
 		t.Run(tc.sql[:30], func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -555,12 +555,12 @@ func TestDialectCompatibilityMySQLSysdateAndNotAtomic(t *testing.T) {
 			if len(issues) != 1 || issues[0].Code != tc.code || issues[0].Highlight != tc.highlight {
 				t.Fatalf("mysql issues = %#v", issues)
 			}
-			if _, err := p.ParseOneStmtForDialect(tc.sql, "", "", DialectMySQL); err == nil {
+			if _, err := p.ParseOneStmtForDialect(tc.sql, DialectMySQL); err == nil {
 				t.Fatal("mysql strict accepted MariaDB-only construct")
 			}
 			// MariaDB accepts both (verified against live 12.3.3).
 			p2 := New()
-			if _, err := p2.ParseOneStmtForDialect(tc.sql, "", "", DialectMariaDB); err != nil {
+			if _, err := p2.ParseOneStmtForDialect(tc.sql, DialectMariaDB); err != nil {
 				t.Fatalf("mariadb rejected: %v", err)
 			}
 		})
@@ -581,7 +581,7 @@ func TestDialectCompatibilityMariaDBOnlyStatements(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -595,7 +595,7 @@ func TestDialectCompatibilityMariaDBOnlyStatements(t *testing.T) {
 						want = ""
 					}
 					issues := parser.CheckDialectCompatibility(stmt, tc.sql, target)
-					_, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target)
+					_, err := parser.ParseOneStmtForDialect(tc.sql, target)
 					if want == "" {
 						if len(issues) != 0 || err != nil {
 							t.Fatalf("control rejected: issues=%#v err=%v", issues, err)
@@ -624,7 +624,7 @@ func TestDialectCompatibilityMariaDBOnlyStatements(t *testing.T) {
 		t.Run(sql, func(t *testing.T) {
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
 				parser := New()
-				stmt, err := parser.ParseOneStmt(sql, "", "")
+				stmt, err := parser.ParseOneStmt(sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -652,7 +652,7 @@ func TestDialectCompatibilityBuiltinTableNames(t *testing.T) {
 			for _, mode := range []mysql.SQLMode{0, mysql.ModeIgnoreSpace} {
 				parser := New()
 				parser.SetSQLMode(mode)
-				stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+				stmt, err := parser.ParseOneStmt(tc.sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -660,7 +660,7 @@ func TestDialectCompatibilityBuiltinTableNames(t *testing.T) {
 				for _, target := range []Dialect{DialectMySQL, DialectMariaDB, DialectUnion} {
 					wantIssue := target == tc.target && (!tc.ignoreSpaceOnly || mode.HasIgnoreSpaceMode())
 					issues := parser.CheckDialectCompatibility(stmt, tc.sql, target)
-					_, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target)
+					_, err := parser.ParseOneStmtForDialect(tc.sql, target)
 					if !wantIssue {
 						if len(issues) != 0 || err != nil {
 							t.Fatalf("%s mode %d: control rejected: issues=%#v err=%v", target, mode, issues, err)
@@ -700,7 +700,7 @@ func TestDialectCompatibilityBuiltinTableNames(t *testing.T) {
 				for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
 					parser := New()
 					parser.SetSQLMode(mode)
-					if _, err := parser.ParseOneStmtForDialect(sql, "", "", target); err != nil {
+					if _, err := parser.ParseOneStmtForDialect(sql, target); err != nil {
 						t.Fatalf("%s mode %d: control rejected: %v", target, mode, err)
 					}
 				}
@@ -796,12 +796,12 @@ func TestDialectCompatibilityRemainingSyntax(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("union parse: %v", err)
 			}
 			before := restoreStmt(t, stmt)
-			original, err := parser.ParseOneStmt(tc.sql, "", "")
+			original, err := parser.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -826,7 +826,7 @@ func TestDialectCompatibilityRemainingSyntax(t *testing.T) {
 						t.Fatalf("%s diagnostic = %#v, want %#v at %d", target, issue, want[i], offset)
 					}
 				}
-				_, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target)
+				_, err := parser.ParseOneStmtForDialect(tc.sql, target)
 				if len(want) == 0 {
 					if err != nil {
 						t.Fatalf("%s control rejected: %v", target, err)
@@ -870,7 +870,7 @@ func TestDialectCompatibilityRemainingControls(t *testing.T) {
 		t.Run(sql, func(t *testing.T) {
 			parser := New()
 			parser.EnableWindowFunc(true)
-			stmt, err := parser.ParseOneStmt(sql, "", "")
+			stmt, err := parser.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -879,7 +879,7 @@ func TestDialectCompatibilityRemainingControls(t *testing.T) {
 				if issues := parser.CheckDialectCompatibility(stmt, sql, target); len(issues) != 0 {
 					t.Fatalf("%s control issues = %#v", target, issues)
 				}
-				if _, err := parser.ParseOneStmtForDialect(sql, "", "", target); err != nil {
+				if _, err := parser.ParseOneStmtForDialect(sql, target); err != nil {
 					t.Fatalf("%s control rejected: %v", target, err)
 				}
 			}
@@ -938,7 +938,7 @@ func TestFindDuplicateIntoTokensAcrossUnion(t *testing.T) {
 			if len(found) != 1 {
 				t.Fatalf("duplicate INTO not found: %#v", found)
 			}
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -952,7 +952,7 @@ func TestFindDuplicateIntoTokensAcrossUnion(t *testing.T) {
 
 func TestDialectIssuesAfterOptimizerHint(t *testing.T) {
 	sql := "SELECT /*+ NO_ICP() */ CAST(1 AS JSON) FROM t"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -970,7 +970,7 @@ func TestDialectTokenizationStopsOnInvalidSource(t *testing.T) {
 }
 
 func TestTableNameHelpers(t *testing.T) {
-	stmt, err := New().ParseOneStmt("select * from `db`.`t`", "", "")
+	stmt, err := New().ParseOneStmt("select * from `db`.`t`")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -984,7 +984,7 @@ func TestTableNameHelpers(t *testing.T) {
 	if got := tableNameStartOffset(table); got != 14 {
 		t.Fatalf("start offset = %d, want 14", got)
 	}
-	bare, err := New().ParseOneStmt("select 1 from `t`", "", "")
+	bare, err := New().ParseOneStmt("select 1 from `t`")
 	if err != nil {
 		t.Fatal(err)
 	}

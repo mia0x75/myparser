@@ -445,7 +445,7 @@ func TestStatementCorpusRestoreVisit(t *testing.T) {
 	p := parser.New()
 	p.EnableWindowFunc(true)
 	for _, sql := range statementCorpus {
-		stmts, _, err := p.Parse(sql, "", "")
+		stmts, _, err := p.ParseWithWarnings(sql)
 		if err != nil {
 			t.Fatalf("parse %q: %v", sql, err)
 		}
@@ -466,7 +466,7 @@ func TestStatementCorpusRestoreVisit(t *testing.T) {
 			stmt.SetText(stmt.Text())
 
 			if restored := sb.String(); restored != "" {
-				if _, _, err := p.Parse(restored, "", ""); err != nil {
+				if _, _, err := p.ParseWithWarnings(restored); err != nil {
 					t.Fatalf("reparse %q -> %q: %v", sql, restored, err)
 				}
 			}

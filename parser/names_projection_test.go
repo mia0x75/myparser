@@ -44,7 +44,7 @@ func TestSelectItemAliasSyntax(t *testing.T) {
 			p := New()
 			p.SetSQLMode(tc.mode)
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,7 +119,7 @@ func TestWildcardProjectionSyntax(t *testing.T) {
 			t.Parallel()
 			p := New()
 			p.SetSQLMode(tc.mode)
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -159,7 +159,7 @@ func TestWildcardProjectionSyntax(t *testing.T) {
 func TestProjectionDataOutlivesParserReuse(t *testing.T) {
 	p := New()
 	sql := "SELECT `库.名`.`表``名`.*, (1 + 2) AS '列''别'"
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestProjectionDataOutlivesParserReuse(t *testing.T) {
 	spans := []loc.Span{fields.Span(), fields.Items[0].Span(), fields.Items[1].Span(), wildcard.Span()}
 	for i := range 20 {
 		next := "SELECT 0 AS '" + strings.Repeat("更改", i+1) + "'"
-		if _, err := p.ParseOneStmt(next, "", ""); err != nil {
+		if _, err := p.ParseOneStmt(next); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -228,7 +228,7 @@ func TestProjectionSpansAcrossQueryAndReturningPaths(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			stmt, err := New().ParseOneStmt(tc.sql, "", "")
+			stmt, err := New().ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}

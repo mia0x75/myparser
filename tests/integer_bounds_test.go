@@ -13,7 +13,7 @@ func TestRejectOverflowingIntegerFields(t *testing.T) {
 		"create table t (a varchar(18446744073709551615))",
 		"create resource group rg type = system thread_priority 18446744073709551615",
 	} {
-		if _, err := parser.New().ParseOneStmt(sql, "", ""); err == nil {
+		if _, err := parser.New().ParseOneStmt(sql); err == nil {
 			t.Fatalf("overflow accepted: %s", sql)
 		}
 	}
@@ -26,7 +26,7 @@ func TestOutOfRangeIntegerLiteralFallsBackToDecimal(t *testing.T) {
 	// 82 digits overflows the MyDecimal wordBufLen (9 words × 9 digits = 81).
 	// MySQL truncates to the max decimal value and emits a warning.
 	overflow := "1" + strings.Repeat("9", 81)
-	_, warns, err := parser.New().Parse("select "+overflow, "", "")
+	_, warns, err := parser.New().ParseWithWarnings("select " + overflow)
 	if err != nil {
 		t.Fatalf("parse returned error, want nil: %v", err)
 	}

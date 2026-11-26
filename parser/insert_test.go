@@ -186,7 +186,7 @@ func TestInsertQuerySources(t *testing.T) {
 	t.Run("parenthesized union without outer columns", func(t *testing.T) {
 		// Frozen grammar only parenthesizes a plain SelectStmt; a parenthesized
 		// SetOprStmt is a syntax error. Documented here, not a regression.
-		_, err := New().ParseOneStmt("insert into t (select 1 union select 2)", "", "")
+		_, err := New().ParseOneStmt("insert into t (select 1 union select 2)")
 		if err == nil {
 			t.Fatal("frozen grammar accepted a parenthesized set operator")
 		}
@@ -360,7 +360,7 @@ func TestInsertRowAliasAndReturning(t *testing.T) {
 		if stmt.Returning == nil || len(stmt.Returning.Items) != 2 {
 			t.Fatalf("Returning = %#v, want two items", stmt.Returning)
 		}
-		_, err := New().ParseOneStmtForDialect(sql, "", "", DialectMariaDB)
+		_, err := New().ParseOneStmtForDialect(sql, DialectMariaDB)
 		if err != nil {
 			t.Fatalf("MariaDB rejected returning insert: %v", err)
 		}
@@ -381,7 +381,7 @@ func TestInsertStatementSpan(t *testing.T) {
 func TestInsertReuseAcrossParses(t *testing.T) {
 	parser := New()
 	firstSQL := "insert into `表``t` (`db`.`a``b`) values (1, '列')"
-	first, _, err := parser.Parse(firstSQL, "", "")
+	first, _, err := parser.ParseWithWarnings(firstSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestInsertReuseAcrossParses(t *testing.T) {
 	wantSpan, wantTableSpan := stmt.Span(), stmt.Table.Span()
 	wantColumnSpan := ref.Span()
 	wantSQL := restoreStmt(t, stmt)
-	second, _, err := parser.Parse("insert into `different``table` (`longer``column`) values (2, 'changed')", "", "")
+	second, _, err := parser.ParseWithWarnings("insert into `different``table` (`longer``column`) values (2, 'changed')")
 	if err != nil {
 		t.Fatal(err)
 	}

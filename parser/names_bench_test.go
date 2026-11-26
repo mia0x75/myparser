@@ -15,7 +15,7 @@ func BenchmarkFunctionNames(b *testing.B) {
 			p.EnableWindowFunc(true)
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := p.ParseOneStmt(tc.sql, "", ""); err != nil {
+				if _, err := p.ParseOneStmt(tc.sql); err != nil {
 					b.Fatal(err)
 				}
 			}

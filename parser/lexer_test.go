@@ -34,15 +34,15 @@ func TestNestedExecutableComments(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
-			if _, err := parser.ParseOneStmt(tc.sql, "", ""); err == nil {
+			if _, err := parser.ParseOneStmt(tc.sql); err == nil {
 				t.Fatal("accepted nested executable comments")
 			}
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
-				if _, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target); err == nil {
+				if _, err := parser.ParseOneStmtForDialect(tc.sql, target); err == nil {
 					t.Fatalf("%s accepted nested executable comments", target)
 				}
 			}
-			if _, err := parser.ParseOneStmt("SELECT /*!01000 1 + /*!99998 8 + */ 2 + */ 4", "", ""); err != nil {
+			if _, err := parser.ParseOneStmt("SELECT /*!01000 1 + /*!99998 8 + */ 2 + */ 4"); err != nil {
 				t.Fatalf("skipped inner comment rejected after failed parse: %v", err)
 			}
 		})
@@ -514,7 +514,7 @@ func TestUnterminatedTokensRejected(t *testing.T) {
 		"SELECT 1 B'01",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(sql); err == nil {
 				t.Fatalf("accepted truncated input %q", sql)
 			}
 		})

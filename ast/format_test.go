@@ -12,10 +12,6 @@ import (
 	"github.com/mia0x75/parserkit/lex"
 )
 
-func getDefaultCharsetAndCollate() (string, string) {
-	return "utf8", "utf8_bin"
-}
-
 func TestAstFormat(t *testing.T) {
 	var testcases = []struct {
 		input  string
@@ -91,8 +87,7 @@ func TestAstFormat(t *testing.T) {
 	}
 	for _, tt := range testcases {
 		expr := fmt.Sprintf("select %s", tt.input)
-		charset, collation := getDefaultCharsetAndCollate()
-		stmts, _, err := parser.New().Parse(expr, charset, collation)
+		stmts, _, err := parser.New().ParseWithWarnings(expr)
 		node := stmts[0].(*ast.SelectStmt).Fields.Items[0].Expr
 		if err != nil {
 			t.Fatalf("got error %v, want nil", err)
@@ -116,7 +111,7 @@ func TestColumnRefFormatCompatibility(t *testing.T) {
 		{"empty quoted name", "``", "``", "``"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := parser.New().ParseOneStmt("SELECT "+tc.expr, "", "")
+			stmt, err := parser.New().ParseOneStmt("SELECT " + tc.expr)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -160,8 +155,7 @@ func TestAstFormatStubCoverage(t *testing.T) {
 		{"select 1 < all (select 1)", "1<all (select 1)"},
 	}
 	for _, tt := range testcases {
-		charset, collation := getDefaultCharsetAndCollate()
-		stmts, _, err := parser.New().Parse(tt.sql, charset, collation)
+		stmts, _, err := parser.New().ParseWithWarnings(tt.sql)
 		if err != nil {
 			t.Fatalf("%s: got error %v, want nil", tt.sql, err)
 		}

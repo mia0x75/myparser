@@ -19,7 +19,7 @@ func TestSetBareScopeRejected(t *testing.T) {
 		"SET GLOBAL = 1",
 	}
 	for _, sql := range rejected {
-		_, err := New().ParseOneStmt(sql, "", "")
+		_, err := New().ParseOneStmt(sql)
 		if err == nil {
 			t.Errorf("%q: expected rejection, parsed", sql)
 		} else if !strings.Contains(err.Error(), "requires a variable name") {
@@ -39,7 +39,7 @@ func TestSetBareScopeRejected(t *testing.T) {
 		"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
 	}
 	for _, sql := range accepted {
-		if _, err := New().ParseOneStmt(sql, "", ""); err != nil {
+		if _, err := New().ParseOneStmt(sql); err != nil {
 			t.Errorf("%q: expected accept, got %v", sql, err)
 		}
 	}

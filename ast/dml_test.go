@@ -399,7 +399,7 @@ func TestOnConditionRestore(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.sourceSQL, func(t *testing.T) {
-			stmt, err := parser.New().ParseOneStmt(fmt.Sprintf("select * from t1 join t2 %s", tc.sourceSQL), "", "")
+			stmt, err := parser.New().ParseOneStmt(fmt.Sprintf("select * from t1 join t2 %s", tc.sourceSQL))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -474,7 +474,7 @@ func TestDeleteTableListRestore(t *testing.T) {
 			t.Run(form.template+tc.sourceSQL, func(t *testing.T) {
 				p := parser.New()
 				sourceSQL := fmt.Sprintf(form.template, tc.sourceSQL)
-				stmt, err := p.ParseOneStmt(sourceSQL, "", "")
+				stmt, err := p.ParseOneStmt(sourceSQL)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -501,7 +501,7 @@ func TestDeleteTableListRestore(t *testing.T) {
 				if err := del.Restore(dformat.NewRestoreCtx(dformat.DefaultRestoreFlags, &full)); err != nil || full.String() != form.canonical {
 					t.Fatalf("full restore = %q, want %q, err=%v", full.String(), form.canonical, err)
 				}
-				stmt2, err := p.ParseOneStmt(full.String(), "", "")
+				stmt2, err := p.ParseOneStmt(full.String())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -579,7 +579,7 @@ func TestHavingClauseRestore(t *testing.T) {
 	RunNodeRestoreTest(t, testCases, "select 1 from t1 group by 1 HAVING %s", extractNodeFunc)
 	for _, tc := range testCases {
 		sql := "select 1 from t1 group by 1 HAVING " + tc.sourceSQL
-		stmt, err := parser.New().ParseOneStmt(sql, "", "")
+		stmt, err := parser.New().ParseOneStmt(sql)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -709,7 +709,7 @@ func TestSelectIntoStatementRestore(t *testing.T) {
 		"select a from t into @x, @y",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -718,7 +718,7 @@ func TestSelectIntoStatementRestore(t *testing.T) {
 				t.Fatal(err)
 			}
 			restored := sql[:strings.LastIndex(sql, "into")] + out.String()
-			stmt2, err := p.ParseOneStmt(restored, "", "")
+			stmt2, err := p.ParseOneStmt(restored)
 			if err != nil {
 				t.Fatal(err)
 			}

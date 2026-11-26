@@ -125,7 +125,7 @@ func TestDMLStatementAndRelationByteSpans(t *testing.T) {
 	}
 	parts := []string{"UPDATE `一` SET a=?", "DELETE FROM `二` WHERE b=?"}
 	sql := " /*头*/ " + parts[0] + ";\n /*中*/ " + parts[1] + "; "
-	stmts, _, err := New().Parse(sql, "", "")
+	stmts, _, err := New().ParseWithWarnings(sql)
 	if err != nil || len(stmts) != 2 {
 		t.Fatalf("multi-statement parse: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestDMLKeepsParametersAndASTAcrossReuse(t *testing.T) {
 	} {
 		t.Run(sql, func(t *testing.T) {
 			p := New()
-			n, err := p.ParseOneStmt(sql, "", "")
+			n, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -303,7 +303,7 @@ func TestDMLKeepsParametersAndASTAcrossReuse(t *testing.T) {
 				}
 			}
 			for _, next := range []string{"UPDATE other SET a=9", "DELETE FROM", "SELECT ? FROM q", "DELETE FROM other WHERE a=2"} {
-				_, _ = p.ParseOneStmt(next, "", "")
+				_, _ = p.ParseOneStmt(next)
 				if got := restoreStmt(t, n); got != canonical {
 					t.Fatalf("reuse changed old AST: %s", got)
 				}
@@ -401,7 +401,7 @@ func TestIndexNamesSyntax(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -444,7 +444,7 @@ func TestIndexNamesSyntax(t *testing.T) {
 			}
 			snapshot := append([]lex.Ident(nil), ids...)
 			canonical := restoreStmt(t, stmt)
-			reparsed, err := p.ParseOneStmt(canonical, "", "")
+			reparsed, err := p.ParseOneStmt(canonical)
 			if err != nil {
 				t.Fatalf("reparse %q: %v", canonical, err)
 			}

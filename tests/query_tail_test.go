@@ -37,7 +37,7 @@ func TestJoinChainAndParenTailRoundTrip(t *testing.T) {
 	parser := parser.New()
 	for _, src := range sources {
 		t.Run(src, func(t *testing.T) {
-			stmt, err := parser.ParseOneStmt(src, "", "")
+			stmt, err := parser.ParseOneStmt(src)
 			if err != nil {
 				t.Fatalf("parse %q: %v", src, err)
 			}
@@ -46,7 +46,7 @@ func TestJoinChainAndParenTailRoundTrip(t *testing.T) {
 				t.Fatalf("restore %q: %v", src, err)
 			}
 			restored := sb.String()
-			again, err := parser.ParseOneStmt(restored, "", "")
+			again, err := parser.ParseOneStmt(restored)
 			if err != nil {
 				t.Fatalf("reparse %q: %v", restored, err)
 			}

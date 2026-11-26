@@ -68,10 +68,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var stmts []ast.StmtNode
 	var warnings []error
 	if target == parser.DialectUnion {
-		stmts, warnings, err = p.Parse(text, "", "")
+		stmts, warnings, err = p.ParseWithWarnings(text)
 	} else {
 		var stmt ast.StmtNode
-		stmt, err = p.ParseOneStmtForDialect(text, "", "", target)
+		stmt, err = p.ParseOneStmtForDialect(text, target)
 		if err == nil && stmt != nil {
 			stmts = []ast.StmtNode{stmt}
 		}

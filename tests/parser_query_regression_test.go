@@ -162,7 +162,7 @@ func TestQueryWindowFunctionRoundTrip(t *testing.T) {
 	} {
 		p := parser.New()
 		p.EnableWindowFunc(true)
-		if _, _, err := p.Parse(src, "", ""); err == nil {
+		if _, _, err := p.ParseWithWarnings(src); err == nil {
 			t.Errorf("expected parse error for %q", src)
 		}
 	}
@@ -345,7 +345,7 @@ func TestQueryQueryTailBoundaryControls(t *testing.T) {
 	}
 
 	// Both servers reject duplicate INTO, including MySQL's dedicated error.
-	if _, err := parser.New().ParseOneStmt("select 1 into @a from t into @b", "", ""); err == nil {
+	if _, err := parser.New().ParseOneStmt("select 1 into @a from t into @b"); err == nil {
 		t.Fatal("duplicate INTO was accepted")
 	}
 	before := mustParseOne(t, "select 1 into @v from t").(*ast.SelectStmt)
@@ -366,7 +366,7 @@ func TestQueryUnterminatedStringSQLModes(t *testing.T) {
 	} {
 		p := parser.New()
 		p.SetSQLMode(tc.mode)
-		if _, err := p.ParseOneStmt(tc.sql, "", ""); err == nil {
+		if _, err := p.ParseOneStmt(tc.sql); err == nil {
 			t.Fatalf("expected unterminated string error for %q in mode %d", tc.sql, tc.mode)
 		}
 	}
@@ -417,7 +417,7 @@ func TestQueryStatementVisitors(t *testing.T) {
 func TestQueryLikeAndWindowExpressionASTAndVisitors(t *testing.T) {
 	p := parser.New()
 	p.EnableWindowFunc(true)
-	stmt, err := p.ParseOneStmt("select 'a' like 'b' escape concat('x'), percentile_cont(0.5) within group(order by score+2) over(partition by grp+3) from t", "", "")
+	stmt, err := p.ParseOneStmt("select 'a' like 'b' escape concat('x'), percentile_cont(0.5) within group(order by score+2) over(partition by grp+3) from t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,7 +698,7 @@ func TestQueryExpressionFlags(t *testing.T) {
 	// Window spec subtrees carry their own parameters and variables.
 	windowParser := parser.New()
 	windowParser.EnableWindowFunc(true)
-	windowStmt, err := windowParser.ParseOneStmt("select row_number() over (partition by ? order by @v)", "", "")
+	windowStmt, err := windowParser.ParseOneStmt("select row_number() over (partition by ? order by @v)")
 	if err != nil {
 		t.Fatalf("parse window spec: %v", err)
 	}

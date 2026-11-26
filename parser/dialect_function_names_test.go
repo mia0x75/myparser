@@ -37,7 +37,7 @@ func TestDialectQuotedFunctionCursor(t *testing.T) {
 	t.Parallel()
 	const sql = "SELECT `log`(), LOG(1)"
 	p := New()
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestDialectQuotedFunctionCursor(t *testing.T) {
 	if len(issues) != 1 || issues[0].Code != IssueMySQLLogArgumentCount || issues[0].Offset != strings.LastIndex(sql, "LOG") {
 		t.Fatalf("quoted call shifted builtin diagnostics: %v", issues)
 	}
-	if _, err := p.ParseOneStmt("SELECT mock_schema.mock_func(1)", "", ""); err == nil {
+	if _, err := p.ParseOneStmt("SELECT mock_schema.mock_func(1)"); err == nil {
 		t.Fatal("shared name support must not expand the MySQL grammar")
 	}
 }

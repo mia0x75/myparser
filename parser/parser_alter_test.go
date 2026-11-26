@@ -18,7 +18,7 @@ func TestAlterColumnDefaultRestore(t *testing.T) {
 		{name: "disable keys", sql: "ALTER TABLE t DISABLE KEYS", want: "ALTER TABLE `t` DISABLE KEYS"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt(tc.sql, "", "")
+			stmt, err := New().ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,7 +43,7 @@ func TestAlterReductionSpans(t *testing.T) {
 	} {
 		t.Run(spec, func(t *testing.T) {
 			sql := "/* 列 */ ALTER TABLE t " + spec
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +86,7 @@ func TestAlterDefaultSyntaxPayload(t *testing.T) {
 	} {
 		t.Run(tc.clause, func(t *testing.T) {
 			sql := "ALTER TABLE t ALTER `名` " + tc.clause
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -117,13 +117,13 @@ func TestPartitionIdentMetadata(t *testing.T) {
 	const raw = "`分``区`"
 	p := New()
 	sql := "CREATE TABLE t (a INT) PARTITION BY RANGE (a) (PARTITION " + raw + " VALUES LESS THAN (10))"
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
 	def := stmt.(*ast.CreateTableStmt).Partition.Definitions[0]
 	dml := "INSERT INTO t PARTITION (" + raw + ") VALUES (1)"
-	stmt, err = p.ParseOneStmt(dml, "", "")
+	stmt, err = p.ParseOneStmt(dml)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestDDLIndexConstraintIdentSpans(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -297,7 +297,7 @@ func TestDDLIndexConstraintUnchangedRestore(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(t.Name()+"/"+tc.sql, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -354,7 +354,7 @@ func TestDdlRemainingPeriodIdent(t *testing.T) {
 func TestDdlRemainingPeriodSpanRestore(t *testing.T) {
 	const sql = "CREATE TABLE t(s DATE, e DATE, PERIOD FOR p(s,e))"
 	parser := New()
-	stmts, _, err := parser.Parse(sql, "", "")
+	stmts, _, err := parser.ParseWithWarnings(sql)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestDdlRemainingPeriodSpanRestore(t *testing.T) {
 
 	// Reuse the same parser instance: spans must not be polluted by the
 	// previous parse.
-	reparse, err := parser.ParseOneStmt(restored, "", "")
+	reparse, err := parser.ParseOneStmt(restored)
 	if err != nil {
 		t.Fatalf("reparse: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestDDLRemainingAlterNames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
 			sql := "ALTER TABLE t " + tc.clause
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -432,7 +432,7 @@ func TestDDLRemainingAlterNames(t *testing.T) {
 				}
 			}
 			canonical := restoreStmt(t, stmt)
-			reparsed, err := p.ParseOneStmt(canonical, "", "")
+			reparsed, err := p.ParseOneStmt(canonical)
 			if err != nil {
 				t.Fatalf("reparse %q: %v", canonical, err)
 			}
@@ -460,7 +460,7 @@ func TestDDLRemainingPeriodQuotedNames(t *testing.T) {
 			clause := "PERIOD FOR " + tc.raw + "(s,e)"
 			sql := "CREATE TABLE t(s DATE,e DATE," + clause + ")"
 			p := New()
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -480,7 +480,7 @@ func TestDDLRemainingPeriodQuotedNames(t *testing.T) {
 				t.Fatalf("period issue changed: %+v", issues)
 			}
 			canonical := restoreStmt(t, stmt)
-			reparsed, err := p.ParseOneStmt(canonical, "", "")
+			reparsed, err := p.ParseOneStmt(canonical)
 			if err != nil {
 				t.Fatalf("reparse %q: %v", canonical, err)
 			}

@@ -81,7 +81,7 @@ func TestExpressionReductionSpans(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
 			sql := "/* 字节前缀 */ SELECT " + tc.expr
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +95,7 @@ func TestExpressionReductionSpans(t *testing.T) {
 				t.Fatal("expression visitor failed")
 			}
 			checkNodeSpanTexts(t, sql, nodes, tc.want)
-			if _, err := p.ParseOneStmt("SELECT 2", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("SELECT 2"); err != nil {
 				t.Fatal(err)
 			}
 			if expr.Span() != span {
@@ -126,7 +126,7 @@ func checkNodeSpanTexts(t *testing.T, sql string, nodes []ast.Node, expected map
 
 func TestJSONUnquoteSyntheticExtractionSpan(t *testing.T) {
 	sql := "SELECT a->>'$.x'"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}

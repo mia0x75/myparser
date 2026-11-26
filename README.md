@@ -36,7 +36,7 @@ import (
 func main() {
 	p := parser.New()
 	p.EnableWindowFunc(true)
-	stmts, warnings, err := p.Parse("SELECT id FROM tbl WHERE id = 1", "", "")
+	stmts, warnings, err := p.ParseWithWarnings("SELECT id FROM tbl WHERE id = 1")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,7 +65,7 @@ reject known incompatibilities with the selected database family:
 ```go
 sql := "SELECT CAST(doc AS JSON) FROM t"
 p := parser.New()
-stmt, err := p.ParseOneStmtForDialect(sql, "", "", parser.DialectMariaDB)
+stmt, err := p.ParseOneStmtForDialect(sql, parser.DialectMariaDB)
 if err != nil {
 	// Handle syntax errors or *parser.DialectCompatibilityError.
 	return
@@ -124,8 +124,9 @@ The AST API has breaking changes from older versions. Use the current types in
   preserves leading INTERVAL syntax.
 - `Accept` reports failed traversal with `ok == false`; always check it.
   `Restore` rejects missing required children and invalid window-frame enums.
-- Connection charset and collation arguments are kept for API compatibility;
-  they do not add type metadata or implicit charset introducers to the AST.
+- `Parse(sql)` returns statements and an error. Use `ParseWithWarnings(sql)` to
+  retrieve MySQL warnings separately. Connection charset and collation are not
+  inferred into AST types; explicit introducers remain part of the syntax.
 
 ## Limitations
 

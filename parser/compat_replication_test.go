@@ -215,11 +215,11 @@ func TestReplicationNumericLexerBoundaries(t *testing.T) {
 		{"start replica until source_log_pos=1e309", false},
 	} {
 		// Reuse after both successful parsing and a syntax error must reset the mode.
-		_, err := p.ParseOneStmt(tc.src, "", "")
+		_, err := p.ParseOneStmt(tc.src)
 		if (err == nil) != tc.valid {
 			t.Fatalf("parse %s: err=%v, valid=%v", tc.src, err, tc.valid)
 		}
-		if _, err := p.ParseOneStmt("select 1e309", "", ""); err == nil {
+		if _, err := p.ParseOneStmt("select 1e309"); err == nil {
 			t.Fatal("replication conversion leaked into ordinary expressions")
 		}
 	}

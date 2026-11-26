@@ -53,7 +53,7 @@ func TestISJSONModifiers(t *testing.T) {
 		"select j is json with unique keys object array",
 	} {
 		t.Run(src, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(src); err == nil {
 				t.Fatalf("expected parse error for %q", src)
 			}
 		})
@@ -78,7 +78,7 @@ func TestHandlerKeywordIndexes(t *testing.T) {
 	}
 	for _, src := range []string{"handler t read prev", "handler db.t read first", "handler db.t close", "handler t read primary first"} {
 		t.Run(src, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(src); err == nil {
 				t.Fatalf("expected parse error for %q", src)
 			}
 		})
@@ -108,7 +108,7 @@ func TestDiagnosticsConditionNumbers(t *testing.T) {
 		"get diagnostics @r = row_number",
 	} {
 		t.Run(src, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(src); err == nil {
 				t.Fatalf("expected parse error for %q", src)
 			}
 		})
@@ -400,7 +400,7 @@ func assertExtensionParseErrors(t *testing.T, sqls []string) {
 	t.Helper()
 	for _, src := range sqls {
 		t.Run(src, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(src, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(src); err == nil {
 				t.Fatalf("expected parse error for %q", src)
 			}
 		})

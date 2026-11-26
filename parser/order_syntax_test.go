@@ -98,7 +98,7 @@ func TestParsedByRoleContexts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,7 +124,7 @@ func TestParsedByRoleContexts(t *testing.T) {
 				t.Fatalf("role counts = (%d,%d,%d), want (%d,%d,%d)", order, group, partition, tc.order, tc.group, tc.partition)
 			}
 			canonical := restoreBySQL(t, stmt)
-			reparsed, err := p.ParseOneStmt(canonical, "", "")
+			reparsed, err := p.ParseOneStmt(canonical)
 			if err != nil {
 				t.Fatalf("reparse %q: %v", canonical, err)
 			}
@@ -157,7 +157,7 @@ func TestParsedByPositionsAndSpans(t *testing.T) {
 				case "partition":
 					sql = "SELECT SUM(x) OVER(PARTITION BY " + tc.input + " DESC) FROM t"
 				}
-				stmt, err := p.ParseOneStmt(sql, "", "")
+				stmt, err := p.ParseOneStmt(sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -197,7 +197,7 @@ func TestByNameParametersAndParserReuse(t *testing.T) {
 	const sql = "SELECT GROUP_CONCAT(" + name + " ORDER BY ? DESC),SUM(x) OVER(PARTITION BY " + name + " DESC ORDER BY ? DESC) FROM t GROUP BY " + name + " DESC WITH ROLLUP ORDER BY ? ASC"
 	p := New()
 	p.EnableWindowFunc(true)
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestByNameParametersAndParserReuse(t *testing.T) {
 	beforeName := column.Name
 	beforeName.Parts = append([]lex.Ident(nil), column.Name.Parts...)
 	for range 8 {
-		if _, err := p.ParseOneStmt("SELECT SUM(a) OVER(PARTITION BY b ORDER BY c) FROM replacement GROUP BY d ORDER BY e", "", ""); err != nil {
+		if _, err := p.ParseOneStmt("SELECT SUM(a) OVER(PARTITION BY b ORDER BY c) FROM replacement GROUP BY d ORDER BY e"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -84,7 +84,7 @@ func TestAbsentQueryPaginationUsesNilInterfaces(t *testing.T) {
 func TestValuesAndTableQueryLeafSyntax(t *testing.T) {
 	valuesSQL := "values row('kept'), row(2)"
 	parser := New()
-	valuesNode, err := parser.ParseOneStmt(valuesSQL, "", "")
+	valuesNode, err := parser.ParseOneStmt(valuesSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestValuesAndTableQueryLeafSyntax(t *testing.T) {
 	}
 
 	tableSQL := "table db.t"
-	tableNode, err := parser.ParseOneStmt(tableSQL, "", "")
+	tableNode, err := parser.ParseOneStmt(tableSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,13 +175,13 @@ func TestValuesAndTableQueryLeafSyntax(t *testing.T) {
 		t.Fatal("TABLE accepted a replacement that is not a table reference")
 	}
 
-	if _, err := parser.ParseOneStmt(valuesText, "", ""); err != nil {
+	if _, err := parser.ParseOneStmt(valuesText); err != nil {
 		t.Fatalf("reparse restored VALUES: %v", err)
 	}
-	if _, err := parser.ParseOneStmt(tableText, "", ""); err != nil {
+	if _, err := parser.ParseOneStmt(tableText); err != nil {
 		t.Fatalf("reparse restored TABLE: %v", err)
 	}
-	if _, err := parser.ParseOneStmt("values row('replacement')", "", ""); err != nil {
+	if _, err := parser.ParseOneStmt("values row('replacement')"); err != nil {
 		t.Fatal(err)
 	}
 	if got := restoreStmt(t, values); got != valuesText || values.Span().End != loc.ByteOffset(len(valuesSQL)) {

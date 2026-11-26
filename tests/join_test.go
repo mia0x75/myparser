@@ -27,7 +27,7 @@ func TestJoinSyntaxSpans(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			const prefix = "SELECT * FROM "
 			sql := prefix + tc.from + " WHERE 1"
-			stmt, err := parser.New().ParseOneStmt(sql, "", "")
+			stmt, err := parser.New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +56,7 @@ func TestJoinSyntaxNamesAndOnLifetime(t *testing.T) {
 	t.Parallel()
 	const sql = "SELECT * FROM (`库.点`.`表` AS `别` JOIN b USING (`列.点`)) LEFT JOIN c ON ?=?"
 	p := parser.New()
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestJoinSyntaxNamesAndOnLifetime(t *testing.T) {
 		}
 	}
 	check()
-	if _, err := p.ParseOneStmt("SELECT ? FROM x JOIN (y JOIN z ON ?=?)", "", ""); err != nil {
+	if _, err := p.ParseOneStmt("SELECT ? FROM x JOIN (y JOIN z ON ?=?)"); err != nil {
 		t.Fatal(err)
 	}
 	check()
