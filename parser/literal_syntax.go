@@ -1,10 +1,15 @@
 package parser
 
 import (
+	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/mia0x75/myparser/ast"
+	"github.com/mia0x75/myparser/driver"
+	"github.com/mia0x75/myparser/errors"
+	"github.com/mia0x75/myparser/mysql"
 	"github.com/mia0x75/myparser/types"
 	pkast "github.com/mia0x75/parserkit/ast"
 	"github.com/mia0x75/parserkit/lex"
@@ -120,4 +125,103 @@ func numericLiteral(l yyLexer, value interface{}, span loc.Span) *ast.LiteralExp
 		yyAppendErr(l, yyErrorf(l, "unsupported numeric literal type %T", value))
 	}
 	return syntaxLiteral(l, kind, text, span)
+}
+
+func toInt(l *Scanner, lval *yySymType, str string) int {
+	n, err := strconv.ParseUint(str, 10, 64)
+	if err != nil {
+		e := err.(*strconv.NumError)
+		if e.Err == strconv.ErrRange {
+			// Fall through to decimal: MySQL truncates out-of-range integer
+			// literals to the max decimal value and emits a warning.
+			return toDecimal(l, lval, str)
+		}
+		l.AppendError(l.Errorf("integer literal: %v", err))
+		return int(unicode.ReplacementChar)
+	}
+
+	switch {
+	case n <= math.MaxInt64:
+		lval.item = int64(n)
+	default:
+		lval.item = n
+	}
+	return intLit
+}
+
+func toDecimal(l *Scanner, lval *yySymType, str string) int {
+	dec, err := driver.NewDecimal(str)
+	if err != nil {
+		if sqlErr, ok := err.(*mysql.SQLError); ok && sqlErr.Code == mysql.ErrTruncatedWrongValue {
+			l.warns = append(l.warns, err)
+		} else {
+			l.AppendError(l.Errorf("decimal literal: %v", err))
+			return int(unicode.ReplacementChar)
+		}
+	}
+	lval.item = dec
+	return decLit
+}
+
+func toFloat(l *Scanner, lval *yySymType, str string) int {
+	n, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		l.AppendError(mysql.NewErr(mysql.ErrIllegalValueForType, "double", str))
+		return int(unicode.ReplacementChar)
+	}
+
+	lval.item = n
+	return floatLit
+}
+
+// See https://dev.mysql.com/doc/refman/5.7/en/hexadecimal-literals.html
+func toHex(l *Scanner, lval *yySymType, str string) int {
+	h, err := driver.NewHexLiteral(str)
+	if err != nil {
+		l.AppendError(l.Errorf("hex literal: %v", err))
+		return int(unicode.ReplacementChar)
+	}
+	lval.item = h
+	return hexLit
+}
+
+// See https://dev.mysql.com/doc/refman/5.7/en/bit-type.html
+func toBit(l *Scanner, lval *yySymType, str string) int {
+	b, err := driver.NewBitLiteral(str)
+	if err != nil {
+		l.AppendError(l.Errorf("bit literal: %v", err))
+		return int(unicode.ReplacementChar)
+	}
+	lval.item = b
+	return bitLit
+}
+
+func getUint64FromNUM(num interface{}) uint64 {
+	switch v := num.(type) {
+	case int64:
+		return uint64(v)
+	case uint64:
+		return v
+	}
+	return 0
+}
+
+func hexInteger(text string, allowQuoted bool) (uint64, error) {
+	var digits string
+	switch {
+	case len(text) >= 3 && text[0] == '0' && text[1] == 'x':
+		digits = text[2:]
+	case allowQuoted && len(text) >= 3 && (text[0] == 'x' || text[0] == 'X') && text[1] == '\'' && text[len(text)-1] == '\'':
+		digits = text[2 : len(text)-1]
+	default:
+		return 0, errors.New("expected a numeric 0x hexadecimal literal")
+	}
+	if digits == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseUint(digits, 16, 64)
+	if err != nil {
+		return 0, errors.Annotate(err, "hexadecimal integer out of range")
+	}
+	return value, nil
 }
