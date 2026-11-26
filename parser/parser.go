@@ -470,12 +470,6 @@ func validateSourceFunctionCall(l yyLexer, offset int, name string, args []ast.E
 	return validateFunctionCall(name, args)
 }
 
-func temporalCastType(tp byte, precision *pkast.BaseLiteralExpr) *ast.TypeName {
-	x := newSyntaxType(tp)
-	x.Modifiers = typeModifiers(precision)
-	return x
-}
-
 // reservedRoleNames are the MySQL keywords and labels that must be quoted when
 // they are used as role names.
 var reservedRoleNames = map[string]struct{}{

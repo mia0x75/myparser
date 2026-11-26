@@ -136,3 +136,9 @@ func typeStringValues(values []*pkast.BaseLiteralExpr) []string {
 	}
 	return strings
 }
+
+func temporalCastType(tp byte, precision *pkast.BaseLiteralExpr) *ast.TypeName {
+	x := newSyntaxType(tp)
+	x.Modifiers = typeModifiers(precision)
+	return x
+}
