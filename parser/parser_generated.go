@@ -16087,20 +16087,17 @@ yydefault:
 	case 531:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.LogicOr), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.LogicOr, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 532:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.LogicXor), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.LogicXor, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 533:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.LogicAnd), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.LogicAnd, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 534:
 		yyDollar = yyS[yypt-2 : yypt+1]
@@ -16250,8 +16247,7 @@ yydefault:
 	case 566:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(yyDollar[2].item.(opcode.Op)), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(yyDollar[2].item.(opcode.Op), yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 567:
 		yyDollar = yyS[yypt-4 : yypt+1]
@@ -16276,8 +16272,7 @@ yydefault:
 				Value:  yyDollar[5].expr,
 			}
 			variable.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(yyDollar[2].item.(opcode.Op)), Left: yyDollar[1].expr, Right: variable}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(yyDollar[2].item.(opcode.Op), yyDollar[1].expr, variable, yyVAL.span)
 		}
 	case 571:
 		yyDollar = yyS[yypt-1 : yypt+1]
@@ -17206,38 +17201,32 @@ yydefault:
 	case 1202:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Or), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Or, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1203:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.And), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.And, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1204:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.LeftShift), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.LeftShift, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1205:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.RightShift), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.RightShift, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1206:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Plus), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Plus, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1207:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Minus), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Minus, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1208:
 		yyDollar = yyS[yypt-5 : yypt+1]
@@ -17272,38 +17261,32 @@ yydefault:
 	case 1210:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Mul), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Mul, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1211:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Div), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Div, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1212:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Mod), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Mod, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1213:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.IntDiv), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.IntDiv, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1214:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Mod), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Mod, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1215:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{Op: pkast.Operator(opcode.Xor), Left: yyDollar[1].expr, Right: yyDollar[3].expr}}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = binaryExpr(opcode.Xor, yyDollar[1].expr, yyDollar[3].expr, yyVAL.span)
 		}
 	case 1217:
 		yyDollar = yyS[yypt-1 : yypt+1]

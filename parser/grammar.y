@@ -5008,18 +5008,15 @@ Expression:
 	}
 |	Expression LogOr Expression %prec pipes
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicOr), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.LogicOr, $1, $3, yyVAL.span)
 	}
 |	Expression xor Expression %prec xor
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicXor), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.LogicXor, $1, $3, yyVAL.span)
 	}
 |	Expression LogAnd Expression %prec andand
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicAnd), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.LogicAnd, $1, $3, yyVAL.span)
 	}
 |	not Expression %prec not
 	{
@@ -5125,8 +5122,7 @@ BoolPri:
 	}
 |	BoolPri CompareOp PredicateExpr %prec eq
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator($2.(opcode.Op)), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr($2.(opcode.Op), $1, $3, yyVAL.span)
 	}
 |	BoolPri CompareOp AnyOrAll SubSelect %prec eq
 	{
@@ -5148,8 +5144,7 @@ BoolPri:
 				Value:	  $5,
 		}
 		variable.SetSpan(loc.Cover(yyS[yypt-2].span, yyS[yypt].span))
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator($2.(opcode.Op)), Left: $1, Right: variable } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr($2.(opcode.Op), $1, variable, yyVAL.span)
 	}
 |	PredicateExpr
 
@@ -5947,33 +5942,27 @@ OrderByOpt:
 BitExpr:
 	BitExpr '|' BitExpr %prec '|'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Or), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Or, $1, $3, yyVAL.span)
 	}
 |	BitExpr '&' BitExpr %prec '&'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.And), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.And, $1, $3, yyVAL.span)
 	}
 |	BitExpr lsh BitExpr %prec lsh
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LeftShift), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.LeftShift, $1, $3, yyVAL.span)
 	}
 |	BitExpr rsh BitExpr %prec rsh
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.RightShift), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.RightShift, $1, $3, yyVAL.span)
 	}
 |	BitExpr '+' BitExpr %prec '+'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Plus), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Plus, $1, $3, yyVAL.span)
 	}
 |	BitExpr '-' BitExpr %prec '-'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Minus), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Minus, $1, $3, yyVAL.span)
 	}
 |	BitExpr '+' interval Expression TimeUnit %prec '+'
 	{
@@ -6005,33 +5994,27 @@ BitExpr:
 	}
 |	BitExpr '*' BitExpr %prec '*'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mul), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Mul, $1, $3, yyVAL.span)
 	}
 |	BitExpr '/' BitExpr %prec '/'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Div), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Div, $1, $3, yyVAL.span)
 	}
 |	BitExpr '%' BitExpr %prec '%'
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mod), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Mod, $1, $3, yyVAL.span)
 	}
 |	BitExpr div BitExpr %prec div
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.IntDiv), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.IntDiv, $1, $3, yyVAL.span)
 	}
 |	BitExpr mod BitExpr %prec mod
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Mod), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Mod, $1, $3, yyVAL.span)
 	}
 |	BitExpr '^' BitExpr
 	{
-		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.Xor), Left: $1, Right: $3 } }
-		$$.SetSpan(yyVAL.span)
+		$$ = binaryExpr(opcode.Xor, $1, $3, yyVAL.span)
 	}
 |	SimpleExpr %prec empty
 
