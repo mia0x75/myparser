@@ -342,3 +342,66 @@ func TestParseSharedCompareSubqueryCore(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSharedRowConstructorCore(t *testing.T) {
+	tests := []struct {
+		name  string
+		raw   string
+		items []string
+	}{
+		{name: "explicit", raw: "ROW(1, 2)", items: []string{"1", "2"}},
+		{name: "implicit", raw: "(3, 4)", items: []string{"3", "4"}},
+	}
+	sql := "SELECT " + tests[0].raw + ", " + tests[1].raw
+	stmt := mustParseOne(t, sql).(*dialectast.SelectStmt)
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			expr, ok := stmt.Fields.Items[i].Expr.(*dialectast.RowExpr)
+			if !ok || len(expr.Items) != 2 {
+				t.Fatalf("%s = %#v", tc.raw, stmt.Fields.Items[i].Expr)
+			}
+			span := expr.Span()
+			if !span.Within(len(sql)) || sql[span.Start:span.End] != tc.raw {
+				t.Fatalf("%s has span %v", tc.raw, span)
+			}
+			for j, want := range tc.items {
+				childSpan := expr.Items[j].Span()
+				if !childSpan.Within(len(sql)) || sql[childSpan.Start:childSpan.End] != want {
+					t.Fatalf("%s item %d has span %v", tc.raw, j, childSpan)
+				}
+			}
+		})
+	}
+}
+
+func TestParseMySQLValuesRowCompatibility(t *testing.T) {
+	const parenthesized = "VALUES (1, 2), (3, 4)"
+	stmt := mustParseOne(t, parenthesized).(*dialectast.ValuesStmt)
+	if len(stmt.Rows) != 2 {
+		t.Fatalf("VALUES rows = %d, want 2", len(stmt.Rows))
+	}
+	for i, node := range stmt.Rows {
+		row, ok := node.(*dialectast.RowExpr)
+		if !ok || !row.OmitRowKeyword || len(row.Items) != 2 {
+			t.Fatalf("parenthesized VALUES row %d = %#v", i, node)
+		}
+	}
+	if got, want := restoreStmt(t, stmt), "VALUES (1,2), (3,4)"; got != want {
+		t.Fatalf("VALUES restore = %q, want %q", got, want)
+	}
+
+	const explicit = "VALUES ROW(1, 2), ROW(3, 4)"
+	stmt = mustParseOne(t, explicit).(*dialectast.ValuesStmt)
+	for i, node := range stmt.Rows {
+		row, ok := node.(*dialectast.RowExpr)
+		if !ok || row.OmitRowKeyword || len(row.Items) != 2 {
+			t.Fatalf("explicit VALUES row %d = %#v", i, node)
+		}
+	}
+	if got, want := restoreStmt(t, stmt), "VALUES ROW(1,2), ROW(3,4)"; got != want {
+		t.Fatalf("explicit VALUES restore = %q, want %q", got, want)
+	}
+	if _, _, err := parser.New().ParseWithWarnings("VALUES (1, 2), ROW(3, 4)"); err == nil {
+		t.Fatal("accepted mixed ROW and parenthesized VALUES rows")
+	}
+}
