@@ -5031,13 +5031,11 @@ Expression:
 	}
 |	BoolPri IsOrNotOp trueKwd %prec is
 	{
-		$$ = &ast.IsTruthExpr{Expr:$1, Not: !$2.(bool), True: int64(1)}
-		$$.SetSpan(yyVAL.span)
+		$$ = isTruthExpr($1, !$2.(bool), 1, yyVAL.span)
 	}
 |	BoolPri IsOrNotOp falseKwd %prec is
 	{
-		$$ = &ast.IsTruthExpr{Expr:$1, Not: !$2.(bool), True: int64(0)}
-		$$.SetSpan(yyVAL.span)
+		$$ = isTruthExpr($1, !$2.(bool), 0, yyVAL.span)
 	}
 |	BoolPri IsOrNotOp unknown %prec is
 	{

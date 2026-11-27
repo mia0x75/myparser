@@ -16114,14 +16114,12 @@ yydefault:
 	case 535:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.IsTruthExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool), True: int64(1)}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = isTruthExpr(yyDollar[1].expr, !yyDollar[2].item.(bool), 1, yyVAL.span)
 		}
 	case 536:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.IsTruthExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool), True: int64(0)}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = isTruthExpr(yyDollar[1].expr, !yyDollar[2].item.(bool), 0, yyVAL.span)
 		}
 	case 537:
 		yyDollar = yyS[yypt-3 : yypt+1]
