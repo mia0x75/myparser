@@ -844,7 +844,7 @@ type lastValueWindow struct {
 	SetExpr                         /* Set variable statement value's expression */
 	BitExpr                         /* bit expression */
 	SimpleExpr                      /* simple expression */
-	SimpleIdent                     /* Simple Identifier expression */
+	ColumnRef                       /* Column reference expression */
 	SumExpr                         /* aggregate functions */
 	FunctionCallGeneric             /* Function call with Identifier */
 	FunctionCallKeyword             /* Function call with keyword as function name */
@@ -2764,7 +2764,7 @@ DefaultValueExpr:
 	NowSymOptionFraction | SignedLiteral
 |	FunctionCallGeneric
 |	FunctionCallNonKeyword
-|	SimpleIdent
+|	ColumnRef
 	{
 		x := $1.(*ast.ColumnRef)
 		if len(x.Name.Parts) == 1 && strings.EqualFold(x.Name.Parts[0].Name, "now") {
@@ -6036,7 +6036,7 @@ BitExpr:
 |	SimpleExpr %prec empty
 
 
-SimpleIdent:
+ColumnRef:
 	Identifier
 	{
 		$$ = columnRef(syntaxName(syntaxIdent(yylex, $1, yyS[yypt].span)), yyVAL.span)
@@ -6064,7 +6064,7 @@ SimpleIdent:
 
 
 SimpleExpr:
-	SimpleIdent
+	ColumnRef
 |	FunctionCallKeyword
 |	FunctionCallNonKeyword
 |	FunctionCallGeneric
@@ -6244,28 +6244,28 @@ SimpleExpr:
 		}
 		$$.SetSpan(yyVAL.span)
 	}
-|	defaultKwd '(' SimpleIdent ')'
+|	defaultKwd '(' ColumnRef ')'
 	{
 		$$ = &ast.DefaultExpr{Name: $3.(*ast.ColumnRef).Name}
 		$$.SetSpan(yyVAL.span)
 	}
-|	values '(' SimpleIdent ')' %prec lowerThanInsertValues
+|	values '(' ColumnRef ')' %prec lowerThanInsertValues
 	{
 		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnRef)}
 		$$.SetSpan(yyVAL.span)
 	}
-|	value '(' SimpleIdent ')'
+|	value '(' ColumnRef ')'
 	{
 		$$ = &ast.ValuesExpr{Column: $3.(*ast.ColumnRef), Singular: true}
 		$$.SetSpan(yyVAL.span)
 	}
-|	SimpleIdent jss stringLit
+|	ColumnRef jss stringLit
 	{
 	    expr := stringLiteral(yylex, $3, yyS[yypt].span)
 	    $$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.JSONExtract, loc.InvalidSpan()), Args: []ast.ExprNode{$1, expr}}}
 	    $$.SetSpan(yyVAL.span)
 	}
-|	SimpleIdent juss stringLit
+|	ColumnRef juss stringLit
 	{
 	    expr := stringLiteral(yylex, $3, yyS[yypt].span)
 	    extract := &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.JSONExtract, loc.InvalidSpan()), Args: []ast.ExprNode{$1, expr}}}
@@ -12481,7 +12481,7 @@ LoadDataSetList:
 
 
 LoadDataSetItem:
-	SimpleIdent eq ExprOrDefault
+	ColumnRef eq ExprOrDefault
 	{
 		assignment := &ast.Assignment{
 			Target: $1.(*ast.ColumnRef),
@@ -13858,7 +13858,7 @@ DiagnosticsInfo:
 /* https://mariadb.com/docs/server/reference/sql-statements/programmatic-compound-statements/programmatic-compound-statements-diagnostics/get-diagnostics */
 DiagnosticsConditionNumber:
 	Literal
-|	SimpleIdent
+|	ColumnRef
 |	Variable
 
 
