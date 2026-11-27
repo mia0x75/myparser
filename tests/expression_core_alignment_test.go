@@ -270,3 +270,23 @@ func TestParseMySQLLikeEscapeCompatibility(t *testing.T) {
 		t.Fatalf("LIKE expression has span %v", span)
 	}
 }
+
+func TestParseMySQLRegexpCompatibility(t *testing.T) {
+	const regexp = "a REGEXP 'x%'"
+	const notRlike = "b NOT RLIKE 'y%'"
+	const sql = "SELECT " + regexp + ", " + notRlike
+	stmt := mustParseOne(t, sql).(*dialectast.SelectStmt)
+	for i, tc := range []struct {
+		raw string
+		not bool
+	}{{raw: regexp}, {raw: notRlike, not: true}} {
+		expr, ok := stmt.Fields.Items[i].Expr.(*dialectast.PatternRegexpExpr)
+		if !ok || expr.Not != tc.not {
+			t.Fatalf("%s = %#v", tc.raw, stmt.Fields.Items[i].Expr)
+		}
+		span := expr.Span()
+		if !span.Within(len(sql)) || sql[span.Start:span.End] != tc.raw {
+			t.Fatalf("%s has span %v", tc.raw, span)
+		}
+	}
+}
