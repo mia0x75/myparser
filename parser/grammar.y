@@ -5042,8 +5042,7 @@ Expression:
 |	BoolPri IsOrNotOp unknown %prec is
 	{
 		/* https://dev.mysql.com/doc/refman/5.7/en/comparison-operators.html#operator_is */
-		$$ = &ast.IsNullExpr{Expr: $1, Not: !$2.(bool)}
-		$$.SetSpan(yyVAL.span)
+		$$ = isNullExpr($1, !$2.(bool), yyVAL.span)
 	}
 /* https://mariadb.com/docs/server/reference/sql-structure/operators/comparison-operators/is-json */
 |	BoolPri IsOrNotOp jsonType IsJsonTypeOpt IsJsonUniqueKeysOpt %prec is
@@ -5117,8 +5116,7 @@ FuncDatetimePrecList:
 BoolPri:
 	BoolPri IsOrNotOp null %prec is
 	{
-		$$ = &ast.IsNullExpr{Expr: $1, Not: !$2.(bool)}
-		$$.SetSpan(yyVAL.span)
+		$$ = isNullExpr($1, !$2.(bool), yyVAL.span)
 	}
 |	BoolPri CompareOp PredicateExpr %prec eq
 	{
@@ -5194,24 +5192,16 @@ AnyOrAll:
 PredicateExpr:
 	BitExpr InOrNotOp '(' ExpressionList ')'
 	{
-		$$ = &ast.PatternInExpr{Expr: $1, Not: !$2.(bool), List: $4.([]ast.ExprNode)}
-		$$.SetSpan(yyVAL.span)
+		$$ = patternInExpr($1, $4.([]ast.ExprNode), nil, !$2.(bool), yyVAL.span)
 	}
 |	BitExpr InOrNotOp SubSelect
 	{
 		sq := $3.(*ast.SubqueryExpr)
-		$$ = &ast.PatternInExpr{Expr: $1, Not: !$2.(bool), Sel: sq}
-		$$.SetSpan(yyVAL.span)
+		$$ = patternInExpr($1, nil, sq, !$2.(bool), yyVAL.span)
 	}
 |	BitExpr BetweenOrNotOp BitExpr and PredicateExpr
 	{
-		$$ = &ast.BetweenExpr{
-			Expr:	$1,
-			Left:	$3,
-			Right:	$5,
-			Not:	!$2.(bool),
-		}
-		$$.SetSpan(yyVAL.span)
+		$$ = betweenExpr($1, $3, $5, !$2.(bool), yyVAL.span)
 	}
 |	BitExpr LikeOrNotOp Expression LikeEscapeOpt %prec like
 	{

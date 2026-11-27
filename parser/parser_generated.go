@@ -16127,8 +16127,7 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
 			/* https://dev.mysql.com/doc/refman/5.7/en/comparison-operators.html#operator_is */
-			yyVAL.expr = &ast.IsNullExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool)}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = isNullExpr(yyDollar[1].expr, !yyDollar[2].item.(bool), yyVAL.span)
 		}
 	case 538:
 		yyDollar = yyS[yypt-5 : yypt+1]
@@ -16241,8 +16240,7 @@ yydefault:
 	case 565:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
-			yyVAL.expr = &ast.IsNullExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool)}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = isNullExpr(yyDollar[1].expr, !yyDollar[2].item.(bool), yyVAL.span)
 		}
 	case 566:
 		yyDollar = yyS[yypt-3 : yypt+1]
@@ -16382,26 +16380,18 @@ yydefault:
 	case 592:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		{
-			yyVAL.expr = &ast.PatternInExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool), List: yyDollar[4].item.([]ast.ExprNode)}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = patternInExpr(yyDollar[1].expr, yyDollar[4].item.([]ast.ExprNode), nil, !yyDollar[2].item.(bool), yyVAL.span)
 		}
 	case 593:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		{
 			sq := yyDollar[3].expr.(*ast.SubqueryExpr)
-			yyVAL.expr = &ast.PatternInExpr{Expr: yyDollar[1].expr, Not: !yyDollar[2].item.(bool), Sel: sq}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = patternInExpr(yyDollar[1].expr, nil, sq, !yyDollar[2].item.(bool), yyVAL.span)
 		}
 	case 594:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		{
-			yyVAL.expr = &ast.BetweenExpr{
-				Expr:  yyDollar[1].expr,
-				Left:  yyDollar[3].expr,
-				Right: yyDollar[5].expr,
-				Not:   !yyDollar[2].item.(bool),
-			}
-			yyVAL.expr.SetSpan(yyVAL.span)
+			yyVAL.expr = betweenExpr(yyDollar[1].expr, yyDollar[3].expr, yyDollar[5].expr, !yyDollar[2].item.(bool), yyVAL.span)
 		}
 	case 595:
 		yyDollar = yyS[yypt-4 : yypt+1]
