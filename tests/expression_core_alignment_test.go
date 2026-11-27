@@ -541,6 +541,26 @@ func TestParseSharedCastExpressionCore(t *testing.T) {
 	}
 }
 
+func TestParseSharedCastTypeNameCore(t *testing.T) {
+	const raw = "CAST(1 AS DECIMAL(10, 2))"
+	const sql = "SELECT " + raw
+	stmt := mustParseOne(t, sql).(*dialectast.SelectStmt)
+	expr, ok := stmt.Fields.Items[0].Expr.(*dialectast.FuncCastExpr)
+	if !ok || expr.Type == nil || expr.Type.TypeCore() == nil {
+		t.Fatalf("DECIMAL cast type = %#v", expr)
+	}
+	typ := expr.Type.TypeCore()
+	if len(typ.Keywords) != 1 || typ.Keywords[0] != "DECIMAL" || len(typ.Modifiers) != 2 {
+		t.Fatalf("DECIMAL type core = %#v", typ)
+	}
+	for i, want := range []string{"10", "2"} {
+		literal, ok := typ.Modifiers[i].(*dialectast.LiteralExpr)
+		if !ok || literal.Value != want {
+			t.Fatalf("DECIMAL modifier %d = %#v, want %q", i, typ.Modifiers[i], want)
+		}
+	}
+}
+
 func TestParseSharedFunctionCallCore(t *testing.T) {
 	const raw = "coalesce(a, b)"
 	const sql = "SELECT " + raw
