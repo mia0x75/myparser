@@ -544,6 +544,10 @@ func TestSpanLexicalSpelling(t *testing.T) {
 	}{
 		{name: "identifier", sql: "abc", tok: identifier, lit: "abc", raw: "abc"},
 		{name: "keyword", sql: "SELECT", tok: selectKwd, lit: "SELECT", raw: "SELECT"},
+		{name: "insert keyword", sql: "INSERT", tok: insertKwd, lit: "INSERT", raw: "INSERT"},
+		{name: "update keyword", sql: "UPDATE", tok: updateKwd, lit: "UPDATE", raw: "UPDATE"},
+		{name: "delete keyword", sql: "DELETE", tok: deleteKwd, lit: "DELETE", raw: "DELETE"},
+		{name: "replace keyword", sql: "REPLACE", tok: replaceKwd, lit: "REPLACE", raw: "REPLACE"},
 		{name: "backtick", sql: "`a``b`", tok: identifier, lit: "a`b", raw: "`a``b`"},
 		{name: "empty backtick", sql: "``", tok: identifier, raw: "``"},
 		{name: "string", sql: "'abc'", tok: stringLit, lit: "abc", raw: "'abc'"},

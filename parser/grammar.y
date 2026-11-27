@@ -137,7 +137,7 @@ type lastValueWindow struct {
 	interval          /* "INTERVAL" */
 	into              /* "INTO" */
 	is                /* "IS" */
-	insert            /* "INSERT" */
+	insertKwd            /* "INSERT" */
 	intType           /* "INT" */
 	int1Type          /* "INT1" */
 	int2Type          /* "INT2" */
@@ -202,7 +202,7 @@ type lastValueWindow struct {
 	regexpKwd         /* "REGEXP" */
 	rename            /* "RENAME" */
 	repeat            /* "REPEAT" */
-	replace           /* "REPLACE" */
+	replaceKwd           /* "REPLACE" */
 	require           /* "REQUIRE" */
 	restrict          /* "RESTRICT" */
 	recursive         /* "RECURSIVE" */
@@ -240,7 +240,7 @@ type lastValueWindow struct {
 	union             /* "UNION" */
 	unlock            /* "UNLOCK" */
 	unsigned          /* "UNSIGNED" */
-	update            /* "UPDATE" */
+	updateKwd            /* "UPDATE" */
 	usage             /* "USAGE" */
 	use               /* "USE" */
 	using             /* "USING" */
@@ -883,10 +883,10 @@ type lastValueWindow struct {
 	CreateProcedureStmt             /* CREATE PROCEDURE statement */
 	CreateTriggerStmt               /* CREATE TRIGGER statement */
 	CreateEventStmt                 /* CREATE EVENT statement */
-	CreateViewStmt                  /* CREATE VIEW stetement */
-	CreateUserStmt                  /* CREATE User statement */
-	CreateRoleStmt                  /* CREATE Role statement */
-	CreateDatabaseStmt              /* Create Database Statement */
+	CreateViewStmt                  /* CREATE VIEW statement */
+	CreateUserStmt                  /* CREATE USER statement */
+	CreateRoleStmt                  /* CREATE ROLE statement */
+	CreateDatabaseStmt              /* CREATE DATABASE statement */
 	CreateIndexStmt                 /* CREATE INDEX statement */
 	DoStmt                          /* Do statement */
 	DropDatabaseStmt                /* DROP DATABASE statement */
@@ -900,7 +900,7 @@ type lastValueWindow struct {
 	DropRoleStmt                    /* DROP ROLE */
 	DropViewStmt                    /* DROP VIEW statement */
 	DeallocateStmt                  /* Deallocate prepared statement */
-	DeleteFromStmt                  /* DELETE FROM statement */
+	DeleteStmt                      /* DELETE statement */
 	EmptyStmt                       /* empty statement */
 	ExecuteStmt                     /* Execute statement */
 	ExplainStmt                     /* EXPLAIN statement */
@@ -910,7 +910,7 @@ type lastValueWindow struct {
 	FlushStmt                       /* Flush statement */
 	GrantStmt                       /* Grant statement */
 	GrantRoleStmt                   /* Grant role statement */
-	InsertIntoStmt                  /* INSERT INTO statement */
+	InsertStmt                      /* INSERT statement */
 	KillStmt                        /* Kill statement */
 	LoadDataStmt                    /* Load data statement */
 	ChangeMasterStmt                /* CHANGE MASTER TO statement */
@@ -1023,7 +1023,7 @@ type lastValueWindow struct {
 	AnalyzeIndexList                /* ALL or a parenthesized index list */
 	AuthOption                      /* User auth option */
 	AuthString                      /* Password string value */
-	OptionalBraces                  /* optional braces */
+	OptBraces                       /* optional braces */
 	CastType                        /* Cast function target type */
 	CastDatetimeType                /* DATETIME target for CAST ... AT TIME ZONE */
 	CastTimeZone                    /* CAST AT TIME ZONE / AT LOCAL clause */
@@ -1039,7 +1039,7 @@ type lastValueWindow struct {
 	ColumnNameOrUserVariableList    /* column name or user variable list */
 	ColumnList                      /* column list */
 	ColumnNameListOpt               /* column name list opt */
-	ColumnNameOrUserVarListOpt             /* column name or user vairiabe list opt */
+	ColumnNameOrUserVarListOpt      /* column name or user variable list opt */
 	ColumnNameOrUserVarListOptWithBrackets /* column name or user variable list opt with brackets */
 	ColumnSetValue                  /* insert statement set value by column name */
 	ColumnSetValueList              /* insert statement set value by column name list */
@@ -1097,7 +1097,7 @@ type lastValueWindow struct {
 	HavingClause                    /* HAVING clause */
 	IfExists                        /* If Exists */
 	IfNotExists                     /* If Not Exists */
-	IgnoreOptional                  /* IGNORE or empty */
+	IgnoreOpt                       /* IGNORE or empty */
 	IndexColName                    /* Index column name */
 	IndexColNameList                /* List of index column name */
 	IndexKeyPart                    /* Column or expression in a secondary index */
@@ -1208,9 +1208,9 @@ type lastValueWindow struct {
 	WithinGroupOrderBy              /* ordered-set aggregate ORDER BY clause */
 	OrReplace                       /* or replace */
 	ByItem                          /* BY item */
-	OrderByOptional                 /* Optional ORDER BY clause optional */
+	OrderByOpt                      /* optional ORDER BY clause */
 	ByList                          /* BY list */
-	QuickOptional                   /* QUICK or empty */
+	QuickOpt                        /* QUICK or empty */
 	PartitionDefinition             /* Partition definition */
 	PartitionDefinitionList         /* Partition definition list */
 	PartitionDefinitionListOpt      /* Partition definition list option */
@@ -1369,7 +1369,7 @@ type lastValueWindow struct {
 	ViewFieldList                   /* create view statement field list */
 	ViewSQLSecurity                 /* view sql security */
 	WhereClause                     /* WHERE clause */
-	WhereClauseOptional             /* Optional WHERE clause */
+	WhereClauseOpt                  /* optional WHERE clause */
 	WhenClause                      /* When clause */
 	WhenClauseList                  /* When clause list */
 	WithReadLockOpt                 /* With Read Lock opt */
@@ -1393,7 +1393,7 @@ type lastValueWindow struct {
 	OptWindowFrameExclusion         /* Optional EXCLUDE clause in WINDOW */
 	OptWindowingClause              /* Optional OVER clause */
 	WindowingClause                 /* OVER clause */
-	WindowClauseOptional            /* Optional WINDOW clause */
+	WindowClauseOpt                 /* optional WINDOW clause */
 	WindowDefinitionList            /* WINDOW definition list */
 	WindowDefinition                /* WINDOW definition */
 	WindowFrameUnits                /* WINDOW frame units */
@@ -1531,10 +1531,10 @@ type lastValueWindow struct {
 	FromOrIn                        /* From or In */
 	OptTable                        /* Optional table keyword */
 	OptInteger                      /* Optional Integer keyword */
-	CharsetOrCharacterSet           /* charset or charater set */
+	CharsetOrCharacterSet           /* charset or character set */
 	LockType                        /* Table locks type */
-	logAnd                          /* logical and operator */
-	logOr                           /* logical or operator */
+	LogAnd                          /* logical AND operator */
+	LogOr                           /* logical OR operator */
 	LinearOpt                       /* linear or empty */
 	FieldsOrColumns                 /* Fields or columns */
 	GetFormatSelector               /* {DATE|DATETIME|TIME|TIMESTAMP} */
@@ -1563,7 +1563,7 @@ type lastValueWindow struct {
 	NotKeywordToken                 /* Tokens not mysql keyword but treated specially */
 	UnReservedKeyword               /* MySQL unreserved keywords */
 	FunctionNameConflict            /* Built-in function call names which are conflict with keywords */
-	FunctionNameOptionalBraces      /* Function with optional braces, all of them are reserved keywords. */
+	FunctionNameOptBraces           /* Function with optional braces, all of them are reserved keywords. */
 	FunctionNameDatetimePrecision   /* Function with optional datetime precision, all of them are reserved keywords. */
 	FunctionNameDateArith           /* Date arith function call names (date_add or date_sub) */
 	FunctionNameDateArithMultiForms /* Date arith function call names (adddate or subdate) */
@@ -1644,11 +1644,11 @@ Start:
 	StatementList
 
 
-/**************************************AlterTableStmt***************************************
+/**************************************ALTER TABLE statement*********************************
  * See https://dev.mysql.com/doc/refman/5.7/en/alter-table.html
  *******************************************************************************************/
 AlterTableStmt:
-	alter IgnoreOptional tableKwd TableName AlterTableSpecList
+	alter IgnoreOpt tableKwd TableName AlterTableSpecList
 	{
 		$$ = &ast.AlterTableStmt{
 			Table: $4.(*ast.TableName),
@@ -1656,12 +1656,12 @@ AlterTableStmt:
 		}
 		$$.SetSpan(yyVAL.span)
 	}
-|	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList BucketsOpt
+|	alter IgnoreOpt tableKwd TableName analyze partition PartitionNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{TableNames: []*ast.TableName{$4.(*ast.TableName)}, PartitionNames: $7.([]lex.Ident), MaxNumBuckets: $8.(uint64) }
 		$$.SetSpan(yyVAL.span)
 	}
-|	alter IgnoreOptional tableKwd TableName analyze partition PartitionNameList index IndexNameList BucketsOpt
+|	alter IgnoreOpt tableKwd TableName analyze partition PartitionNameList index IndexNameList BucketsOpt
 	{
 		$$ = &ast.AnalyzeTableStmt{
 			TableNames: []*ast.TableName{$4.(*ast.TableName)},
@@ -2514,7 +2514,7 @@ ColumnOption:
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionDefaultValue, Expr: $2}
 		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
 	}
-|	on update NowSymOptionFraction
+|	on updateKwd NowSymOptionFraction
 	{
 		$$ = &ast.ColumnOption{Tp: ast.ColumnOptionOnUpdate, Expr: $3}
 		$$.(*ast.ColumnOption).SetSpan(yyVAL.span)
@@ -2715,7 +2715,7 @@ ReferOptionsOpt:
 			OnUpdate: $4.(*ast.OnUpdateOpt),
 		}
 	}
-|	on update ReferOpt OnDeleteOpt
+|	on updateKwd ReferOpt OnDeleteOpt
 	{
 		action := &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)}
 		action.SetSpan(loc.Cover(yyS[yypt-3].span, yyS[yypt-1].span))
@@ -2744,7 +2744,7 @@ OnUpdateOpt:
 	{
 		$$ = &ast.OnUpdateOpt{}
 	}
-|	on update ReferOpt
+|	on updateKwd ReferOpt
 	{
 		action := &ast.OnUpdateOpt{ReferOpt: $3.(ast.ReferOptionType)}
 		action.SetSpan(yyVAL.span)
@@ -2924,7 +2924,7 @@ AlterDatabaseStmt:
 
 /*******************************************************************
  *
- *  Create Database Statement
+ *  CREATE DATABASE statement
  *  CREATE {DATABASE | SCHEMA} [IF NOT EXISTS] db_name
  *      [create_specification] ...
  *
@@ -3551,7 +3551,7 @@ DatabaseOptionList:
 
 /*******************************************************************
  *
- *  Create Table Statement
+ *  CREATE TABLE statement
  *
  *  Example:
  *      CREATE TABLE Persons
@@ -3631,7 +3631,7 @@ CreateTableTail:
 		stmt.OnDuplicate = ast.OnDuplicateKeyHandlingIgnore
 		$$ = stmt
 	}
-|	replace AsOpt CreateTableSelectOpt
+|	replaceKwd AsOpt CreateTableSelectOpt
 	{
 		stmt := $3.(*ast.CreateTableStmt)
 		stmt.OnDuplicate = ast.OnDuplicateKeyHandlingReplace
@@ -3850,7 +3850,7 @@ PartDefValuesOpt:
 DuplicateOpt:
 	/* EMPTY */ { $$ = ast.OnDuplicateKeyHandlingError }
 |	ignore    { $$ = ast.OnDuplicateKeyHandlingIgnore }
-|	replace   { $$ = ast.OnDuplicateKeyHandlingReplace }
+|	replaceKwd   { $$ = ast.OnDuplicateKeyHandlingReplace }
 
 
 AsOpt:
@@ -3876,7 +3876,7 @@ LikeTableWithOrWithoutParen:
 
 /*******************************************************************
  *
- *  Create View Statement
+ *  CREATE VIEW statement
  *
  *  Example:
  *      CREATE VIEW OR REPLACE ALGORITHM = MERGE DEFINER="root@localhost" SQL SECURITY = definer view_name (col1,col2)
@@ -4405,11 +4405,11 @@ TriggerTime:
 
 
 TriggerEvent:
-	insert
+	insertKwd
 	{
 		$$ = "INSERT"
 	}
-|	update
+|	updateKwd
 	{
 		$$ = "UPDATE"
 	}
@@ -4543,7 +4543,7 @@ ReturnStmt:
 
 OrReplace:
 	/* EMPTY */    { $$ = false }
-|	or replace { $$ = true }
+|	or replaceKwd { $$ = true }
 
 
 ViewAlgorithm:
@@ -4614,11 +4614,11 @@ CallStmt:
 
 /*******************************************************************
  *
- *  Delete Statement
+ *      DELETE statement
  *
  *******************************************************************/
-DeleteFromStmt:
-	deleteKwd TableOptimizerHints PriorityOpt QuickOptional IgnoreOptional from TableName PartitionNameListOpt IndexHintListOpt WhereClauseOptional OrderByOptional LimitClause ReturningOpt
+DeleteStmt:
+	deleteKwd TableOptimizerHints PriorityOpt QuickOpt IgnoreOpt from TableName PartitionNameListOpt IndexHintListOpt WhereClauseOpt OrderByOpt LimitClause ReturningOpt
 	{
 		// Single Table
 		tn := $7.(*ast.TableName)
@@ -4656,7 +4656,7 @@ DeleteFromStmt:
 		x.SetSpan(yyVAL.span)
 		$$ = x
 	}
-|	deleteKwd TableOptimizerHints PriorityOpt QuickOptional IgnoreOptional TableNameList from TableRefs WhereClauseOptional
+|	deleteKwd TableOptimizerHints PriorityOpt QuickOpt IgnoreOpt TableNameList from TableRefs WhereClauseOpt
 	{
 		// Multiple Table
 		x := &ast.DeleteStmt{
@@ -4678,7 +4678,7 @@ DeleteFromStmt:
 		$$ = x
 	}
 
-|	deleteKwd TableOptimizerHints PriorityOpt QuickOptional IgnoreOptional from TableNameList using TableRefs WhereClauseOptional OrderByOptional LimitClause
+|	deleteKwd TableOptimizerHints PriorityOpt QuickOpt IgnoreOpt from TableNameList using TableRefs WhereClauseOpt OrderByOpt LimitClause
 	{
 		// Multiple Table
 		x := &ast.DeleteStmt{
@@ -5006,7 +5006,7 @@ Expression:
 		}
 		$$.SetSpan(yyVAL.span)
 	}
-|	Expression logOr Expression %prec pipes
+|	Expression LogOr Expression %prec pipes
 	{
 		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicOr), Left: $1, Right: $3 } }
 		$$.SetSpan(yyVAL.span)
@@ -5016,7 +5016,7 @@ Expression:
 		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicXor), Left: $1, Right: $3 } }
 		$$.SetSpan(yyVAL.span)
 	}
-|	Expression logAnd Expression %prec andand
+|	Expression LogAnd Expression %prec andand
 	{
 		$$ = &ast.BinaryOperationExpr{BaseBinaryExpr: pkast.BaseBinaryExpr{ Op: pkast.Operator(opcode.LogicAnd), Left: $1, Right: $3 } }
 		$$.SetSpan(yyVAL.span)
@@ -5080,12 +5080,12 @@ MaxValueOrExpression:
 |	Expression             { $$ = $1 }
 
 
-logOr:
+LogOr:
 	pipesAsOr
 |	or
 
 
-logAnd:
+LogAnd:
 andand | and
 
 
@@ -5401,7 +5401,7 @@ IfNotExists:
 |	ifKwd not exists { $$ = true }
 
 
-IgnoreOptional:
+IgnoreOpt:
 	/* EMPTY */ { $$ = false }
 |	ignore    { $$ = true }
 
@@ -5564,10 +5564,10 @@ NotKeywordToken:
  * assignment_list:
  *     assignment [, assignment] ...
  *
- *  Insert statement with optional PARTITION clause.
+ *  INSERT statement with optional PARTITION clause.
  **********************************************************************************/
-InsertIntoStmt:
-	insert TableOptimizerHints PriorityOpt IgnoreOptional IntoOpt TableName PartitionNameListOpt InsertValues OnDuplicateKeyUpdate ReturningOpt
+InsertStmt:
+	insertKwd TableOptimizerHints PriorityOpt IgnoreOpt IntoOpt TableName PartitionNameListOpt InsertValues OnDuplicateKeyUpdate ReturningOpt
 	{
 		x := $8.(*ast.InsertStmt)
 		x.Priority = $3.(mysql.PriorityEnum)
@@ -5772,7 +5772,7 @@ ColumnSetValueList:
  */
 OnDuplicateKeyUpdate:
 	/* EMPTY */                                    { $$ = nil }
-|	on duplicate key update AssignmentList { $$ = $5 }
+|	on duplicate key updateKwd AssignmentList { $$ = $5 }
 
 /***********************************Insert Statements END************************************/
 
@@ -5782,7 +5782,7 @@ OnDuplicateKeyUpdate:
  *
  **********************************************************************************/
 ReplaceIntoStmt:
-	replace TableOptimizerHints PriorityOpt IntoOpt TableName PartitionNameListOpt InsertValues
+	replaceKwd TableOptimizerHints PriorityOpt IntoOpt TableName PartitionNameListOpt InsertValues
 	{
 		x := $7.(*ast.InsertStmt)
 		if x.RowAlias != nil {
@@ -5939,7 +5939,7 @@ Order:
 |	desc      { $$ = true }
 
 
-OrderByOptional:
+OrderByOpt:
 	/* EMPTY */ { $$ = nil }
 |	OrderBy     { $$ = $1 }
 
@@ -6318,7 +6318,7 @@ FunctionNameConflict:
 |	builtinNow
 |	quarter
 |	repeat
-|	replace
+|	replaceKwd
 |	reverse
 |	right
 |	rowCount
@@ -6332,11 +6332,11 @@ FunctionNameConflict:
 |	uuidType
 
 
-OptionalBraces:
+OptBraces:
 	{} | '(' ')' {}
 
 
-FunctionNameOptionalBraces:
+FunctionNameOptBraces:
 	currentUser
 |	currentDate
 |	currentRole
@@ -6379,7 +6379,7 @@ FunctionCallKeyword:
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 		$$.SetSpan(yyVAL.span)
 	}
-|	FunctionNameOptionalBraces OptionalBraces
+|	FunctionNameOptBraces OptBraces
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, $1, yyS[yypt-1].span)}}
 		$$.SetSpan(yyVAL.span)
@@ -6440,7 +6440,7 @@ FunctionCallKeyword:
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.TimestampLiteral, yyS[yypt-1].span), Args: []ast.ExprNode{expr}}}
 		$$.SetSpan(yyVAL.span)
 	}
-|	insert '(' ExpressionListOpt ')'
+|	insertKwd '(' ExpressionListOpt ')'
 	{
 		$$ = &ast.FuncCallExpr{BaseCallExpr: pkast.BaseCallExpr{Name: functionName(yylex, ast.InsertFunc, yyS[yypt-3].span), Args: $3.([]ast.ExprNode)}}
 		$$.SetSpan(yyVAL.span)
@@ -6914,7 +6914,7 @@ SumExpr:
 		}
 		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
-|	builtinGroupConcat '(' BuggyDefaultFalseDistinctOpt ExpressionList OrderByOptional OptGConcatSeparator SelectStmtLimit ')' OptWindowingClause
+|	builtinGroupConcat '(' BuggyDefaultFalseDistinctOpt ExpressionList OrderByOpt OptGConcatSeparator SelectStmtLimit ')' OptWindowingClause
 	{
 		args := $4.([]ast.ExprNode)
 		if $9 != nil {
@@ -6944,7 +6944,7 @@ SumExpr:
 		}
 		$$.(ast.ExprNode).SetSpan(yyVAL.span)
 	}
-|	builtinJSONArrayAgg '(' BuggyDefaultFalseDistinctOpt Expression OrderByOptional SelectStmtLimit ')' OptWindowingClause
+|	builtinJSONArrayAgg '(' BuggyDefaultFalseDistinctOpt Expression OrderByOpt SelectStmtLimit ')' OptWindowingClause
 	{
 		if $8 != nil {
 			if $3.(bool) || $5 != nil || $6 != nil {
@@ -7357,7 +7357,7 @@ ValuesRow:
 	}
 
 
-QuickOptional:
+QuickOpt:
 	%prec empty
 	{
 		$$ = false
@@ -7620,7 +7620,7 @@ WithUpdateStmt:
 
 
 WithDeleteStmt:
-	WithClause DeleteFromStmt
+	WithClause DeleteStmt
 	{
 		st := $2.(*ast.DeleteStmt)
 		st.With = $1.(*ast.WithClause)
@@ -7744,7 +7744,7 @@ SelectStmtBasic:
 
 
 SelectStmtFromDualTable:
-	SelectStmtBasic FromDual WhereClauseOptional SelectStmtGroup HavingClause WindowClauseOptional
+	SelectStmtBasic FromDual WhereClauseOpt SelectStmtGroup HavingClause WindowClauseOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		lastField := st.Fields.Items[len(st.Fields.Items)-1]
@@ -7771,7 +7771,7 @@ SelectStmtFromDualTable:
 
 SelectStmtFromTable:
 	SelectStmtBasic from
-	TableRefsClause WhereClauseOptional SelectStmtGroup HavingClause WindowClauseOptional
+	TableRefsClause WhereClauseOpt SelectStmtGroup HavingClause WindowClauseOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		st.From = $3.(*ast.TableRefsClause)
@@ -7798,7 +7798,7 @@ SelectStmtFromTable:
 
 
 SelectStmt:
-	SelectStmtWithoutFrom OrderByOptional SelectStmtLimit SelectLockOpt SelectIntoOpt
+	SelectStmtWithoutFrom OrderByOpt SelectStmtLimit SelectLockOpt SelectIntoOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $4 != nil {
@@ -7840,7 +7840,7 @@ SelectStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	SelectStmtWithoutFrom OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
+|	SelectStmtWithoutFrom OrderByOpt SelectStmtLimit SelectIntoClause SelectLockOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $4 != nil {
@@ -7879,7 +7879,7 @@ SelectStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	SelectStmtFromDualTable OrderByOptional SelectStmtLimit SelectLockOpt SelectIntoOpt
+|	SelectStmtFromDualTable OrderByOpt SelectStmtLimit SelectLockOpt SelectIntoOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $2 != nil {
@@ -7901,7 +7901,7 @@ SelectStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	SelectStmtFromDualTable OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
+|	SelectStmtFromDualTable OrderByOpt SelectStmtLimit SelectIntoClause SelectLockOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $2 != nil {
@@ -7923,7 +7923,7 @@ SelectStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectLockOpt SelectIntoOpt
+|	SelectStmtFromTable OrderByOpt SelectStmtLimit SelectLockOpt SelectIntoOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $4 != nil {
@@ -7945,7 +7945,7 @@ SelectStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectIntoClause SelectLockOpt
+|	SelectStmtFromTable OrderByOpt SelectStmtLimit SelectIntoClause SelectLockOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $4 != nil {
@@ -7972,7 +7972,7 @@ SelectStmt:
 
 
 SelectStmtWithoutFrom:
-	SelectStmtBasic WhereClauseOptional SelectStmtGroup HavingClause WindowClauseOptional
+	SelectStmtBasic WhereClauseOpt SelectStmtGroup HavingClause WindowClauseOpt
 	{
 		st := $1.(*ast.SelectStmt)
 		if $2 != nil {
@@ -8004,7 +8004,7 @@ FromDual:
 	from dual
 
 
-WindowClauseOptional:
+WindowClauseOpt:
 	/* EMPTY */                   { $$ = nil }
 |	window WindowDefinitionList { $$ = $2.([]pkast.WindowSpecNode) }
 
@@ -8924,7 +8924,7 @@ SelectLockOpt:
 |	SelectLockClause
 
 SelectLockClause:
-	forKwd update LockedTableListOpt SelectLockWaitOpt
+	forKwd updateKwd LockedTableListOpt SelectLockWaitOpt
 	{
 		$$ = &ast.SelectLockInfo{
 			Type:       ast.SelectLockForUpdate,
@@ -9614,7 +9614,7 @@ Username:
 	StringName                    { $$ = &auth.UserIdentity{Username: $1.(string), Hostname: "%"} }
 |	StringName '@' StringName     { $$ = &auth.UserIdentity{Username: $1.(string), Hostname: $3.(string)} }
 |	StringName singleAtIdentifier { $$ = &auth.UserIdentity{Username: $1.(string), Hostname: strings.TrimPrefix($2, "@")} }
-|	currentUser OptionalBraces { $$ = &auth.UserIdentity{CurrentUser: true} }
+|	currentUser OptBraces { $$ = &auth.UserIdentity{CurrentUser: true} }
 
 
 UsernameList:
@@ -10042,7 +10042,7 @@ SpStmt:
 |	CommitStmt
 |	CallStmt
 |	DeallocateStmt
-|	DeleteFromStmt
+|	DeleteStmt
 |	ExecuteStmt
 |	ExplainStmt
 |	CreateDatabaseStmt
@@ -10069,7 +10069,7 @@ SpStmt:
 |	FlushStmt
 |	GrantStmt
 |	GrantRoleStmt
-|	InsertIntoStmt
+|	InsertStmt
 |	KillStmt
 |	LoadDataStmt
 |	ChangeMasterStmt
@@ -10866,7 +10866,7 @@ Statement:
 |	CommitStmt
 |	CallStmt
 |	DeallocateStmt
-|	DeleteFromStmt
+|	DeleteStmt
 |	ExecuteStmt
 |	ExplainStmt
 |	CreateDatabaseStmt
@@ -10893,7 +10893,7 @@ Statement:
 |	FlushStmt
 |	GrantStmt
 |	GrantRoleStmt
-|	InsertIntoStmt
+|	InsertStmt
 |	KillStmt
 |	LoadDataStmt
 |	ChangeMasterStmt
@@ -10971,9 +10971,9 @@ ExplainableStmt:
 |	WithSelectStmt
 |	WithUpdateStmt
 |	WithDeleteStmt
-|	DeleteFromStmt
+|	DeleteStmt
 |	UpdateStmt
-|	InsertIntoStmt
+|	InsertStmt
 |	ReplaceIntoStmt
 |	SetOprStmt
 
@@ -11755,11 +11755,11 @@ StringName:
 
 
 /***********************************************************************************
- * Update Statement
+ * UPDATE statement
  * See https://dev.mysql.com/doc/refman/5.7/en/update.html
  ***********************************************************************************/
 UpdateStmt:
-	update TableOptimizerHints PriorityOpt IgnoreOptional TableRef set AssignmentList WhereClauseOptional OrderByOptional LimitClause ReturningOpt
+	updateKwd TableOptimizerHints PriorityOpt IgnoreOpt TableRef set AssignmentList WhereClauseOpt OrderByOpt LimitClause ReturningOpt
 	{
 		st := &ast.UpdateStmt{
 			Priority:  $3.(mysql.PriorityEnum),
@@ -11787,7 +11787,7 @@ UpdateStmt:
 		st.SetSpan(yyVAL.span)
 		$$ = st
 	}
-|	update TableOptimizerHints PriorityOpt IgnoreOptional TableRefs set AssignmentList WhereClauseOptional ReturningOpt
+|	updateKwd TableOptimizerHints PriorityOpt IgnoreOpt TableRefs set AssignmentList WhereClauseOpt ReturningOpt
 	{
 		st := &ast.UpdateStmt{
 			Priority:  $3.(mysql.PriorityEnum),
@@ -11838,7 +11838,7 @@ WhereClause:
 	where Expression { $$ = $2 }
 
 
-WhereClauseOptional:
+WhereClauseOpt:
 	/* EMPTY */ { $$ = nil }
 |	WhereClause { $$ = $1 }
 
@@ -12213,11 +12213,11 @@ PrivType:
 |	process                     { $$ = mysql.ProcessPriv }
 |	execute                     { $$ = mysql.ExecutePriv }
 |	index                       { $$ = mysql.IndexPriv }
-|	insert                      { $$ = mysql.InsertPriv }
+|	insertKwd                      { $$ = mysql.InsertPriv }
 |	selectKwd                      { $$ = mysql.SelectPriv }
 |	super                       { $$ = mysql.SuperPriv }
 |	show databases            { $$ = mysql.ShowDBPriv }
-|	update                      { $$ = mysql.UpdatePriv }
+|	updateKwd                      { $$ = mysql.UpdatePriv }
 |	grant option              { $$ = mysql.GrantPriv }
 |	references                  { $$ = mysql.ReferencesPriv }
 |	replication slave         { $$ = mysql.PrivilegeType(0) }

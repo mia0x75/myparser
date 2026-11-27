@@ -132,7 +132,7 @@ const integerType = 57437
 const interval = 57438
 const into = 57439
 const is = 57440
-const insert = 57441
+const insertKwd = 57441
 const intType = 57442
 const int1Type = 57443
 const int2Type = 57444
@@ -197,7 +197,7 @@ const references = 57502
 const regexpKwd = 57503
 const rename = 57504
 const repeat = 57505
-const replace = 57506
+const replaceKwd = 57506
 const require = 57507
 const restrict = 57508
 const recursive = 57509
@@ -235,7 +235,7 @@ const unique = 57540
 const union = 57541
 const unlock = 57542
 const unsigned = 57543
-const update = 57544
+const updateKwd = 57544
 const usage = 57545
 const use = 57546
 const using = 57547
@@ -913,7 +913,7 @@ var yyToknames = [...]string{
 	"interval",
 	"into",
 	"is",
-	"insert",
+	"insertKwd",
 	"intType",
 	"int1Type",
 	"int2Type",
@@ -978,7 +978,7 @@ var yyToknames = [...]string{
 	"regexpKwd",
 	"rename",
 	"repeat",
-	"replace",
+	"replaceKwd",
 	"require",
 	"restrict",
 	"recursive",
@@ -1016,7 +1016,7 @@ var yyToknames = [...]string{
 	"union",
 	"unlock",
 	"unsigned",
-	"update",
+	"updateKwd",
 	"usage",
 	"use",
 	"using",
