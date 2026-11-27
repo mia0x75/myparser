@@ -16974,7 +16974,9 @@ yydefault:
 	case 1170:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		{
-			yyVAL.expr = &ast.DefaultExpr{}
+			expr := &ast.DefaultExpr{}
+			expr.SetSpan(yyVAL.span)
+			yyVAL.expr = expr
 		}
 	case 1171:
 		yyDollar = yyS[yypt-3 : yypt+1]

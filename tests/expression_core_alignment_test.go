@@ -589,3 +589,34 @@ func TestParseSharedParenthesesAndScalarSubqueryCore(t *testing.T) {
 		t.Fatalf("scalar subquery span = %v", span)
 	}
 }
+
+func TestParseSharedDefaultExpressionCore(t *testing.T) {
+	const raw = "DEFAULT"
+	const sql = "UPDATE t SET a = " + raw
+	stmt := mustParseOne(t, sql).(*dialectast.UpdateStmt)
+	if len(stmt.Assignments) != 1 {
+		t.Fatalf("assignments = %d", len(stmt.Assignments))
+	}
+	expr, ok := stmt.Assignments[0].Expr.(*dialectast.DefaultExpr)
+	if !ok {
+		t.Fatalf("default expression = %#v", stmt.Assignments[0].Expr)
+	}
+	span := expr.Span()
+	if !span.Within(len(sql)) || sql[span.Start:span.End] != raw {
+		t.Fatalf("DEFAULT span = %v", span)
+	}
+}
+
+func TestParseMySQLDefaultColumnCompatibility(t *testing.T) {
+	const raw = "DEFAULT(a)"
+	const sql = "SELECT " + raw
+	stmt := mustParseOne(t, sql).(*dialectast.SelectStmt)
+	expr, ok := stmt.Fields.Items[0].Expr.(*dialectast.DefaultExpr)
+	if !ok || len(expr.Name.Parts) != 1 || expr.Name.Parts[0].Name != "a" {
+		t.Fatalf("DEFAULT(column) = %#v", stmt.Fields.Items[0].Expr)
+	}
+	span := expr.Span()
+	if !span.Within(len(sql)) || sql[span.Start:span.End] != raw {
+		t.Fatalf("DEFAULT(column) span = %v", span)
+	}
+}

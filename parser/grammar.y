@@ -5721,7 +5721,9 @@ ExprOrDefault:
 	Expression
 |	defaultKwd
 	{
-		$$ = &ast.DefaultExpr{}
+		expr := &ast.DefaultExpr{}
+		expr.SetSpan(yyVAL.span)
+		$$ = expr
 	}
 
 
