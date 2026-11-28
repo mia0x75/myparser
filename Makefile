@@ -1,7 +1,7 @@
 .PHONY: all build parser generate-check fmt test race vet lint verify clean help
 .DEFAULT_GOAL := help
 
-GOYACC:=go run golang.org/x/tools/cmd/goyacc@v0.52.0
+GOYACC ?= go run golang.org/x/tools/cmd/goyacc@v0.52.0
 GOLANGCI_LINT_VERSION := v2.15.0
 
 all: verify
