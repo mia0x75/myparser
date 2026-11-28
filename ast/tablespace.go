@@ -112,7 +112,7 @@ func (n *TablespaceOption) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *TablespaceOption) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*TablespaceOption)
@@ -165,7 +165,7 @@ func (n *CreateTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *CreateTablespaceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*CreateTablespaceStmt)
@@ -237,7 +237,7 @@ func (n *AlterTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *AlterTablespaceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*AlterTablespaceStmt)
@@ -304,7 +304,7 @@ func (n *DropTablespaceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DropTablespaceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*DropTablespaceStmt)

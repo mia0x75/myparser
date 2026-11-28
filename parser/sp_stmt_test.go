@@ -11,7 +11,7 @@ import (
 
 func mustParseOne(t *testing.T, sql string) ast.StmtNode {
 	t.Helper()
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatalf("parse %q: %v", sql, err)
 	}
@@ -59,7 +59,7 @@ func TestSpStmtParse(t *testing.T) {
 		"create event e on schedule every 1 day do begin select 1; end",
 	}
 	for _, sql := range cases {
-		if _, err := New().ParseOneStmt(sql, "", ""); err != nil {
+		if _, err := New().ParseOneStmt(sql); err != nil {
 			t.Fatalf("parse %q: %v", sql, err)
 		}
 	}
@@ -77,7 +77,7 @@ func TestSpStmtParseError(t *testing.T) {
 		{"create procedure p() begin select 1 end", ""},
 	}
 	for _, c := range cases {
-		_, err := New().ParseOneStmt(c.sql, "", "")
+		_, err := New().ParseOneStmt(c.sql)
 		if err == nil {
 			t.Fatalf("expected error for %q", c.sql)
 		}
@@ -89,7 +89,7 @@ func TestSpStmtParseError(t *testing.T) {
 
 func restoreBody(t *testing.T, sql string) string {
 	t.Helper()
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatalf("parse %q: %v", sql, err)
 	}
@@ -179,7 +179,7 @@ func TestDelimiter(t *testing.T) {
 		{"delimiter $$\ncreate procedure p() begin select 1; select 2; end$$\nselect 3;", 2},
 	}
 	for _, c := range cases {
-		stmts, _, err := New().Parse(c.sql, "", "")
+		stmts, _, err := New().ParseWithWarnings(c.sql)
 		if err != nil {
 			t.Fatalf("sql %q: %v", c.sql, err)
 		}
@@ -188,7 +188,7 @@ func TestDelimiter(t *testing.T) {
 		}
 	}
 	// `delimiter` as a plain identifier is not treated as a command.
-	if _, err := New().ParseOneStmt("select `delimiter` from t", "", ""); err != nil {
+	if _, err := New().ParseOneStmt("select `delimiter` from t"); err != nil {
 		t.Fatalf("identifier delimiter: %v", err)
 	}
 }

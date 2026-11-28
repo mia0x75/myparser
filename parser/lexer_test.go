@@ -34,15 +34,15 @@ func TestNestedExecutableComments(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
-			if _, err := parser.ParseOneStmt(tc.sql, "", ""); err == nil {
+			if _, err := parser.ParseOneStmt(tc.sql); err == nil {
 				t.Fatal("accepted nested executable comments")
 			}
 			for _, target := range []Dialect{DialectMySQL, DialectMariaDB} {
-				if _, err := parser.ParseOneStmtForDialect(tc.sql, "", "", target); err == nil {
+				if _, err := parser.ParseOneStmtForDialect(tc.sql, target); err == nil {
 					t.Fatalf("%s accepted nested executable comments", target)
 				}
 			}
-			if _, err := parser.ParseOneStmt("SELECT /*!01000 1 + /*!99998 8 + */ 2 + */ 4", "", ""); err != nil {
+			if _, err := parser.ParseOneStmt("SELECT /*!01000 1 + /*!99998 8 + */ 2 + */ 4"); err != nil {
 				t.Fatalf("skipped inner comment rejected after failed parse: %v", err)
 			}
 		})
@@ -514,7 +514,7 @@ func TestUnterminatedTokensRejected(t *testing.T) {
 		"SELECT 1 B'01",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(sql); err == nil {
 				t.Fatalf("accepted truncated input %q", sql)
 			}
 		})
@@ -544,6 +544,10 @@ func TestSpanLexicalSpelling(t *testing.T) {
 	}{
 		{name: "identifier", sql: "abc", tok: identifier, lit: "abc", raw: "abc"},
 		{name: "keyword", sql: "SELECT", tok: selectKwd, lit: "SELECT", raw: "SELECT"},
+		{name: "insert keyword", sql: "INSERT", tok: insertKwd, lit: "INSERT", raw: "INSERT"},
+		{name: "update keyword", sql: "UPDATE", tok: updateKwd, lit: "UPDATE", raw: "UPDATE"},
+		{name: "delete keyword", sql: "DELETE", tok: deleteKwd, lit: "DELETE", raw: "DELETE"},
+		{name: "replace keyword", sql: "REPLACE", tok: replaceKwd, lit: "REPLACE", raw: "REPLACE"},
 		{name: "backtick", sql: "`a``b`", tok: identifier, lit: "a`b", raw: "`a``b`"},
 		{name: "empty backtick", sql: "``", tok: identifier, raw: "``"},
 		{name: "string", sql: "'abc'", tok: stringLit, lit: "abc", raw: "'abc'"},

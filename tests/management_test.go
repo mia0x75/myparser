@@ -117,7 +117,7 @@ func TestManagementBuiltinTableNames(t *testing.T) {
 						{name: "no parentheses", sql: "create table " + name + " as select 1 as a", accepted: true},
 					} {
 						t.Run(tc.name, func(t *testing.T) {
-							stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+							stmt, err := parser.ParseOneStmt(tc.sql)
 							if !tc.accepted {
 								if err == nil {
 									t.Fatal("accepted an ambiguous built-in table name")
@@ -199,4 +199,20 @@ func TestManagementDiagnosticsAndKillVisitors(t *testing.T) {
 		})
 	}
 	runRestoreTest(t, "select connection+1,query+1", "SELECT `connection`+1,`query`+1", true)
+}
+
+func TestCreateUserRequireListPreservesSourceOrder(t *testing.T) {
+	const source = "CREATE USER 'operator' REQUIRE ISSUER 'issuer-a' AND SUBJECT 'subject-b'"
+	stmt := mustParseOne(t, source)
+	user, ok := stmt.(*ast.CreateUserStmt)
+	if !ok {
+		t.Fatalf("parsed statement = %T, want *ast.CreateUserStmt", stmt)
+	}
+	if len(user.TslOptions) != 2 || user.TslOptions[0].Type != ast.Subject || user.TslOptions[1].Type != ast.Issuer {
+		t.Fatalf("stored REQUIRE options = %#v, want reverse storage for restore compatibility", user.TslOptions)
+	}
+	want := "CREATE USER `operator`@`%` REQUIRE ISSUER 'issuer-a' AND SUBJECT 'subject-b'"
+	if got := restoreStmt(t, stmt); got != want {
+		t.Fatalf("Restore() = %q, want %q", got, want)
+	}
 }

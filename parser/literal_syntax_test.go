@@ -88,12 +88,12 @@ func TestLiteralSyntaxNullBoolean(t *testing.T) {
 func TestLiteralSyntaxParserReuse(t *testing.T) {
 	const sql = "SELECT nUlL,TrUe,FALSE"
 	parser := New()
-	stmt, err := parser.ParseOneStmt(sql, "", "")
+	stmt, err := parser.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
 	literals := literalFields(t, stmt)
-	if _, err := parser.ParseOneStmt("SELECT 1 FROM t", "", ""); err != nil {
+	if _, err := parser.ParseOneStmt("SELECT 1 FROM t"); err != nil {
 		t.Fatal(err)
 	}
 	checkLiteralSyntax(t, literals, nullBooleanSyntax())
@@ -174,7 +174,7 @@ func TestLiteralSyntaxNowBooleanArgument(t *testing.T) {
 		})
 	}
 	// A NULL argument is still not a precision.
-	_, err := New().ParseOneStmt("SELECT NOW(NULL)", "", "")
+	_, err := New().ParseOneStmt("SELECT NOW(NULL)")
 	if err == nil {
 		t.Fatal("accepted NULL as the NOW precision")
 	}
@@ -269,7 +269,7 @@ func TestLiteralSyntaxReplicationValues(t *testing.T) {
 		})
 	}
 	// A numeric replication option still rejects a boolean.
-	if _, err := New().ParseOneStmt("change master to master_port=true", "", ""); err == nil {
+	if _, err := New().ParseOneStmt("change master to master_port=true"); err == nil {
 		t.Fatal("accepted a boolean for a numeric replication option")
 	}
 }
@@ -682,7 +682,7 @@ func TestLiteralSyntaxBinary(t *testing.T) {
 func TestLiteralSyntaxStringOriginAndReuse(t *testing.T) {
 	const sql = `SELECT 'plain', 'a\nb', 'a''b', '中文' /* gap */ "b", _LATIN1'c', _binary'd', N'e', 0xF, b'001'`
 	parser := New()
-	stmt, err := parser.ParseOneStmt(sql, "", "")
+	stmt, err := parser.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +706,7 @@ func TestLiteralSyntaxStringOriginAndReuse(t *testing.T) {
 		{`SELECT 'longer\ntext' 'replacement', x'FFFF'`, true},
 		{`SELECT 'invalid`, false},
 	} {
-		if _, err := parser.ParseOneStmt(tc.sql, "latin1", "latin1_bin"); (err == nil) != tc.valid {
+		if _, err := parser.ParseOneStmt(tc.sql); (err == nil) != tc.valid {
 			t.Fatalf("reuse Parse(%q): %v", tc.sql, err)
 		}
 		checkLiteralSyntax(t, literals, want)

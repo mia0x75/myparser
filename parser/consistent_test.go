@@ -28,7 +28,7 @@ func TestKeywordConsistent(t *testing.T) {
 	reservedKeywordStartMarker := "\t/* The following tokens belong to ReservedKeyword. */"
 	unreservedKeywordStartMarker := "\t/* The following tokens belong to UnReservedKeyword. */"
 	notKeywordTokenStartMarker := "\t/* The following tokens belong to NotKeywordToken. */"
-	identTokenEndMarker := "%token\t<item>"
+	identTokenEndMarker := "%token <item>"
 
 	reservedKeywords := extractTokenNames(content, reservedKeywordStartMarker, unreservedKeywordStartMarker)
 

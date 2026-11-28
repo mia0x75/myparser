@@ -29,7 +29,7 @@ func TestAssignmentSharedSyntax(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,11 +68,11 @@ func TestAssignmentSharedSyntax(t *testing.T) {
 				t.Fatalf("quoted dot was split: %+v", target.Name)
 			}
 			restored := restoreStmt(t, stmt)
-			reparsed, err := p.ParseOneStmt(restored, "", "")
+			reparsed, err := p.ParseOneStmt(restored)
 			if err != nil || restoreStmt(t, reparsed) != restored {
 				t.Fatalf("assignment round trip: %s, err=%v", restored, err)
 			}
-			if _, err := p.ParseOneStmt("UPDATE q SET z=9", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("UPDATE q SET z=9"); err != nil {
 				t.Fatal(err)
 			}
 			if a.Span() != want || restoreStmt(t, stmt) != restored {

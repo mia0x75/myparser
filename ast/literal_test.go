@@ -204,7 +204,7 @@ func TestLiteralRestoreRejectsInvalidNumericText(t *testing.T) {
 }
 
 func TestStatementRestoreRejectsModifiedNumericLiteral(t *testing.T) {
-	stmt, err := parser.New().ParseOneStmt("SELECT 1", "", "")
+	stmt, err := parser.New().ParseOneStmt("SELECT 1")
 	if err != nil {
 		t.Fatal(err)
 	}

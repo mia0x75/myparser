@@ -62,7 +62,7 @@ func TestIsReadOnlySubqueryLocks(t *testing.T) {
 		{"SELECT * FROM (SELECT y FROM u FOR UPDATE) d", false},
 		{"SELECT * FROM (SELECT y FROM u) d", true},
 	} {
-		stmt, err := parser.ParseOneStmt(tc.sql, "", "")
+		stmt, err := parser.ParseOneStmt(tc.sql)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", tc.sql, err)
 		}
@@ -489,7 +489,7 @@ func RunNodeRestoreTestWithFlags(t *testing.T, nodeTestCases []NodeRestoreTestCa
 	for _, testCase := range nodeTestCases {
 		sourceSQL := fmt.Sprintf(template, testCase.sourceSQL)
 		expectSQL := fmt.Sprintf(template, testCase.expectSQL)
-		stmt, err := p.ParseOneStmt(sourceSQL, "", "")
+		stmt, err := p.ParseOneStmt(sourceSQL)
 		comment := fmt.Sprintf("source %#v", testCase)
 		if err != nil {
 			t.Fatalf("%s: %v", comment, err)
@@ -504,7 +504,7 @@ func RunNodeRestoreTestWithFlags(t *testing.T, nodeTestCases []NodeRestoreTestCa
 		if restoreSql != expectSQL {
 			t.Fatalf("%s: got %#v, want %#v", comment, restoreSql, expectSQL)
 		}
-		stmt2, err := p.ParseOneStmt(restoreSql, "", "")
+		stmt2, err := p.ParseOneStmt(restoreSql)
 		if err != nil {
 			t.Fatalf("%s: %v", comment, err)
 		}

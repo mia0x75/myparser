@@ -59,14 +59,14 @@ func TestNumericLiteralKindsAndSpans(t *testing.T) {
 // same parser parses another statement afterwards.
 func TestNumericLiteralSurvivesParserReuse(t *testing.T) {
 	p := New()
-	stmt, err := p.ParseOneStmt("select 007,1.50", "", "")
+	stmt, err := p.ParseOneStmt("select 007,1.50")
 	if err != nil {
 		t.Fatal(err)
 	}
 	fields := stmt.(*ast.SelectStmt).Fields.Items
 	integer := fields[0].Expr.(*ast.LiteralExpr)
 	decimal := fields[1].Expr.(*ast.LiteralExpr)
-	if _, err := p.ParseOneStmt("select 999999999999999999999999999999", "", ""); err != nil {
+	if _, err := p.ParseOneStmt("select 999999999999999999999999999999"); err != nil {
 		t.Fatal(err)
 	}
 	if integer.Raw != "007" || integer.Value != "7" {
@@ -159,7 +159,7 @@ func TestNumericLiteralRoundTrips(t *testing.T) {
 	}
 	p := New()
 	p.EnableWindowFunc(true)
-	parsed, err := p.ParseOneStmt("select sum(a) over (rows between 1 preceding and 2 following) from t", "", "")
+	parsed, err := p.ParseOneStmt("select sum(a) over (rows between 1 preceding and 2 following) from t")
 	if err != nil {
 		t.Fatal(err)
 	}

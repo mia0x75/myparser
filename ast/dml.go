@@ -86,7 +86,7 @@ func (n *TableName) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *TableName) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	table, ok := newNode.(*TableName)
@@ -1794,7 +1794,7 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *ShowStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*ShowStmt)
@@ -1866,396 +1866,450 @@ func (n *ShowStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// WindowSpec is the specification of a window.
-type WindowSpec struct {
-	pkast.BaseWindowSpec
+// DeleteStmt preserves MySQL's target list and choice of multi-table syntax.
+type DeleteStmt struct {
+	pkast.BaseDeleteStmt
+	With         *WithClause
+	Targets      []*TableName
+	Priority     mysql.PriorityEnum
+	IgnoreErr    bool
+	Quick        bool
+	IsMultiTable bool
+	BeforeFrom   bool
+	TableHints   []*OptimizerHint
 }
 
-func (n *WindowSpec) WindowSpecCore() *pkast.BaseWindowSpec {
+func (n *DeleteStmt) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if n == nil {
-		return nil
+		return fmt.Errorf("restore DeleteStmt: nil statement")
 	}
-	return &n.BaseWindowSpec
-}
-
-// Restore implements Node interface.
-func (n *WindowSpec) Restore(ctx *format.RestoreCtx) error {
-	if n == nil {
-		return nilRestoreError("WindowSpec")
-	}
-	if n.Name.Present() {
-		ctx.WriteIdent(n.Name)
-		if n.OnlyAlias {
-			return ctx.Err()
+	if n.IsMultiTable {
+		if n.Table != nil || !resultSetPresent(n.Using) || len(n.Targets) == 0 {
+			return fmt.Errorf("restore DeleteStmt: inconsistent multi-table mode")
 		}
-		ctx.WriteKeyword(" AS ")
-	}
-	ctx.WritePlain("(")
-	sep := ""
-	if n.Ref.Present() {
-		ctx.WriteIdent(n.Ref)
-		sep = " "
-	}
-	if n.PartitionBy != nil {
-		if n.PartitionBy.WindowPartitionClauseCore() == nil {
-			return errors.New("restore window spec: nil partition clause")
+		for i, target := range n.Targets {
+			if target == nil {
+				return fmt.Errorf("restore DeleteStmt.Targets[%d]: nil target", i)
+			}
 		}
-		ctx.WritePlain(sep)
-		if err := n.PartitionBy.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore WindowSpec.PartitionBy")
+	} else if !resultSetPresent(n.Table) || n.Using != nil || len(n.Targets) != 0 || n.BeforeFrom {
+		return fmt.Errorf("restore DeleteStmt: inconsistent single-table mode")
+	}
+	if n.With != nil {
+		if err := n.With.Restore(ctx); err != nil {
+			return fmt.Errorf("restore DeleteStmt.With: %w", err)
 		}
-		sep = " "
+		ctx.WritePlain(" ")
+	}
+	ctx.WriteKeyword("DELETE ")
+	if len(n.TableHints) > 0 {
+		ctx.WritePlain("/*+ ")
+		for i, hint := range n.TableHints {
+			if hint == nil {
+				return fmt.Errorf("restore DeleteStmt.TableHints[%d]: nil hint", i)
+			}
+			if err := hint.Restore(ctx); err != nil {
+				return fmt.Errorf("restore DeleteStmt.TableHints[%d]: %w", i, err)
+			}
+		}
+		ctx.WritePlain("*/ ")
+	}
+	if err := n.Priority.Restore(ctx); err != nil {
+		return err
+	}
+	if n.Priority != mysql.NoPriority {
+		ctx.WritePlain(" ")
+	}
+	if n.Quick {
+		ctx.WriteKeyword("QUICK ")
+	}
+	if n.IgnoreErr {
+		ctx.WriteKeyword("IGNORE ")
+	}
+	if n.IsMultiTable {
+		if !n.BeforeFrom {
+			ctx.WriteKeyword("FROM ")
+		}
+		for i, target := range n.Targets {
+			if i != 0 {
+				ctx.WritePlain(",")
+			}
+			if err := target.Restore(ctx); err != nil {
+				return fmt.Errorf("restore DeleteStmt.Targets[%d]: %w", i, err)
+			}
+		}
+		if n.BeforeFrom {
+			ctx.WriteKeyword(" FROM ")
+		} else {
+			ctx.WriteKeyword(" USING ")
+		}
+		if err := restoreDMLRelation(ctx, n.Using); err != nil {
+			return fmt.Errorf("restore DeleteStmt.Using: %w", err)
+		}
+	} else {
+		ctx.WriteKeyword("FROM ")
+		if err := restoreDMLRelation(ctx, n.Table); err != nil {
+			return fmt.Errorf("restore DeleteStmt.Table: %w", err)
+		}
+	}
+	if n.Where != nil {
+		ctx.WriteKeyword(" WHERE ")
+		if err := n.Where.Restore(ctx); err != nil {
+			return fmt.Errorf("restore DeleteStmt.Where: %w", err)
+		}
 	}
 	if n.OrderBy != nil {
 		if n.OrderBy.OrderByClauseCore() == nil {
-			return errors.New("restore window spec: nil order by clause")
+			return fmt.Errorf("restore DeleteStmt.OrderBy: nil clause")
 		}
-		ctx.WritePlain(sep)
+		ctx.WritePlain(" ")
 		if err := n.OrderBy.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore WindowSpec.OrderBy")
-		}
-		sep = " "
-	}
-	if n.Frame != nil {
-		if n.Frame.WindowFrameClauseCore() == nil {
-			return errors.New("restore window spec: nil frame clause")
-		}
-		ctx.WritePlain(sep)
-		if err := n.Frame.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore WindowSpec.Frame")
+			return fmt.Errorf("restore DeleteStmt.OrderBy: %w", err)
 		}
 	}
-	ctx.WritePlain(")")
-
+	if n.Limit != nil {
+		if n.Limit.LimitCore() == nil {
+			return fmt.Errorf("restore DeleteStmt.Limit: nil clause")
+		}
+		ctx.WritePlain(" ")
+		if err := n.Limit.Restore(ctx); err != nil {
+			return fmt.Errorf("restore DeleteStmt.Limit: %w", err)
+		}
+	}
+	if n.Returning != nil {
+		ctx.WriteKeyword(" RETURNING ")
+		if err := n.Returning.Restore(ctx); err != nil {
+			return fmt.Errorf("restore DeleteStmt.Returning: %w", err)
+		}
+	}
 	return ctx.Err()
 }
 
-// Accept implements Node Accept interface.
-func (n *WindowSpec) Accept(v Visitor) (Node, bool) {
+func (n *DeleteStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
 		return nil, false
 	}
-	newNode, skipChildren := v.Enter(n)
-	var ok bool
-	n, ok = newNode.(*WindowSpec)
-	if !ok || n == nil {
-		return newNode, false
+	entered, skip := v.Enter(n)
+	outer, ok := entered.(*DeleteStmt)
+	if !ok || outer == nil {
+		return entered, false
 	}
-	if skipChildren {
-		return v.Leave(n)
+	if skip {
+		return v.Leave(outer)
 	}
-	if n.PartitionBy != nil {
-		if n.PartitionBy.WindowPartitionClauseCore() == nil {
-			return n, false
-		}
-		node, ok := n.PartitionBy.Accept(v)
+	n = outer
+	if n.With != nil {
+		updated, ok := n.With.Accept(v)
 		if !ok {
 			return n, false
 		}
-		partition, ok := node.(pkast.WindowPartitionClauseNode)
-		if !ok || partition == nil || partition.WindowPartitionClauseCore() == nil {
+		with, ok := updated.(*WithClause)
+		if !ok || with == nil {
 			return n, false
 		}
-		n.PartitionBy = partition
+		n.With = with
+	}
+	if !acceptOptimizerHints(v, n.TableHints) {
+		return n, false
+	}
+	if n.Table != nil {
+		if !resultSetPresent(n.Table) {
+			return n, false
+		}
+		updated, ok := n.Table.Accept(v)
+		if !ok {
+			return n, false
+		}
+		table, ok := updated.(ResultSetNode)
+		if !ok || !resultSetPresent(table) {
+			return n, false
+		}
+		n.Table = table
+	}
+	if n.Using != nil {
+		if !resultSetPresent(n.Using) {
+			return n, false
+		}
+		updated, ok := n.Using.Accept(v)
+		if !ok {
+			return n, false
+		}
+		source, ok := updated.(ResultSetNode)
+		if !ok || !resultSetPresent(source) {
+			return n, false
+		}
+		n.Using = source
+	}
+	for i, target := range n.Targets {
+		if target == nil {
+			return n, false
+		}
+		updated, ok := target.Accept(v)
+		if !ok {
+			return n, false
+		}
+		table, ok := updated.(*TableName)
+		if !ok || table == nil {
+			return n, false
+		}
+		n.Targets[i] = table
+	}
+	if n.Where != nil {
+		updated, ok := n.Where.Accept(v)
+		if !ok {
+			return n, false
+		}
+		expr, ok := updated.(ExprNode)
+		if !ok || !nodePresent(expr) {
+			return n, false
+		}
+		n.Where = expr
 	}
 	if n.OrderBy != nil {
 		if n.OrderBy.OrderByClauseCore() == nil {
 			return n, false
 		}
-		node, ok := n.OrderBy.Accept(v)
+		updated, ok := n.OrderBy.Accept(v)
 		if !ok {
 			return n, false
 		}
-		orderBy, ok := node.(pkast.OrderByClauseNode)
-		if !ok || orderBy == nil || orderBy.OrderByClauseCore() == nil {
+		clause, ok := updated.(OrderByClauseNode)
+		if !ok || clause == nil || clause.OrderByClauseCore() == nil {
 			return n, false
 		}
-		n.OrderBy = orderBy
+		n.OrderBy = clause
 	}
-	if n.Frame != nil {
-		if n.Frame.WindowFrameClauseCore() == nil {
+	if n.Limit != nil {
+		if n.Limit.LimitCore() == nil {
 			return n, false
 		}
-		node, ok := n.Frame.Accept(v)
+		updated, ok := n.Limit.Accept(v)
 		if !ok {
 			return n, false
 		}
-		frame, ok := node.(pkast.WindowFrameClauseNode)
-		if !ok || frame == nil || frame.WindowFrameClauseCore() == nil {
+		clause, ok := updated.(LimitNode)
+		if !ok || clause == nil || clause.LimitCore() == nil {
 			return n, false
 		}
-		n.Frame = frame
+		n.Limit = clause
+	}
+	if n.Returning != nil {
+		updated, ok := n.Returning.Accept(v)
+		if !ok {
+			return n, false
+		}
+		fields, ok := updated.(*FieldList)
+		if !ok || fields == nil {
+			return n, false
+		}
+		n.Returning = fields
 	}
 	return v.Leave(n)
 }
 
-// PartitionByClause represents partition by clause.
-type PartitionByClause struct {
-	pkast.BaseWindowPartitionClause
+// UpdateStmt keeps MySQL modifiers outside the shared update syntax.
+type UpdateStmt struct {
+	pkast.BaseUpdateStmt
+	With          *WithClause
+	Priority      mysql.PriorityEnum
+	IgnoreErr     bool
+	MultipleTable bool
+	TableHints    []*OptimizerHint
 }
 
-func (n *PartitionByClause) WindowPartitionClauseCore() *pkast.BaseWindowPartitionClause {
-	if n == nil {
-		return nil
+func (n *UpdateStmt) Restore(ctx *format.RestoreCtx) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return &n.BaseWindowPartitionClause
-}
-
-// Restore implements Node interface.
-func (n *PartitionByClause) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
-		return errors.New("restore partition by: nil clause")
+		return nilRestoreError("UpdateStmt")
 	}
-	ctx.WriteKeyword("PARTITION BY ")
-	for i, v := range n.Items {
-		if v == nil || v.WindowPartitionItemCore() == nil {
-			return errors.Errorf("restore partition by item %d: nil item", i)
+	if n == nil || !resultSetPresent(n.Table) || len(n.Assignments) == 0 {
+		return fmt.Errorf("restore UpdateStmt: missing table or assignments")
+	}
+	for i, assignment := range n.Assignments {
+		if assignment == nil {
+			return fmt.Errorf("restore UpdateStmt.Assignments[%d]: nil assignment", i)
 		}
+	}
+	if n.With != nil {
+		if err := n.With.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.With: %w", err)
+		}
+		ctx.WritePlain(" ")
+	}
+	ctx.WriteKeyword("UPDATE ")
+	if len(n.TableHints) > 0 {
+		ctx.WritePlain("/*+ ")
+		for i, hint := range n.TableHints {
+			if hint == nil {
+				return fmt.Errorf("restore UpdateStmt.TableHints[%d]: nil hint", i)
+			}
+			if err := hint.Restore(ctx); err != nil {
+				return fmt.Errorf("restore UpdateStmt.TableHints[%d]: %w", i, err)
+			}
+		}
+		ctx.WritePlain("*/ ")
+	}
+	if err := n.Priority.Restore(ctx); err != nil {
+		return err
+	}
+	if n.Priority != mysql.NoPriority {
+		ctx.WritePlain(" ")
+	}
+	if n.IgnoreErr {
+		ctx.WriteKeyword("IGNORE ")
+	}
+	if err := restoreDMLRelation(ctx, n.Table); err != nil {
+		return fmt.Errorf("restore UpdateStmt.Table: %w", err)
+	}
+	ctx.WriteKeyword(" SET ")
+	for i, assignment := range n.Assignments {
 		if i != 0 {
 			ctx.WritePlain(", ")
 		}
-		if err := v.Restore(ctx); err != nil {
-			return errors.Annotatef(err, "An error occurred while restore PartitionByClause.Items[%d]", i)
+		if err := assignment.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.Assignments[%d]: %w", i, err)
+		}
+	}
+	if n.Where != nil {
+		ctx.WriteKeyword(" WHERE ")
+		if err := n.Where.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.Where: %w", err)
+		}
+	}
+	if n.OrderBy != nil {
+		if n.OrderBy.OrderByClauseCore() == nil {
+			return fmt.Errorf("restore UpdateStmt.OrderBy: nil clause")
+		}
+		ctx.WritePlain(" ")
+		if err := n.OrderBy.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.OrderBy: %w", err)
+		}
+	}
+	if n.Limit != nil {
+		if n.Limit.LimitCore() == nil {
+			return fmt.Errorf("restore UpdateStmt.Limit: nil clause")
+		}
+		ctx.WritePlain(" ")
+		if err := n.Limit.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.Limit: %w", err)
+		}
+	}
+	if n.Returning != nil {
+		ctx.WriteKeyword(" RETURNING ")
+		if err := n.Returning.Restore(ctx); err != nil {
+			return fmt.Errorf("restore UpdateStmt.Returning: %w", err)
 		}
 	}
 	return ctx.Err()
 }
 
-// Accept implements Node Accept interface.
-func (n *PartitionByClause) Accept(v Visitor) (Node, bool) {
+func (n *UpdateStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
 		return nil, false
 	}
-	newNode, skipChildren := v.Enter(n)
-	clause, ok := newNode.(*PartitionByClause)
-	if !ok || clause == nil {
-		return newNode, false
+	entered, skip := v.Enter(n)
+	outer, ok := entered.(*UpdateStmt)
+	if !ok || outer == nil {
+		return entered, false
 	}
-	if skipChildren {
-		return v.Leave(newNode)
+	if skip {
+		return v.Leave(outer)
 	}
-	n = clause
-	for i, val := range n.Items {
-		if val == nil || val.WindowPartitionItemCore() == nil {
-			return n, false
-		}
-		node, ok := val.Accept(v)
+	n = outer
+	if n.With != nil {
+		updated, ok := n.With.Accept(v)
 		if !ok {
 			return n, false
 		}
-		replacement, ok := node.(pkast.WindowPartitionItemNode)
-		if !ok || replacement == nil || replacement.WindowPartitionItemCore() == nil {
+		with, ok := updated.(*WithClause)
+		if !ok || with == nil {
 			return n, false
 		}
-		n.Items[i] = replacement
+		n.With = with
+	}
+	if !acceptOptimizerHints(v, n.TableHints) {
+		return n, false
+	}
+	if !resultSetPresent(n.Table) {
+		return n, false
+	}
+	updated, ok := n.Table.Accept(v)
+	if !ok {
+		return n, false
+	}
+	table, ok := updated.(ResultSetNode)
+	if !ok || !resultSetPresent(table) {
+		return n, false
+	}
+	n.Table = table
+	for i, assignment := range n.Assignments {
+		if assignment == nil {
+			return n, false
+		}
+		updated, ok := assignment.Accept(v)
+		if !ok {
+			return n, false
+		}
+		value, ok := updated.(*Assignment)
+		if !ok || value == nil {
+			return n, false
+		}
+		n.Assignments[i] = value
+	}
+	if n.Where != nil {
+		updated, ok := n.Where.Accept(v)
+		if !ok {
+			return n, false
+		}
+		expr, ok := updated.(ExprNode)
+		if !ok || !nodePresent(expr) {
+			return n, false
+		}
+		n.Where = expr
+	}
+	if n.OrderBy != nil {
+		if n.OrderBy.OrderByClauseCore() == nil {
+			return n, false
+		}
+		updated, ok := n.OrderBy.Accept(v)
+		if !ok {
+			return n, false
+		}
+		clause, ok := updated.(OrderByClauseNode)
+		if !ok || clause == nil || clause.OrderByClauseCore() == nil {
+			return n, false
+		}
+		n.OrderBy = clause
+	}
+	if n.Limit != nil {
+		if n.Limit.LimitCore() == nil {
+			return n, false
+		}
+		updated, ok := n.Limit.Accept(v)
+		if !ok {
+			return n, false
+		}
+		clause, ok := updated.(LimitNode)
+		if !ok || clause == nil || clause.LimitCore() == nil {
+			return n, false
+		}
+		n.Limit = clause
+	}
+	if n.Returning != nil {
+		updated, ok := n.Returning.Accept(v)
+		if !ok {
+			return n, false
+		}
+		fields, ok := updated.(*FieldList)
+		if !ok || fields == nil {
+			return n, false
+		}
+		n.Returning = fields
 	}
 	return v.Leave(n)
 }
-
-// FrameType is the type of window function frame.
-type FrameType = pkast.WindowFrameType
-
-// Window function frame types.
-// MySQL only supports `ROWS` and `RANGES`.
-const (
-	Rows   = pkast.WindowFrameRows
-	Ranges = pkast.WindowFrameRange
-	Groups = pkast.WindowFrameGroups
-)
-
-// FrameClause represents frame clause.
-type FrameClause struct {
-	pkast.BaseWindowFrameClause
-	// Source offsets locate dialect diagnostics without reinterpreting expressions.
-	TypeOffset      int
-	ExclusionOffset int
-}
-
-// Restore implements Node interface.
-func (n *FrameClause) Restore(ctx *format.RestoreCtx) error {
-	if n == nil {
-		return nilRestoreError("FrameClause")
-	}
-	if n.Extent.Start == nil || n.Extent.Start.WindowFrameBoundCore() == nil ||
-		n.Extent.End == nil || n.Extent.End.WindowFrameBoundCore() == nil {
-		return errors.New("window frame requires start and end bounds")
-	}
-	switch n.Type {
-	case Rows:
-		ctx.WriteKeyword("ROWS")
-	case Ranges:
-		ctx.WriteKeyword("RANGE")
-	case Groups:
-		ctx.WriteKeyword("GROUPS")
-	default:
-		return errors.New("Unsupported window function frame type")
-	}
-	ctx.WriteKeyword(" BETWEEN ")
-	if err := n.Extent.Start.Restore(ctx); err != nil {
-		return errors.Annotate(err, "An error occurred while restore FrameClause.Extent.Start")
-	}
-	ctx.WriteKeyword(" AND ")
-	if err := n.Extent.End.Restore(ctx); err != nil {
-		return errors.Annotate(err, "An error occurred while restore FrameClause.Extent.End")
-	}
-	switch n.Exclusion {
-	case pkast.WindowFrameExcludeNone:
-	case pkast.WindowFrameExcludeCurrentRow:
-		ctx.WriteKeyword(" EXCLUDE CURRENT ROW")
-	case pkast.WindowFrameExcludeGroup:
-		ctx.WriteKeyword(" EXCLUDE GROUP")
-	case pkast.WindowFrameExcludeTies:
-		ctx.WriteKeyword(" EXCLUDE TIES")
-	case pkast.WindowFrameExcludeNoOthers:
-		ctx.WriteKeyword(" EXCLUDE NO OTHERS")
-	default:
-		return errors.New("Unsupported window function frame exclusion")
-	}
-
-	return ctx.Err()
-}
-
-// Accept implements Node Accept interface.
-func (n *FrameClause) Accept(v Visitor) (Node, bool) {
-	if n == nil {
-		return nil, false
-	}
-	newNode, skipChildren := v.Enter(n)
-	var ok bool
-	n, ok = newNode.(*FrameClause)
-	if !ok || n == nil {
-		return newNode, false
-	}
-	if skipChildren {
-		return v.Leave(n)
-	}
-	if n.Extent.Start != nil {
-		if n.Extent.Start.WindowFrameBoundCore() == nil {
-			return n, false
-		}
-		node, ok := n.Extent.Start.Accept(v)
-		if !ok {
-			return n, false
-		}
-		bound, ok := node.(pkast.WindowFrameBoundNode)
-		if !ok || bound == nil || bound.WindowFrameBoundCore() == nil {
-			return n, false
-		}
-		n.Extent.Start = bound
-	}
-	if n.Extent.End != nil {
-		if n.Extent.End.WindowFrameBoundCore() == nil {
-			return n, false
-		}
-		node, ok := n.Extent.End.Accept(v)
-		if !ok {
-			return n, false
-		}
-		bound, ok := node.(pkast.WindowFrameBoundNode)
-		if !ok || bound == nil || bound.WindowFrameBoundCore() == nil {
-			return n, false
-		}
-		n.Extent.End = bound
-	}
-	return v.Leave(n)
-}
-
-// FrameExtent represents frame extent.
-type FrameExtent = pkast.WindowFrameExtent
-
-// BoundType is the type of window function frame bound.
-type BoundType = pkast.WindowFrameBoundType
-
-// Frame bound types.
-const (
-	Following  = pkast.WindowFrameFollowing
-	Preceding  = pkast.WindowFramePreceding
-	CurrentRow = pkast.WindowFrameCurrentRow
-)
-
-// FrameBound represents frame bound.
-type FrameBound struct {
-	pkast.BaseWindowFrameBound
-	ExprOffset int
-}
-
-func (n *FrameBound) WindowFrameBoundCore() *pkast.BaseWindowFrameBound {
-	if n == nil {
-		return nil
-	}
-	return &n.BaseWindowFrameBound
-}
-
-// Restore implements Node interface.
-func (n *FrameBound) Restore(ctx *format.RestoreCtx) error {
-	if n == nil {
-		return nilRestoreError("FrameBound")
-	}
-	if n.Type != CurrentRow && n.Type != Preceding && n.Type != Following {
-		return errors.New("unsupported window frame bound direction")
-	}
-	if n.Unit.Present() && !validTimeUnit(n.Unit.Name) {
-		return errors.New("invalid frame time unit")
-	}
-	if n.Unit.Present() && n.Expr == nil {
-		return errors.New("frame time unit requires an expression")
-	}
-	if n.Unit.Present() && n.Type != Preceding && n.Type != Following {
-		return errors.New("frame time unit requires a preceding or following bound")
-	}
-	if n.Unbounded {
-		ctx.WriteKeyword("UNBOUNDED")
-	}
-	switch n.Type {
-	case CurrentRow:
-		ctx.WriteKeyword("CURRENT ROW")
-	case Preceding, Following:
-		if n.Unit.Present() {
-			ctx.WriteKeyword("INTERVAL ")
-		}
-		if n.Expr != nil {
-			if err := n.Expr.Restore(ctx); err != nil {
-				return errors.Annotate(err, "An error occurred while restore FrameBound.Expr")
-			}
-		}
-		if n.Unit.Present() {
-			ctx.WritePlain(" ")
-			ctx.WriteKeyword(n.Unit.Name)
-		}
-		if n.Type == Preceding {
-			ctx.WriteKeyword(" PRECEDING")
-		} else {
-			ctx.WriteKeyword(" FOLLOWING")
-		}
-	}
-	return ctx.Err()
-}
-
-// Accept implements Node Accept interface.
-func (n *FrameBound) Accept(v Visitor) (Node, bool) {
-	if n == nil {
-		return nil, false
-	}
-	newNode, skipChildren := v.Enter(n)
-	var ok bool
-	n, ok = newNode.(*FrameBound)
-	if !ok || n == nil {
-		return newNode, false
-	}
-	if skipChildren {
-		return v.Leave(n)
-	}
-	if n.Expr != nil {
-		expr, ok := acceptNode[ExprNode](v, n.Expr)
-		if !ok {
-			return n, false
-		}
-		n.Expr = expr
-	}
-	return v.Leave(n)
-}
-
-var (
-	_ pkast.WindowFrameClauseNode = (*FrameClause)(nil)
-	_ pkast.WindowFrameBoundNode  = (*FrameBound)(nil)
-)

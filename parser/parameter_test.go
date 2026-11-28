@@ -13,7 +13,7 @@ func TestParameterMarkersKeepIndexSeparateFromSpan(t *testing.T) {
 	parser := New()
 	parser.EnableWindowFunc(true)
 	sql := "SELECT ?, SUM(a) OVER (ORDER BY a ROWS BETWEEN ? PRECEDING AND ? FOLLOWING) LIMIT ?"
-	stmt, err := parser.ParseOneStmt(sql, "", "")
+	stmt, err := parser.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestParameterMarkersKeepIndexSeparateFromSpan(t *testing.T) {
 		}
 	}
 
-	stmt, err = parser.ParseOneStmt("SELECT ?", "", "")
+	stmt, err = parser.ParseOneStmt("SELECT ?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestParameterMarkersAcrossStatementsAndSourceForms(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parser := New()
-			stmts, _, err := parser.Parse(tc.sql, "", "")
+			stmts, _, err := parser.ParseWithWarnings(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}

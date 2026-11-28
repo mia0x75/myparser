@@ -16,7 +16,7 @@ import (
 
 func mustParseOne(t *testing.T, sql string) ast.StmtNode {
 	t.Helper()
-	stmt, err := parser.New().ParseOneStmt(sql, "", "")
+	stmt, err := parser.New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatalf("parse %q: %v", sql, err)
 	}
@@ -36,7 +36,7 @@ func runRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 	t.Helper()
 	parser := parser.New()
 	parser.EnableWindowFunc(enableWindowFunc)
-	stmts, _, err := parser.Parse(sourceSQLs, "", "")
+	stmts, _, err := parser.ParseWithWarnings(sourceSQLs)
 	if err != nil {
 		t.Fatalf("source %s: %v", sourceSQLs, err)
 	}
@@ -46,7 +46,7 @@ func runRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 		if sql == "" {
 			continue
 		}
-		again, err := parser.ParseOneStmt(sql, "", "")
+		again, err := parser.ParseOneStmt(sql)
 		if err != nil {
 			t.Fatalf("source %s; restore %s: %v", sourceSQLs, sql, err)
 		}
@@ -68,7 +68,7 @@ func assertParseErrors(t *testing.T, sqls []string) {
 	t.Helper()
 	for _, src := range sqls {
 		t.Run(src, func(t *testing.T) {
-			if _, err := parser.New().ParseOneStmt(src, "", ""); err == nil {
+			if _, err := parser.New().ParseOneStmt(src); err == nil {
 				t.Fatalf("expected parse error for %q", src)
 			}
 		})

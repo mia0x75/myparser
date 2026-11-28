@@ -63,7 +63,7 @@ func checkCallNameSpan(t *testing.T, call, rawName string, window bool) {
 	p := New()
 	p.EnableWindowFunc(true)
 	sql := "SELECT /* 中文 */ " + call
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func checkCallNameSpan(t *testing.T, call, rawName string, window bool) {
 	}
 	id.Name, id.Raw = strings.Clone(id.Name), strings.Clone(id.Raw)
 	canonical := restoreStmt(t, stmt)
-	reparsed, err := p.ParseOneStmt(canonical, "", "")
+	reparsed, err := p.ParseOneStmt(canonical)
 	if err != nil {
 		t.Fatalf("reparse %q: %v", canonical, err)
 	}
@@ -118,7 +118,7 @@ func checkCallNameSpan(t *testing.T, call, rawName string, window bool) {
 	if !strings.EqualFold(next.Name.Parts[0].Name, id.Name) || len(next.Args) != len(core.Args) {
 		t.Fatal("round trip changed call name or arguments")
 	}
-	if _, err := p.ParseOneStmt("SELECT `不``同`(x) OVER ()", "", ""); err != nil {
+	if _, err := p.ParseOneStmt("SELECT `不``同`(x) OVER ()"); err != nil {
 		t.Fatal(err)
 	}
 	if len(core.Name.Parts) != 1 ||

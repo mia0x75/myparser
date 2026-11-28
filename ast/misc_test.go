@@ -118,7 +118,7 @@ constraint foreign key (jobabbr) references ffxi_jobtype (jobabbr) on delete cas
 );
 `
 	parse := parser.New()
-	stmts, _, err := parse.Parse(sql, "", "")
+	stmts, _, err := parse.ParseWithWarnings(sql)
 	if err != nil {
 		t.Fatalf("got error %v, want nil", err)
 	}
@@ -139,7 +139,7 @@ show create table t;
 load data infile '/tmp/t.csv' into table t fields terminated by 'ab' enclosed by 'b';`
 
 	p := parser.New()
-	stmts, _, err := p.Parse(sql, "", "")
+	stmts, _, err := p.ParseWithWarnings(sql)
 	if err != nil {
 		t.Fatalf("got error %v, want nil", err)
 	}

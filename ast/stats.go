@@ -124,7 +124,7 @@ func restoreAnalyzeNames(ctx *format.RestoreCtx, names []lex.Ident) {
 // Accept implements Node Accept interface.
 func (n *AnalyzeTableStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*AnalyzeTableStmt](newNode)
@@ -168,7 +168,7 @@ func (n *DropStatsStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DropStatsStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*DropStatsStmt](newNode)
@@ -207,7 +207,7 @@ func (n *LoadStatsStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *LoadStatsStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*LoadStatsStmt](newNode)

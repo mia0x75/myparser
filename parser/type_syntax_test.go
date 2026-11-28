@@ -140,7 +140,7 @@ func TestTypeSyntaxNormalizationPreservesMeaning(t *testing.T) {
 func TestTypeSyntaxMetadataAndReuse(t *testing.T) {
 	parser := New()
 	sql := "CREATE TABLE t (a VARCHAR(12) CHARACTER SET `UtF8`, b ENUM('plain',\"a'b\",'c''d'))"
-	parsed, err := parser.ParseOneStmt(sql, "", "")
+	parsed, err := parser.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestTypeSyntaxMetadataAndReuse(t *testing.T) {
 	}
 	before := restoreStmt(t, stmt)
 	modifiers := append([]ast.ExprNode(nil), second.Modifiers...)
-	if _, err := parser.ParseOneStmt("CREATE TABLE other (x ENUM('different'))", "", ""); err != nil {
+	if _, err := parser.ParseOneStmt("CREATE TABLE other (x ENUM('different'))"); err != nil {
 		t.Fatal(err)
 	}
 	if after := restoreStmt(t, stmt); after != before || first.Charset != wantCharset || !reflect.DeepEqual(second.Modifiers, modifiers) {

@@ -71,7 +71,7 @@ func TestUseStmtDatabaseReference(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
 			p.SetSQLMode(tc.mode)
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -86,14 +86,14 @@ func TestUseStmtDatabaseReference(t *testing.T) {
 		})
 	}
 	// The frozen grammar requires a database name.
-	if _, err := New().ParseOneStmt("use", "", ""); err == nil {
+	if _, err := New().ParseOneStmt("use"); err == nil {
 		t.Fatal("bare USE: expected parse error")
 	}
 }
 
 func TestShowCreateDatabaseReference(t *testing.T) {
 	// Required name: absent is a parse error, quoted-empty stays present.
-	if _, err := New().ParseOneStmt("show create database", "", ""); err == nil {
+	if _, err := New().ParseOneStmt("show create database"); err == nil {
 		t.Fatal("SHOW CREATE DATABASE without name: expected parse error")
 	}
 	empty := dbRefOfP58(t, mustParseOne(t, "show create database ``"))
@@ -127,7 +127,7 @@ func TestShowOptionalDatabaseReference(t *testing.T) {
 		{"events", "show events from `ev``db`", "ev`db", "`ev``db`", lex.QuoteBacktick},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -185,7 +185,7 @@ func TestShowOptionalDatabaseReference(t *testing.T) {
 	t.Run("ANSI double", func(t *testing.T) {
 		p.SetSQLMode(mysql.ModeANSIQuotes)
 		const sql = `show tables in "a""b"`
-		stmt, err := p.ParseOneStmt(sql, "", "")
+		stmt, err := p.ParseOneStmt(sql)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,7 +248,7 @@ func TestDatabaseReferenceLeadingCommentAndMultiStmt(t *testing.T) {
 	// The final statement span covers only the statement tokens, not the
 	// leading comment.
 	const sql = "-- a comment\nuse dba"
-	stmts, _, err := New().Parse(sql, "", "")
+	stmts, _, err := New().ParseWithWarnings(sql)
 	if err != nil || len(stmts) != 1 {
 		t.Fatalf("parse: %v (%d stmts)", err, len(stmts))
 	}
@@ -260,7 +260,7 @@ func TestDatabaseReferenceLeadingCommentAndMultiStmt(t *testing.T) {
 
 	// Multi-statement: each span covers its own statement.
 	const multi = "use dba; show tables in dbb; use db1"
-	stmts, _, err = New().Parse(multi, "", "")
+	stmts, _, err = New().ParseWithWarnings(multi)
 	if err != nil || len(stmts) != 3 {
 		t.Fatalf("parse multi: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestDatabaseReferenceReuse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -319,7 +319,7 @@ func TestDatabaseReferenceReuse(t *testing.T) {
 			}
 			// A later parse on the same parser must not mutate the retained AST.
 			before, restoredBefore := dbRefOfP58(t, stmt), restoreStmt(t, stmt)
-			if _, err := p.ParseOneStmt("select `other``name`", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("select `other``name`"); err != nil {
 				t.Fatal(err)
 			}
 			after := dbRefOfP58(t, stmt)

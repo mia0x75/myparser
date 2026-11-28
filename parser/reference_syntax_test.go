@@ -20,7 +20,7 @@ func TestReferenceSyntaxSpansAndReuse(t *testing.T) {
 				refSQL += " " + actions
 			}
 			sql := "CREATE TABLE t (a INT, CONSTRAINT fk FOREIGN KEY (a) " + refSQL + ")"
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -51,7 +51,7 @@ func TestReferenceSyntaxSpansAndReuse(t *testing.T) {
 			if !strings.Contains(before, "REFERENCES `库`.`父`(`键`(2))") {
 				t.Fatalf("reference lost its table or key: %s", before)
 			}
-			if _, err := p.ParseOneStmt("CREATE TABLE other (b TEXT)", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("CREATE TABLE other (b TEXT)"); err != nil {
 				t.Fatal(err)
 			}
 			if after := restoreStmt(t, stmt); after != before || ref.Table.TableRefCore().Name.Parts[0].Raw != "`库`" {

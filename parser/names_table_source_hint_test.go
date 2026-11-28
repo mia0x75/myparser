@@ -54,7 +54,7 @@ func TestTableSourceHintRoundtripMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if tc.canonical == "" {
-				if _, err := New().ParseOneStmt(tc.sql, "", ""); err == nil {
+				if _, err := New().ParseOneStmt(tc.sql); err == nil {
 					t.Fatal("frozen grammar accepted an unsupported source")
 				}
 				return
@@ -80,7 +80,7 @@ func TestTableSourceHintOwnedSpans(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			n, err := New().ParseOneStmt(tc.sql, "", "")
+			n, err := New().ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +130,7 @@ func TestTableSourceHintReuseKeepsOwnedData(t *testing.T) {
 	t.Parallel()
 	p := New()
 	sql := "SELECT ? FROM `库.dot`.`表``名` PARTITION(`p.0`) AS `别``名` USE INDEX(`i.0`) IGNORE INDEX FOR JOIN(j) WHERE a=?"
-	n, err := p.ParseOneStmt(sql, "", "")
+	n, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,10 +190,10 @@ func TestTableSourceHintReuseKeepsOwnedData(t *testing.T) {
 	}
 	canonical := restoreStmt(t, n)
 	for range 8 {
-		if _, _, err := p.Parse("SELECT * FROM `另一库`.`另一表` AS y FORCE INDEX(k); DELETE FROM s PARTITION(p1) USE INDEX()", "", ""); err != nil {
+		if _, _, err := p.ParseWithWarnings("SELECT * FROM `另一库`.`另一表` AS y FORCE INDEX(k); DELETE FROM s PARTITION(p1) USE INDEX()"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := p.ParseOneStmt("SELECT * FROM t USE INDEX(i) AS x", "", ""); err == nil {
+		if _, err := p.ParseOneStmt("SELECT * FROM t USE INDEX(i) AS x"); err == nil {
 			t.Fatal("negative reuse input unexpectedly parsed")
 		}
 	}

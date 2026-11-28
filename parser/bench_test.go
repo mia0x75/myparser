@@ -10,7 +10,7 @@ func BenchmarkSysbenchSelect(b *testing.B) {
 	sql := "SELECT pad FROM sbtest1 WHERE id=1;"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, err := parser.Parse(sql, "", "")
+		_, _, err := parser.ParseWithWarnings(sql)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -25,7 +25,7 @@ func BenchmarkParseComplex(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, v := range table {
-			_, _, err := parser.Parse(v, "", "")
+			_, _, err := parser.ParseWithWarnings(v)
 			if err != nil {
 				b.Failed()
 			}
@@ -39,7 +39,7 @@ func BenchmarkParseUnionChain(b *testing.B) {
 	parser := New()
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := parser.Parse(sql, "", ""); err != nil {
+		if _, _, err := parser.ParseWithWarnings(sql); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -50,7 +50,7 @@ func BenchmarkStrictWideProjection(b *testing.B) {
 	parser := New()
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err != nil {
+		if _, err := parser.ParseOneStmtForDialect(sql, DialectMySQL); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -62,7 +62,7 @@ func BenchmarkStrictNestedCast(b *testing.B) {
 	parser := New()
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := parser.ParseOneStmtForDialect(sql, "", "", DialectMySQL); err != nil {
+		if _, err := parser.ParseOneStmtForDialect(sql, DialectMySQL); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -73,7 +73,7 @@ func BenchmarkAdjacentStrings(b *testing.B) {
 	parser := New()
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := parser.ParseOneStmt(sql, "", ""); err != nil {
+		if _, err := parser.ParseOneStmt(sql); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -89,7 +89,7 @@ func BenchmarkParseSimple(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, v := range table {
-			_, _, err := parser.Parse(v, "", "")
+			_, _, err := parser.ParseWithWarnings(v)
 			if err != nil {
 				b.Failed()
 			}

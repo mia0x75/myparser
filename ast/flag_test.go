@@ -140,7 +140,7 @@ func TestFlag(t *testing.T) {
 		},
 	}
 	for _, tt := range flagTests {
-		stmt, err := p.ParseOneStmt("select "+tt.expr, "", "")
+		stmt, err := p.ParseOneStmt("select " + tt.expr)
 		if err != nil {
 			t.Fatalf("For %s, got error %v, want nil", tt.expr, err)
 		}
@@ -162,7 +162,7 @@ func TestAggregateTailFlags(t *testing.T) {
 		{name: "limit offset", sql: "SELECT JSON_ARRAYAGG(1 LIMIT ?,1)", flag: ast.FlagHasAggregateFunc | ast.FlagHasParamMarker},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			stmt, err := parser.New().ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.New().ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -198,7 +198,7 @@ func TestWindowTailFlags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := parser.New()
 			p.EnableWindowFunc(true)
-			stmt, err := p.ParseOneStmt(tt.sql, "", "")
+			stmt, err := p.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}

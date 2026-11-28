@@ -595,7 +595,7 @@ func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
 		if strings.HasPrefix(comment, "/*+") {
 			if s.parser != nil {
 				switch s.parser.lexer.lastTok {
-				case selectKwd, insert, replace, update, deleteKwd:
+				case selectKwd, insertKwd, replaceKwd, updateKwd, deleteKwd:
 				default:
 					return s.scan()
 				}

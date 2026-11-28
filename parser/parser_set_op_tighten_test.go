@@ -48,7 +48,7 @@ func TestSetOperationPaginationPlacement(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := New().ParseOneStmt(tc.sql, "", "")
+			_, err := New().ParseOneStmt(tc.sql)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("parse succeeded, want syntax error")

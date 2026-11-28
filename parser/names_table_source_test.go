@@ -140,7 +140,7 @@ func TestTableSourceAliasAndSourceKinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,7 +182,7 @@ func TestTableSourceSpanCoversSourceToAlias(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -223,7 +223,7 @@ func TestTableSourceAliasQuotedForms(t *testing.T) {
 			t.Parallel()
 			p := New()
 			p.SetSQLMode(tc.mode)
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if tc.reject {
 				if err == nil {
 					t.Fatal("string literal accepted as a table alias")
@@ -285,7 +285,7 @@ func TestTableSourceRestoreRoundtrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -297,7 +297,7 @@ func TestTableSourceRestoreRoundtrip(t *testing.T) {
 				t.Fatalf("restore = %q, want %q", got, tc.want)
 			}
 			// Re-parse to confirm the restored output is syntactically valid.
-			if _, err := p.ParseOneStmt(out.String(), "", ""); err != nil {
+			if _, err := p.ParseOneStmt(out.String()); err != nil {
 				t.Fatalf("restored output is not parseable: %v", err)
 			}
 		})
@@ -313,7 +313,7 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 
 	// CTE: name span, column list spans, query is a shared result set.
 	sql := "WITH c (x, y) AS (SELECT 1) SELECT * FROM c"
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 
 	// A recursive CTE may omit CYCLE or retain its quoted column tokens.
 	cycleSQL := "WITH RECURSIVE c (x) AS (SELECT 1 UNION ALL SELECT 2) SELECT * FROM c"
-	rstmt, err := p.ParseOneStmt(cycleSQL, "", "")
+	rstmt, err := p.ParseOneStmt(cycleSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 		t.Fatalf("non-cycle recursive CTE has cycle columns: %+v", rwith.CycleColumns)
 	}
 	cycleSQL = "WITH RECURSIVE `公``共` (`列.一`, y) AS (SELECT 1, 2) CYCLE `列.一`, y RESTRICT SELECT * FROM `公``共`"
-	rstmt, err = p.ParseOneStmt(cycleSQL, "", "")
+	rstmt, err = p.ParseOneStmt(cycleSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestCTEAndWindowNameSpans(t *testing.T) {
 
 	// Window spec: name token span and ref token span.
 	windowSQL := "SELECT ROW_NUMBER() OVER w FROM t WINDOW w AS (ORDER BY a)"
-	wstmt, err := p.ParseOneStmt(windowSQL, "", "")
+	wstmt, err := p.ParseOneStmt(windowSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestWindowSpecRefOnlyAlias(t *testing.T) {
 
 	// OVER w: the ref is the window name itself, OnlyAlias=true.
 	sql := "SELECT ROW_NUMBER() OVER w FROM t WINDOW w AS (ORDER BY a)"
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestWindowSpecRefOnlyAlias(t *testing.T) {
 
 	// OVER(w): the ref is a separate ident in parentheses, OnlyAlias=false.
 	parenSQL := "SELECT ROW_NUMBER() OVER (w) FROM t WINDOW w AS (ORDER BY a)"
-	pstmt, err := p.ParseOneStmt(parenSQL, "", "")
+	pstmt, err := p.ParseOneStmt(parenSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestInsertRowAliasNameAndSpan(t *testing.T) {
 	t.Parallel()
 	p := New()
 	sql := "INSERT INTO t1 VALUES (1) AS new ON DUPLICATE KEY UPDATE b = new.b"
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestInsertRowAliasNameAndSpan(t *testing.T) {
 
 	// Row-alias column list: qualified names keep their parts and spans.
 	qualifiedSQL := "INSERT INTO t1 VALUES (1) AS new (a, db.b, `c`.`d`)"
-	qstmt, err := p.ParseOneStmt(qualifiedSQL, "", "")
+	qstmt, err := p.ParseOneStmt(qualifiedSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestSharedColumnTypeCoversViewAndAnalyze(t *testing.T) {
 	t.Parallel()
 	p := New()
 	viewSQL := "CREATE OR REPLACE VIEW v (a, b) AS SELECT 1 AS a, 2 AS b"
-	vstmt, err := p.ParseOneStmt(viewSQL, "", "")
+	vstmt, err := p.ParseOneStmt(viewSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func TestSharedColumnTypeCoversViewAndAnalyze(t *testing.T) {
 		t.Fatalf("view columns = %+v, want two", createView.Columns)
 	}
 	alterSQL := "ALTER VIEW v (a, b) AS SELECT 1 AS a, 2 AS b"
-	a2stmt, err := p.ParseOneStmt(alterSQL, "", "")
+	a2stmt, err := p.ParseOneStmt(alterSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestSharedColumnTypeCoversViewAndAnalyze(t *testing.T) {
 		t.Fatalf("alter view columns = %+v, want two", alterView.Columns)
 	}
 	analyzeSQL := "ANALYZE TABLE t, u PERSISTENT FOR COLUMNS (a, b) INDEXES ALL"
-	astmt, err := p.ParseOneStmt(analyzeSQL, "", "")
+	astmt, err := p.ParseOneStmt(analyzeSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func TestParserReuseKeepsASTDataStable(t *testing.T) {
 	p := New()
 	p.EnableWindowFunc(true)
 	firstSQL := "SELECT * FROM `库`.`表``名` AS `别`"
-	stmt, err := p.ParseOneStmt(firstSQL, "", "")
+	stmt, err := p.ParseOneStmt(firstSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +617,7 @@ func TestParserReuseKeepsASTDataStable(t *testing.T) {
 	originalSpan := ts.Span()
 	originalSQL := restoreStmt(t, stmt)
 	columnSQL := "SELECT * FROM (SELECT 1,2) AS `别``名` (`列.一`,`列``二`)"
-	columnStmt, err := p.ParseOneStmt(columnSQL, "", "")
+	columnStmt, err := p.ParseOneStmt(columnSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ func TestParserReuseKeepsASTDataStable(t *testing.T) {
 	columnRestored := restoreStmt(t, columnStmt)
 	// Multi-statement parse to exercise the statement-list path.
 	multiSQL := "SELECT * FROM t; SELECT * FROM u"
-	stmts, _, err := p.Parse(multiSQL, "", "")
+	stmts, _, err := p.ParseWithWarnings(multiSQL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +642,7 @@ func TestParserReuseKeepsASTDataStable(t *testing.T) {
 	}
 	// Re-run with a different source to force buffer reuse.
 	otherSQL := "SELECT * FROM `不 同`.`变 量` AS x"
-	if _, err := p.ParseOneStmt(otherSQL, "", ""); err != nil {
+	if _, err := p.ParseOneStmt(otherSQL); err != nil {
 		t.Fatal(err)
 	}
 	// The original AST must be unchanged.
@@ -673,7 +673,7 @@ func TestParameterIndexStableAcrossParses(t *testing.T) {
 	p := New()
 	sql := "SELECT ?, SUM(a) OVER (ORDER BY a ROWS BETWEEN ? PRECEDING AND ? FOLLOWING) LIMIT ?"
 	p.EnableWindowFunc(true)
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +688,7 @@ func TestParameterIndexStableAcrossParses(t *testing.T) {
 		}
 	}
 	// Second parse on the same parser must not shift the first parse's indices.
-	if _, err := p.ParseOneStmt("SELECT ?", "", ""); err != nil {
+	if _, err := p.ParseOneStmt("SELECT ?"); err != nil {
 		t.Fatal(err)
 	}
 	for i, param := range params {
@@ -705,7 +705,7 @@ func TestTableSourceSourceRejectionByVisitor(t *testing.T) {
 	p := New()
 	sql := "SELECT * FROM t"
 	fromStart := findFromStart(t, sql)
-	stmt, err := p.ParseOneStmt(sql, "", "")
+	stmt, err := p.ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}

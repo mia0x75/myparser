@@ -26,7 +26,7 @@ func TestLimitSharedSyntax(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -62,14 +62,14 @@ func TestLimitSharedSyntax(t *testing.T) {
 				}
 			}
 			restored := restoreStmt(t, stmt)
-			reparsed, err := p.ParseOneStmt(restored, "", "")
+			reparsed, err := p.ParseOneStmt(restored)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got := restoreStmt(t, reparsed); got != restored {
 				t.Fatalf("LIMIT restore drifted: %q -> %q", restored, got)
 			}
-			if _, err := p.ParseOneStmt("SELECT ? LIMIT ?", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("SELECT ? LIMIT ?"); err != nil {
 				t.Fatal(err)
 			}
 			if limit.Span() != wantSpan || restoreStmt(t, stmt) != restored {

@@ -41,7 +41,7 @@ func TestSelectSharedRejections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, target := range []Dialect{DialectUnion, DialectMySQL, DialectMariaDB} {
-				if _, err := New().ParseOneStmtForDialect(tt.sql, "", "", target); err == nil {
+				if _, err := New().ParseOneStmtForDialect(tt.sql, target); err == nil {
 					t.Errorf("%s accepted %q", target, tt.sql)
 				}
 			}
@@ -56,7 +56,7 @@ func TestSelectSharedRejections(t *testing.T) {
 		"SELECT 1 UNION SELECT 2 INTO @a",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err != nil {
+			if _, err := New().ParseOneStmt(sql); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -72,25 +72,25 @@ func TestSelectMariaDBExpressionTargets(t *testing.T) {
 		"SELECT MD5(_filename 'a'), _filename X'61'",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			stmt, err := New().ParseOneStmtForDialect(sql, "", "", DialectMariaDB)
+			stmt, err := New().ParseOneStmtForDialect(sql, DialectMariaDB)
 			if err != nil {
 				t.Fatal(err)
 			}
 			restored := restoreStmt(t, stmt)
-			if _, err := New().ParseOneStmtForDialect(restored, "", "", DialectMariaDB); err != nil {
+			if _, err := New().ParseOneStmtForDialect(restored, DialectMariaDB); err != nil {
 				t.Fatal(restored, err)
 			}
-			if _, err := New().ParseOneStmtForDialect(sql, "", "", DialectMySQL); err == nil {
+			if _, err := New().ParseOneStmtForDialect(sql, DialectMySQL); err == nil {
 				t.Fatal("MySQL accepted MariaDB-only expression")
 			}
-			if _, err := New().ParseOneStmtForDialect(restored, "", "", DialectMySQL); err == nil {
+			if _, err := New().ParseOneStmtForDialect(restored, DialectMySQL); err == nil {
 				t.Fatal("restore lost dialect distinction", restored)
 			}
 		})
 	}
 	for _, sql := range []string{"SELECT VALUE(1)", "SELECT VALUE(a+1)", "SELECT CAST(1 AS INT(4))", "SELECT CAST(1 AS INTEGER SIGNED)"} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(sql); err == nil {
 				t.Fatal("accepted invalid target/argument")
 			}
 		})
@@ -145,7 +145,7 @@ func TestEmptyValuesRowSyntaxError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, target := range []Dialect{DialectUnion, DialectMySQL, DialectMariaDB} {
-				_, err := New().ParseOneStmtForDialect(tt.sql, "", "", target)
+				_, err := New().ParseOneStmtForDialect(tt.sql, target)
 				if err == nil {
 					t.Fatalf("%s accepted %q", target, tt.sql)
 				}
@@ -191,19 +191,19 @@ func TestSimple(t *testing.T) {
 	}
 	for _, kw := range reservedKws {
 		src := fmt.Sprintf("SELECT * FROM db.%s;", kw)
-		_, err := parser.ParseOneStmt(src, "", "")
+		_, err := parser.ParseOneStmt(src)
 		if err != nil {
 			t.Fatalf("%s: expected nil, got %#v", fmt.Sprintf("source %s", src), err)
 		}
 
 		src = fmt.Sprintf("SELECT * FROM %s.desc", kw)
-		_, err = parser.ParseOneStmt(src, "", "")
+		_, err = parser.ParseOneStmt(src)
 		if err != nil {
 			t.Fatalf("%s: expected nil, got %#v", fmt.Sprintf("source %s", src), err)
 		}
 
 		src = fmt.Sprintf("SELECT t.%s FROM t", kw)
-		_, err = parser.ParseOneStmt(src, "", "")
+		_, err = parser.ParseOneStmt(src)
 		if err != nil {
 			t.Fatalf("%s: expected nil, got %#v", fmt.Sprintf("source %s", src), err)
 		}
@@ -230,7 +230,7 @@ func TestSimple(t *testing.T) {
 	}
 	for _, kw := range unreservedKws {
 		src := fmt.Sprintf("SELECT %s FROM tbl;", kw)
-		_, err := parser.ParseOneStmt(src, "", "")
+		_, err := parser.ParseOneStmt(src)
 		if err != nil {
 			t.Fatalf("%s: expected nil, got %#v", fmt.Sprintf("source %s", src), err)
 		}
@@ -238,14 +238,14 @@ func TestSimple(t *testing.T) {
 
 	// Testcase for prepared statement
 	src := "SELECT id+?, id+? from t;"
-	_, err := parser.ParseOneStmt(src, "", "")
+	_, err := parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	// Testcase for -- Comment and unary -- operator
 	src = "CREATE TABLE foo (a SMALLINT UNSIGNED, b INT UNSIGNED); -- foo\nSelect --1 from foo;"
-	stmts, _, err := parser.Parse(src, "", "")
+	stmts, _, err := parser.ParseWithWarnings(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -256,7 +256,7 @@ func TestSimple(t *testing.T) {
 	// Testcase for /*! xx */
 	// See http://dev.mysql.com/doc/refman/5.7/en/comments.html
 	src = "/*!40101 SET character_set_client = utf8 */;"
-	stmts, _, err = parser.Parse(src, "", "")
+	stmts, _, err = parser.ParseWithWarnings(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -270,7 +270,7 @@ func TestSimple(t *testing.T) {
 	}
 
 	src = "insert into blobtable (a) values ('/*! truncated */');"
-	stmt, err = parser.ParseOneStmt(src, "", "")
+	stmt, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -290,7 +290,7 @@ func TestSimple(t *testing.T) {
 
 	// Testcase for CONVERT(expr,type)
 	src = "SELECT CONVERT('111', SIGNED);"
-	st, err := parser.ParseOneStmt(src, "", "")
+	st, err := parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -318,7 +318,7 @@ func TestSimple(t *testing.T) {
 		"SELECT CONVERT('111', SIGNED) /*comment*/;",
 	}
 	for _, src := range srcs {
-		st, err = parser.ParseOneStmt(src, "", "")
+		st, err = parser.ParseOneStmt(src)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -329,7 +329,7 @@ func TestSimple(t *testing.T) {
 	}
 
 	src = "create table t (c int key);"
-	st, err = parser.ParseOneStmt(src, "", "")
+	st, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -349,42 +349,42 @@ func TestSimple(t *testing.T) {
 	}
 
 	src = "create table t1(a NVARCHAR(100));"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err == nil {
 		t.Fatal("expected unsupported utf8mb3 type to be rejected")
 	}
 
 	src = "use quote;"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	src = "select b'';"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	src = "select B'';"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	// src = "select 0b'';"
-	// _, err = parser.ParseOneStmt(src, "", "")
+	// _, err = parser.ParseOneStmt(src)
 	// if err == nil { t.Fatalf("expected non-nil") }
 
 	src = "CREATE TABLE t(_sms smallint signed, _smu smallint unsigned);"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	// reference link: https://dev.mysql.com/doc/refman/5.7/en/charset-national.html
 	src = "CREATE TABLE t(c1 NATIONAL CHARACTER(10));"
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err == nil {
 		t.Fatal("expected unsupported utf8mb3 type to be rejected")
 	}
@@ -404,7 +404,7 @@ func TestSimple(t *testing.T) {
 		m boolean signed
 		);`
 
-	st, err = parser.ParseOneStmt(src, "", "")
+	st, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -419,13 +419,13 @@ func TestSimple(t *testing.T) {
 	}
 
 	src = `insert into tb(v) (select v from tb);`
-	_, err = parser.ParseOneStmt(src, "", "")
+	_, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
 	src = "SELECT 9223372036854775807;"
-	st, err = parser.ParseOneStmt(src, "", "")
+	st, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -442,7 +442,7 @@ func TestSimple(t *testing.T) {
 		t.Fatalf("got %#v, want the integer literal 9223372036854775807", literal)
 	}
 	src = "SELECT 9223372036854775808;"
-	st, err = parser.ParseOneStmt(src, "", "")
+	st, err = parser.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -464,13 +464,13 @@ func TestSpecialComments(t *testing.T) {
 	parser := New()
 
 	// 1. Make sure /*! ... */ respects the same SQL mode.
-	_, err := parser.ParseOneStmt(`SELECT /*! '\' */;`, "", "")
+	_, err := parser.ParseOneStmt(`SELECT /*! '\' */;`)
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
 
 	parser.SetSQLMode(mysql.ModeNoBackslashEscapes)
-	st, err := parser.ParseOneStmt(`SELECT /*! '\' */;`, "", "")
+	st, err := parser.ParseOneStmt(`SELECT /*! '\' */;`)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -479,7 +479,7 @@ func TestSpecialComments(t *testing.T) {
 	}
 
 	// 2. Make sure multiple statements inside /*! ... */ will not crash
-	stmts, _, err := parser.Parse("/*! SET x = 1; SELECT 2 */", "", "")
+	stmts, _, err := parser.ParseWithWarnings("/*! SET x = 1; SELECT 2 */")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -501,7 +501,7 @@ func TestSpecialComments(t *testing.T) {
 	// ^ not sure if correct approach; having multiple statements in MySQL is a syntax error.
 
 	// 3. Make sure invalid text won't cause infinite loop
-	st, err = parser.ParseOneStmt("SELECT /*+ 😅 */ SLEEP(1);", "", "")
+	st, err = parser.ParseOneStmt("SELECT /*+ 😅 */ SLEEP(1);")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -530,7 +530,7 @@ func RunTest(t *testing.T, table []testCase, enableWindowFunc bool) {
 	parser := New()
 	parser.EnableWindowFunc(enableWindowFunc)
 	for _, tt := range table {
-		_, _, err := parser.Parse(tt.src, "", "")
+		_, _, err := parser.ParseWithWarnings(tt.src)
 		comment := fmt.Sprintf("source %v", tt.src)
 		if !tt.ok {
 			if err == nil {
@@ -553,7 +553,7 @@ func RunRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 	parser := New()
 	parser.EnableWindowFunc(enableWindowFunc)
 	comment := fmt.Sprintf("source %v", sourceSQLs)
-	stmts, _, err := parser.Parse(sourceSQLs, "", "")
+	stmts, _, err := parser.ParseWithWarnings(sourceSQLs)
 	if err != nil {
 		t.Fatalf("%s: got err %v, want nil", comment, err)
 	}
@@ -569,7 +569,7 @@ func RunRestoreTest(t *testing.T, sourceSQLs, expectSQLs string, enableWindowFun
 			continue
 		}
 		comment = fmt.Sprintf("source %v; restore %v", sourceSQLs, restoreSQL)
-		restoreStmt, err := parser.ParseOneStmt(restoreSQL, "", "")
+		restoreStmt, err := parser.ParseOneStmt(restoreSQL)
 		if err != nil {
 			t.Fatalf("%s: got err %v, want nil", comment, err)
 		}
@@ -693,7 +693,7 @@ func (testSyntaxMetadataNormalizer) Leave(node ast.Node) (ast.Node, bool) { retu
 func RunErrMsgTest(t *testing.T, table []testErrMsgCase) {
 	parser := New()
 	for _, tt := range table {
-		_, _, err := parser.Parse(tt.src, "", "")
+		_, _, err := parser.ParseWithWarnings(tt.src)
 		comment := fmt.Sprintf("source %v", tt.src)
 		if tt.err != nil {
 			if !mysql.ErrorEqual(err, tt.err) {
@@ -1146,7 +1146,7 @@ func TestDBAStmt(t *testing.T) {
 
 func TestFlushTable(t *testing.T) {
 	parser := New()
-	stmt, _, err := parser.Parse("flush local tables tbl1,tbl2 with read lock", "", "")
+	stmt, _, err := parser.ParseWithWarnings("flush local tables tbl1,tbl2 with read lock")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -1170,7 +1170,7 @@ func TestFlushTable(t *testing.T) {
 
 func TestFlushPrivileges(t *testing.T) {
 	parser := New()
-	stmt, _, err := parser.Parse("flush privileges", "", "")
+	stmt, _, err := parser.ParseWithWarnings("flush privileges")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -2408,7 +2408,7 @@ func TestDecimalLiteralOverflow(t *testing.T) {
 	parser := New()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stmts, warns, err := parser.Parse(tt.sql, "", "")
+			stmts, warns, err := parser.ParseWithWarnings(tt.sql)
 			if err != nil || len(stmts) != 1 {
 				t.Fatalf("Parse(%q): statements=%d, error=%v", tt.sql, len(stmts), err)
 			}
@@ -2437,7 +2437,7 @@ func TestDecimalLiteralOverflow(t *testing.T) {
 			if sb.String() != tt.restored {
 				t.Fatalf("restored=%q, want %q", sb.String(), tt.restored)
 			}
-			roundTrip, warns, err := parser.Parse(sb.String(), "", "")
+			roundTrip, warns, err := parser.ParseWithWarnings(sb.String())
 			if err != nil || len(roundTrip) != 1 || len(warns) != 0 {
 				t.Fatalf("round trip: statements=%d, warnings=%v, error=%v", len(roundTrip), warns, err)
 			}
@@ -2485,7 +2485,7 @@ func TestInsertOptimizerHint(t *testing.T) {
 	parser := New()
 	for _, tt := range tests {
 		t.Run(tt.sql, func(t *testing.T) {
-			stmts, warns, err := parser.Parse(tt.sql, "", "")
+			stmts, warns, err := parser.ParseWithWarnings(tt.sql)
 			if err != nil || len(stmts) != 1 {
 				t.Fatalf("Parse(%q): statements=%d, error=%v", tt.sql, len(stmts), err)
 			}
@@ -2499,7 +2499,7 @@ func TestInsertOptimizerHint(t *testing.T) {
 			if sb.String() != tt.restored {
 				t.Fatalf("restored=%q, want %q", sb.String(), tt.restored)
 			}
-			roundTrip, _, err := parser.Parse(sb.String(), "", "")
+			roundTrip, _, err := parser.ParseWithWarnings(sb.String())
 			if err != nil || len(roundTrip) != 1 {
 				t.Fatalf("round trip: statements=%d, error=%v", len(roundTrip), err)
 			}
@@ -2522,7 +2522,7 @@ func TestDoubleLiteralBoundary(t *testing.T) {
 		"SELECT 1.7976931348623157E+308",
 		"INSERT INTO t1 VALUES (1.7976931348623157E+308)",
 	} {
-		stmts, warns, err := parser.Parse(sql, "", "")
+		stmts, warns, err := parser.ParseWithWarnings(sql)
 		if err != nil || len(stmts) != 1 || len(warns) != 0 {
 			t.Fatalf("Parse(%q): statements=%d, warnings=%v, error=%v", sql, len(stmts), warns, err)
 		}
@@ -2531,7 +2531,7 @@ func TestDoubleLiteralBoundary(t *testing.T) {
 		"SELECT 1.79769313486232e+308",
 		"INSERT INTO t1 VALUES (1.79769313486232e+308)",
 	} {
-		_, _, err := parser.Parse(sql, "", "")
+		_, _, err := parser.ParseWithWarnings(sql)
 		sqlErr, ok := errors.Cause(err).(*mysql.SQLError)
 		if !ok || sqlErr.Code != mysql.ErrIllegalValueForType {
 			t.Fatalf("Parse(%q): error=%v, want MySQL error 1367", sql, err)
@@ -2561,7 +2561,7 @@ func TestInsertRowAlias(t *testing.T) {
 	parser := New()
 	for _, tt := range tests {
 		t.Run(tt.sql, func(t *testing.T) {
-			stmts, warns, err := parser.Parse(tt.sql, "", "")
+			stmts, warns, err := parser.ParseWithWarnings(tt.sql)
 			if err != nil || len(stmts) != 1 {
 				t.Fatalf("Parse(%q): statements=%d, error=%v", tt.sql, len(stmts), err)
 			}
@@ -2575,7 +2575,7 @@ func TestInsertRowAlias(t *testing.T) {
 			if sb.String() != tt.restored {
 				t.Fatalf("restored=%q, want %q", sb.String(), tt.restored)
 			}
-			roundTrip, _, err := parser.Parse(sb.String(), "", "")
+			roundTrip, _, err := parser.ParseWithWarnings(sb.String())
 			if err != nil || len(roundTrip) != 1 {
 				t.Fatalf("round trip: statements=%d, error=%v", len(roundTrip), err)
 			}
@@ -2595,7 +2595,7 @@ func TestInsertRowAlias(t *testing.T) {
 		"INSERT INTO t1 (SELECT 1) AS new",
 		"INSERT INTO t1 VALUES (1) AS 1",
 	} {
-		if _, _, err := parser.Parse(sql, "", ""); err == nil {
+		if _, _, err := parser.ParseWithWarnings(sql); err == nil {
 			t.Errorf("Parse(%q): expected error, got nil", sql)
 		}
 	}
@@ -2603,7 +2603,7 @@ func TestInsertRowAlias(t *testing.T) {
 
 func TestHintError(t *testing.T) {
 	parser := New()
-	stmt, warns, err := parser.Parse("select /*+ unknownhint(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err := parser.ParseWithWarnings("select /*+ unknownhint(T1,t2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -2616,7 +2616,7 @@ func TestHintError(t *testing.T) {
 	if len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("got %#v, want %#v", len(stmt[0].(*ast.SelectStmt).TableHints), 0)
 	}
-	stmt, warns, err = parser.Parse("select /*+ unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err = parser.ParseWithWarnings("select /*+ unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1")
 	if len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("got %#v, want %#v", len(stmt[0].(*ast.SelectStmt).TableHints), 0)
 	}
@@ -2629,111 +2629,111 @@ func TestHintError(t *testing.T) {
 	if warns[0].Error() != "line 1 column 53 near \"unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
 		t.Fatalf("got %#v, want %#v", warns[0].Error(), "line 1 column 53 near \"unknownhint(T1,t2, 1) UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
 	}
-	stmt, warns, err = parser.Parse("select c1, c2 from /*+ unknownhint(T1,t2) */ t1, t2 where t1.c1 = t2.c1", "", "")
+	stmt, warns, err = parser.ParseWithWarnings("select c1, c2 from /*+ unknownhint(T1,t2) */ t1, t2 where t1.c1 = t2.c1")
 	if err != nil || len(warns) != 0 || len(stmt[0].(*ast.SelectStmt).TableHints) != 0 {
 		t.Fatalf("hint outside its legal position must be ignored: error %v, warnings %v", err, warns)
 	}
-	_, _, err = parser.Parse("select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1", "", "")
+	_, _, err = parser.ParseWithWarnings("select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
 	if err.Error() != "line 1 column 7 near \"select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 7 near \"select1 /*+ UNKNOWN_A(t1, T2) */ c1, c2 from t1, t2 where t1.c1 = t2.c1\" ")
 	}
-	_, _, err = parser.Parse("select /*+ UNKNOWN_A(t1, T2) */ c1, c2 fromt t1, t2 where t1.c1 = t2.c1", "", "")
+	_, _, err = parser.ParseWithWarnings("select /*+ UNKNOWN_A(t1, T2) */ c1, c2 fromt t1, t2 where t1.c1 = t2.c1")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
 	if err.Error() != "line 1 column 47 near \"t1, t2 where t1.c1 = t2.c1\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 47 near \"t1, t2 where t1.c1 = t2.c1\" ")
 	}
-	_, _, _ = parser.Parse("SELECT 1 FROM DUAL WHERE 1 IN (SELECT /*+ DEBUG_HINT3 */ 1)", "", "")
+	_, _, _ = parser.ParseWithWarnings("SELECT 1 FROM DUAL WHERE 1 IN (SELECT /*+ DEBUG_HINT3 */ 1)")
 }
 
 func TestErrorMsg(t *testing.T) {
 	parser := New()
-	_, _, err := parser.Parse("select1 1", "", "")
+	_, _, err := parser.ParseWithWarnings("select1 1")
 	if err.Error() != "line 1 column 7 near \"select1 1\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 7 near \"select1 1\" ")
 	}
-	_, _, err = parser.Parse("select 1 from1 dual", "", "")
+	_, _, err = parser.ParseWithWarnings("select 1 from1 dual")
 	if err.Error() != "line 1 column 19 near \"dual\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 19 near \"dual\" ")
 	}
-	_, _, err = parser.Parse("select * from t1 join t2 from t1.a = t2.a;", "", "")
+	_, _, err = parser.ParseWithWarnings("select * from t1 join t2 from t1.a = t2.a;")
 	if err.Error() != "line 1 column 29 near \"from t1.a = t2.a;\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 29 near \"from t1.a = t2.a;\" ")
 	}
-	_, _, err = parser.Parse("select * from t1 join t2 one t1.a = t2.a;", "", "")
+	_, _, err = parser.ParseWithWarnings("select * from t1 join t2 one t1.a = t2.a;")
 	if err.Error() != "line 1 column 31 near \"t1.a = t2.a;\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 31 near \"t1.a = t2.a;\" ")
 	}
-	_, _, err = parser.Parse("select * from t1 join t2 on t1.a >>> t2.a;", "", "")
+	_, _, err = parser.ParseWithWarnings("select * from t1 join t2 on t1.a >>> t2.a;")
 	if err.Error() != "line 1 column 36 near \"> t2.a;\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 36 near \"> t2.a;\" ")
 	}
 
-	_, _, err = parser.Parse("create table t(f_year year(5))ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;", "", "")
+	_, _, err = parser.ParseWithWarnings("create table t(f_year year(5))ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
-	_, _, err = parser.Parse("select ifnull(a,0) & ifnull(a,0) like '55' ESCAPE '\\\\a' from t;", "", "")
+	_, _, err = parser.ParseWithWarnings("select ifnull(a,0) & ifnull(a,0) like '55' ESCAPE '\\\\a' from t;")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
 
-	_, _, err = parser.Parse("load data infile 'aaa' into table aaa FIELDS  Enclosed by '\\\\b';", "", "")
+	_, _, err = parser.ParseWithWarnings("load data infile 'aaa' into table aaa FIELDS  Enclosed by '\\\\b';")
 	if err.Error() != "[parser:1083]Field separator argument is not what is expected; check the manual" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1083]Field separator argument is not what is expected; check the manual")
 	}
 
-	_, _, err = parser.Parse("load data infile 'aaa' into table aaa FIELDS  Escaped by '\\\\b';", "", "")
+	_, _, err = parser.ParseWithWarnings("load data infile 'aaa' into table aaa FIELDS  Escaped by '\\\\b';")
 	if err.Error() != "[parser:1083]Field separator argument is not what is expected; check the manual" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1083]Field separator argument is not what is expected; check the manual")
 	}
 
-	_, _, err = parser.Parse("load data infile 'aaa' into table aaa FIELDS  Enclosed by '\\\\b' Escaped by '\\\\b' ;", "", "")
+	_, _, err = parser.ParseWithWarnings("load data infile 'aaa' into table aaa FIELDS  Enclosed by '\\\\b' Escaped by '\\\\b' ;")
 	if err.Error() != "[parser:1083]Field separator argument is not what is expected; check the manual" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1083]Field separator argument is not what is expected; check the manual")
 	}
 
-	_, _, err = parser.Parse("ALTER DATABASE `` CHARACTER SET = ''", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER DATABASE `` CHARACTER SET = ''")
 	if err.Error() != "[parser:1115]Unknown character set: ''" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1115]Unknown character set: ''")
 	}
 
-	_, _, err = parser.Parse("ALTER DATABASE t CHARACTER SET = ''", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER DATABASE t CHARACTER SET = ''")
 	if err.Error() != "[parser:1115]Unknown character set: ''" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1115]Unknown character set: ''")
 	}
 
-	_, _, err = parser.Parse("ALTER SCHEMA t CHARACTER SET = 'SOME_INVALID_CHARSET'", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER SCHEMA t CHARACTER SET = 'SOME_INVALID_CHARSET'")
 	if err.Error() != "[parser:1115]Unknown character set: 'SOME_INVALID_CHARSET'" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[parser:1115]Unknown character set: 'SOME_INVALID_CHARSET'")
 	}
 
-	_, _, err = parser.Parse("ALTER DATABASE t COLLATE = ''", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER DATABASE t COLLATE = ''")
 	if err.Error() != "[ddl:1273]Unknown collation: ''" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[ddl:1273]Unknown collation: ''")
 	}
 
-	_, _, err = parser.Parse("ALTER SCHEMA t COLLATE = 'SOME_INVALID_COLLATION'", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER SCHEMA t COLLATE = 'SOME_INVALID_COLLATION'")
 	if err.Error() != "[ddl:1273]Unknown collation: 'SOME_INVALID_COLLATION'" {
 		t.Fatalf("got %#v, want %#v", err.Error(), "[ddl:1273]Unknown collation: 'SOME_INVALID_COLLATION'")
 	}
 
-	_, _, err = parser.Parse("ALTER DATABASE CHARSET = 'utf8mb4' COLLATE = 'utf8_bin'", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER DATABASE CHARSET = 'utf8mb4' COLLATE = 'utf8_bin'")
 	if err.Error() != "line 1 column 24 near \"= 'utf8mb4' COLLATE = 'utf8_bin'\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 24 near \"= 'utf8mb4' COLLATE = 'utf8_bin'\" ")
 	}
 
-	_, _, err = parser.Parse("ALTER DATABASE", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER DATABASE")
 	if err.Error() != "line 1 column 14 near \"\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 14 near \"\" ")
 	}
 
-	_, _, err = parser.Parse("ALTER SCHEMA `ANY_DB_NAME`", "", "")
+	_, _, err = parser.ParseWithWarnings("ALTER SCHEMA `ANY_DB_NAME`")
 	if err.Error() != "line 1 column 26 near \"\" " {
 		t.Fatalf("got %#v, want %#v", err.Error(), "line 1 column 26 near \"\" ")
 	}
@@ -2962,7 +2962,7 @@ func TestSubquery(t *testing.T) {
 	}
 	parser := New()
 	for _, tt := range tests {
-		stmt, err := parser.ParseOneStmt(tt.input, "", "")
+		stmt, err := parser.ParseOneStmt(tt.input)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -3014,7 +3014,7 @@ func TestUnionOrderBy(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		stmt, _, err := parser.Parse(tt.src, "", "")
+		stmt, _, err := parser.ParseWithWarnings(tt.src)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -3137,7 +3137,7 @@ func TestPriority(t *testing.T) {
 	RunTest(t, table, false)
 
 	parser := New()
-	stmt, _, err := parser.Parse("select HIGH_PRIORITY * from t", "", "")
+	stmt, _, err := parser.ParseWithWarnings("select HIGH_PRIORITY * from t")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3166,7 +3166,7 @@ func TestSQLNoCache(t *testing.T) {
 
 	parser := New()
 	for _, tt := range table {
-		stmt, _, err := parser.Parse(tt.src, "", "")
+		stmt, _, err := parser.ParseWithWarnings(tt.src)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -3195,7 +3195,7 @@ func TestInsertStatementMemoryAllocation(t *testing.T) {
 	sql := "insert t values (1)" + strings.Repeat(",(1)", 1000)
 	var oldStats, newStats runtime.MemStats
 	runtime.ReadMemStats(&oldStats)
-	_, err := New().ParseOneStmt(sql, "", "")
+	_, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3275,7 +3275,7 @@ func TestView(t *testing.T) {
 
 	// Test case for the text of the select statement in create view statement.
 	p := New()
-	sms, _, err := p.Parse("create view v as select * from t", "", "")
+	sms, _, err := p.ParseWithWarnings("create view v as select * from t")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3302,7 +3302,7 @@ func TestView(t *testing.T) {
                   WITH CASCADED CHECK OPTION;`
 
 	var st ast.StmtNode
-	st, err = p.ParseOneStmt(src, "", "")
+	st, err = p.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3361,7 +3361,7 @@ func TestAlterView(t *testing.T) {
 
 	// Verify the AST fields and that the select text is preserved.
 	p := New()
-	sms, _, err := p.Parse("alter view v as select * from t", "", "")
+	sms, _, err := p.ParseWithWarnings("alter view v as select * from t")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3390,7 +3390,7 @@ func TestAlterView(t *testing.T) {
 			      VIEW V(a,b,c) AS select c,d,e from t
                   WITH LOCAL CHECK OPTION;`
 	var st ast.StmtNode
-	st, err = p.ParseOneStmt(src, "", "")
+	st, err = p.ParseOneStmt(src)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3421,7 +3421,7 @@ func TestAlterView(t *testing.T) {
 	}
 
 	// ALTER VIEW must not accept CREATE's OR REPLACE clause.
-	_, err = p.ParseOneStmt("alter or replace view v as select * from t", "", "")
+	_, err = p.ParseOneStmt("alter or replace view v as select * from t")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
@@ -3476,7 +3476,7 @@ func TestDropMTRShapes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, target := range []Dialect{DialectUnion, DialectMySQL, DialectMariaDB} {
-				if _, err := New().ParseOneStmtForDialect(tt.sql, "", "", target); err != nil {
+				if _, err := New().ParseOneStmtForDialect(tt.sql, target); err != nil {
 					t.Fatalf("%s rejected %q: %v", target, tt.sql, err)
 				}
 			}
@@ -3525,7 +3525,7 @@ func TestDropRoutineObjects(t *testing.T) {
 		{"drop event ev", false, "DROP EVENT", "ev"},
 	}
 	for _, tc := range cases {
-		st, err := p.ParseOneStmt(tc.src, "", "")
+		st, err := p.ParseOneStmt(tc.src)
 		if err != nil {
 			t.Fatalf("%s: expected nil, got %#v", fmt.Sprintf("source %v", tc.src), err)
 		}
@@ -3599,7 +3599,7 @@ func TestCreateFunction(t *testing.T) {
 
 	// Verify the AST fields.
 	p := New()
-	st, err := p.ParseOneStmt("create or replace definer = 'root'@'%' function db.f(a int, out b varchar(10)) returns int deterministic comment 'hi' return a", "", "")
+	st, err := p.ParseOneStmt("create or replace definer = 'root'@'%' function db.f(a int, out b varchar(10)) returns int deterministic comment 'hi' return a")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3697,7 +3697,7 @@ func TestCreateTrigger(t *testing.T) {
 
 	// Verify the AST fields.
 	p := New()
-	st, err := p.ParseOneStmt("create trigger trg after update of a, b on db.t for each row follows other set @a=1", "", "")
+	st, err := p.ParseOneStmt("create trigger trg after update of a, b on db.t for each row follows other set @a=1")
 	if err != nil {
 		t.Fatalf("expected nil, want nil")
 	}
@@ -3746,7 +3746,7 @@ func TestCreateEvent(t *testing.T) {
 
 	// Verify the AST fields.
 	p := New()
-	st, err := p.ParseOneStmt("create event ev on schedule every 1 day starts '2020-01-01' on completion preserve enable comment 'c' do insert into t values(1)", "", "")
+	st, err := p.ParseOneStmt("create event ev on schedule every 1 day starts '2020-01-01' on completion preserve enable comment 'c' do insert into t values(1)")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3825,7 +3825,7 @@ func TestRoutineErrorMessages(t *testing.T) {
 	}
 	for _, c := range cases {
 		p := New()
-		_, _, err := p.Parse(c.src, "", "")
+		_, _, err := p.ParseWithWarnings(c.src)
 		if err == nil {
 			t.Fatalf("%q: expected error, got nil", c.src)
 		}
@@ -3844,7 +3844,7 @@ func TestRoutineTextPreserved(t *testing.T) {
 	}
 	for _, src := range srcs {
 		p := New()
-		stmts, _, err := p.Parse(src, "", "")
+		stmts, _, err := p.ParseWithWarnings(src)
 		if err != nil {
 			t.Fatalf("%q: %v", src, err)
 		}
@@ -3873,7 +3873,7 @@ func TestRoutineParseOneStmt(t *testing.T) {
 	}
 	for _, c := range cases {
 		p := New()
-		st, err := p.ParseOneStmt(c.src, "", "")
+		st, err := p.ParseOneStmt(c.src)
 		if err != nil {
 			t.Fatalf("%q: %v", c.src, err)
 		}
@@ -3895,7 +3895,7 @@ func TestTimestampDiffUnit(t *testing.T) {
 	// Test case for timestampdiff unit.
 	// TimeUnit should be unified to upper case.
 	parser := New()
-	stmt, _, err := parser.Parse("SELECT TIMESTAMPDIFF(MONTH,'2003-02-01','2003-05-01'), TIMESTAMPDIFF(month,'2003-02-01','2003-05-01');", "", "")
+	stmt, _, err := parser.ParseWithWarnings("SELECT TIMESTAMPDIFF(MONTH,'2003-02-01','2003-05-01'), TIMESTAMPDIFF(month,'2003-02-01','2003-05-01');")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -3969,7 +3969,7 @@ func TestSQLModeANSIQuotes(t *testing.T) {
 		`select * from t "tt"`,
 	}
 	for _, test := range tests {
-		_, _, err := parser.Parse(test, "", "")
+		_, _, err := parser.ParseWithWarnings(test)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -3983,7 +3983,7 @@ func TestDDLStatements(t *testing.T) {
 		a varchar(64) binary,
 		b char(10) charset utf8 collate utf8_general_ci,
 		c text charset latin1) ENGINE=innoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin`
-	stmts, _, err := parser.Parse(createTableStr, "", "")
+	stmts, _, err := parser.ParseWithWarnings(createTableStr)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -4012,7 +4012,7 @@ func TestDDLStatements(t *testing.T) {
 		a varbinary(64),
 		b binary(10),
 		c blob)`
-	stmts, _, err = parser.Parse(createTableStr, "", "")
+	stmts, _, err = parser.ParseWithWarnings(createTableStr)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -4062,7 +4062,7 @@ func TestDDLStatements(t *testing.T) {
 		c_enum enum('1') collate utf8_bin,
 		c_set set('1') collate utf8_bin,
 		c_json json collate utf8_bin)`
-	_, _, err = parser.Parse(createTableStr, "", "")
+	_, _, err = parser.ParseWithWarnings(createTableStr)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -4093,7 +4093,7 @@ func TestGeneratedColumn(t *testing.T) {
 	}
 	parser := New()
 	for _, tt := range tests {
-		stmtNodes, _, err := parser.Parse(tt.input, "", "")
+		stmtNodes, _, err := parser.ParseWithWarnings(tt.input)
 		if tt.ok {
 			if err != nil {
 				t.Fatalf("expected nil, got %#v", err)
@@ -4138,7 +4138,7 @@ func TestSetTransaction(t *testing.T) {
 	}
 	parser := New()
 	for _, tt := range tests {
-		stmt1, err := parser.ParseOneStmt(tt.input, "", "")
+		stmt1, err := parser.ParseOneStmt(tt.input)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -4163,12 +4163,12 @@ func TestSideEffect(t *testing.T) {
 	// This test cover a bug that parse an error SQL doesn't leave the parser in a
 	// clean state, cause the following SQL parse fail.
 	parser := New()
-	_, err := parser.ParseOneStmt("create table t /*!50100 'abc', 'abc' */;", "", "")
+	_, err := parser.ParseOneStmt("create table t /*!50100 'abc', 'abc' */;")
 	if err == nil {
 		t.Fatalf("expected non-nil")
 	}
 
-	_, err = parser.ParseOneStmt("show tables;", "", "")
+	_, err = parser.ParseOneStmt("show tables;")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -4217,7 +4217,7 @@ ENGINE=INNODB PARTITION BY LINEAR HASH (a) PARTITIONS 1;`, true, "CREATE TABLE `
 
 	// Check comment content through the options list.
 	parser := New()
-	stmt, err := parser.ParseOneStmt("create table t (id int) partition by range (id) (partition p0 values less than (10) comment 'check')", "", "")
+	stmt, err := parser.ParseOneStmt("create table t (id int) partition by range (id) (partition p0 values less than (10) comment 'check')")
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
 	}
@@ -4236,7 +4236,7 @@ func TestParsePartitionSpansAndValues(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sql := "CREATE TABLE t(a INT) PARTITION BY RANGE(a) (PARTITION p " + tc.suffix + ")"
-			stmt, err := New().ParseOneStmt(sql, "", "")
+			stmt, err := New().ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -4263,7 +4263,7 @@ func TestTablePartitionNameList(t *testing.T) {
 
 	parser := New()
 	for _, tt := range table {
-		stmt, _, err := parser.Parse(tt.src, "", "")
+		stmt, _, err := parser.ParseWithWarnings(tt.src)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -4296,7 +4296,7 @@ func TestNotExistsSubquery(t *testing.T) {
 
 	parser := New()
 	for _, tt := range table {
-		stmt, _, err := parser.Parse(tt.src, "", "")
+		stmt, _, err := parser.ParseWithWarnings(tt.src)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -4450,7 +4450,7 @@ func TestVisitFrameBound(t *testing.T) {
 		{`SELECT AVG(val) OVER () FROM t;`, 0, 0},
 	}
 	for _, tt := range table {
-		stmt, err := parser.ParseOneStmt(tt.s, "", "")
+		stmt, err := parser.ParseOneStmt(tt.s)
 		if err != nil {
 			t.Fatalf("expected nil, got %#v", err)
 		}
@@ -4471,8 +4471,6 @@ func TestQuotedSystemVariables(t *testing.T) {
 
 	st, err := parser.ParseOneStmt(
 		"select @@Sql_Mode, @@`SQL_MODE`, @@session.`sql_mode`, @@global.`s ql``mode`, @@session.'sql\\nmode', @@local.\"sql\\\"mode\";",
-		"",
-		"",
 	)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
@@ -4511,8 +4509,6 @@ func TestQuotedVariableColumnName(t *testing.T) {
 
 	st, err := parser.ParseOneStmt(
 		"select @abc, @`abc`, @'aBc', @\"AbC\", @6, @`6`, @'6', @\"6\", @@sql_mode, @@`sql_mode`, @;",
-		"",
-		"",
 	)
 	if err != nil {
 		t.Fatalf("expected nil, got %#v", err)
@@ -4676,7 +4672,7 @@ func TestSelectIntervalSyntax(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, target := range []Dialect{DialectUnion, DialectMySQL, DialectMariaDB} {
-				if _, err := New().ParseOneStmtForDialect(tt.sql, "", "", target); err != nil {
+				if _, err := New().ParseOneStmtForDialect(tt.sql, target); err != nil {
 					t.Fatalf("%s parse: %v", target, err)
 				}
 			}
@@ -4688,7 +4684,7 @@ func TestSelectIntervalSyntax(t *testing.T) {
 		`SELECT INTERVAL(1,2) DAY + '1997-12-31'`, `SELECT 1 + INTERVAL(1,2) DAY + 1`,
 	} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+			if _, err := New().ParseOneStmt(sql); err == nil {
 				t.Fatal("accepted invalid INTERVAL expression")
 			}
 		})
@@ -4705,7 +4701,7 @@ func TestSelectIntervalPrecedence(t *testing.T) {
 		{name: "arithmetic in date operand", sql: `INTERVAL 1 DAY + '1997-12-31' + 1`, op: opcode.Plus},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt("SELECT "+tt.sql, "", "")
+			stmt, err := New().ParseOneStmt("SELECT " + tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -4719,7 +4715,7 @@ func TestSelectIntervalPrecedence(t *testing.T) {
 			}
 		})
 	}
-	stmt, err := New().ParseOneStmt(`SELECT INTERVAL 1 DAY + '1997-12-31' OR 1`, "", "")
+	stmt, err := New().ParseOneStmt(`SELECT INTERVAL 1 DAY + '1997-12-31' OR 1`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4750,7 +4746,7 @@ func TestSelectLexicalAndJoinSyntax(t *testing.T) {
 		`SELECT /*!01000 '/*', '*/', COUNT(*) */ FROM t1`,
 	} {
 		t.Run(sql, func(t *testing.T) {
-			if _, err := New().ParseOneStmt(sql, "", ""); err != nil {
+			if _, err := New().ParseOneStmt(sql); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -4804,7 +4800,7 @@ func TestMySQLParityTightenings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := New()
 			parser.SetSQLMode(tt.mode)
-			_, err := parser.ParseOneStmt(tt.sql, "", "")
+			_, err := parser.ParseOneStmt(tt.sql)
 			if tt.valid && err != nil {
 				t.Fatalf("rejected %q: %v", tt.sql, err)
 			}
@@ -4846,7 +4842,7 @@ func TestExplainIntoAndSchemaClauses(t *testing.T) {
 		t.Fatalf("EXPLAIN AST: %#v", explain)
 	}
 	for _, sql := range []string{"EXPLAIN ANALYZE INTO @v SELECT 1", "EXPLAIN FOR CONNECTION 1 FOR SCHEMA s1"} {
-		if _, err := New().ParseOneStmt(sql, "", ""); err == nil {
+		if _, err := New().ParseOneStmt(sql); err == nil {
 			t.Fatalf("accepted %q", sql)
 		}
 	}
@@ -4918,7 +4914,7 @@ func TestCountDistinctWindowFunction(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			stmt, err := parser.ParseOneStmt(tt.sql, "", "")
+			stmt, err := parser.ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -4932,7 +4928,7 @@ func TestCountDistinctWindowFunction(t *testing.T) {
 			if got := restoreStmt(t, stmt); got != tt.want {
 				t.Fatalf("got %s, want %s", got, tt.want)
 			}
-			stmt, err = parser.ParseOneStmt(tt.want, "", "")
+			stmt, err = parser.ParseOneStmt(tt.want)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -4959,7 +4955,7 @@ func TestCastJSONEmptyString(t *testing.T) {
 		{name: "invalid nonempty JSON", sql: "SELECT CAST('{a:1}' AS JSON)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt(tt.sql, "", "")
+			stmt, err := New().ParseOneStmt(tt.sql)
 			if !tt.valid {
 				if err == nil {
 					t.Fatalf("accepted %q", tt.sql)
@@ -4976,24 +4972,20 @@ func TestCastJSONEmptyString(t *testing.T) {
 	}
 }
 
-// Connection settings must not change syntax; explicit introducers are retained.
-func TestParseStringLiteralsIgnoreConnectionSettings(t *testing.T) {
+func TestParseStringLiterals(t *testing.T) {
 	tests := []struct {
+		name        string
 		sql         string
-		charset     string
-		collation   string
 		introducer  string
 		wantRestore string
 	}{
-		{"SELECT 'abc'", "latin1", "", "", "SELECT 'abc'"},
-		{"SELECT 'abc'", "", "", "", "SELECT 'abc'"},
-		{"SELECT 'abc'", "unknown", "unknown", "", "SELECT 'abc'"},
-		{"SELECT 'a' 'b'", "latin1", "", "", "SELECT 'ab'"},
-		{"SELECT _utf8'abc'", "latin1", "", charset.CharsetUTF8, "SELECT _UTF8'abc'"},
+		{"plain", "SELECT 'abc'", "", "SELECT 'abc'"},
+		{"adjacent", "SELECT 'a' 'b'", "", "SELECT 'ab'"},
+		{"introduced", "SELECT _utf8'abc'", charset.CharsetUTF8, "SELECT _UTF8'abc'"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.sql+"/"+tt.charset, func(t *testing.T) {
-			stmt, err := New().ParseOneStmt(tt.sql, tt.charset, tt.collation)
+		t.Run(tt.name, func(t *testing.T) {
+			stmt, err := New().ParseOneStmt(tt.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -5011,56 +5003,6 @@ func TestParseStringLiteralsIgnoreConnectionSettings(t *testing.T) {
 	}
 }
 
-// Parse must hand back a result that a later Parse on the same parser does
-// not overwrite: the statements of the first call stay valid.
-func TestParseResultNotOverwrittenByNextCall(t *testing.T) {
-	p := New()
-	first, _, err := p.Parse("SELECT 1", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := p.Parse("SELECT 2", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := first[0].Text(); got != "SELECT 1" {
-		t.Fatalf("first result = %q, want %q", got, "SELECT 1")
-	}
-	if got := second[0].Text(); got != "SELECT 2" {
-		t.Fatalf("second result = %q, want %q", got, "SELECT 2")
-	}
-}
-
-// One Parser can be shared by many goroutines: every Parse call must get its
-// own statements.
-func TestParseConcurrentOnSharedParser(t *testing.T) {
-	p := New()
-	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
-				sql := fmt.Sprintf("SELECT %d FROM t%d", i, j)
-				stmts, _, err := p.Parse(sql, "", "")
-				if err != nil {
-					t.Errorf("parse %q: %v", sql, err)
-					return
-				}
-				if len(stmts) != 1 {
-					t.Errorf("parse %q: got %d statements", sql, len(stmts))
-					return
-				}
-				if got := stmts[0].Text(); got != sql {
-					t.Errorf("parse %q: got statement %q", sql, got)
-					return
-				}
-			}
-		}(i)
-	}
-	wg.Wait()
-}
-
 // The settings may be changed while another goroutine parses.
 func TestSetSettingsWhileParsing(t *testing.T) {
 	p := New()
@@ -5074,7 +5016,7 @@ func TestSetSettingsWhileParsing(t *testing.T) {
 		}
 	}()
 	for i := 0; i < 100; i++ {
-		if _, _, err := p.Parse("SELECT 1", "", ""); err != nil {
+		if _, _, err := p.ParseWithWarnings("SELECT 1"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -41,7 +41,7 @@ func TestStatementNamesDecodedIdentity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -51,7 +51,7 @@ func TestStatementNamesDecodedIdentity(t *testing.T) {
 				t.Fatalf("presence inconsistent with identity: %+v", ident)
 			}
 			// The shared string must survive a later parse of different SQL.
-			if _, err := p.ParseOneStmt("select 1", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("select 1"); err != nil {
 				t.Fatal(err)
 			}
 			if ident.Name != tc.decoded || ident.Raw != tc.raw || ident.Quote != tc.quote {
@@ -169,7 +169,7 @@ func TestStatementNamesZeroCopyReuse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := New()
 			sql := "prepare " + name + " from 'select 1'"
-			stmt, err := p.ParseOneStmt(sql, "", "")
+			stmt, err := p.ParseOneStmt(sql)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,7 +181,7 @@ func TestStatementNamesZeroCopyReuse(t *testing.T) {
 				t.Fatal("undecoded name unnecessarily copied the input substring")
 			}
 			canonical := restoreStmt(t, stmt)
-			if _, err := p.ParseOneStmt("select `other``name`", "", ""); err != nil {
+			if _, err := p.ParseOneStmt("select `other``name`"); err != nil {
 				t.Fatal(err)
 			}
 			if statementNodeName(t, stmt) != ident || restoreStmt(t, stmt) != canonical {

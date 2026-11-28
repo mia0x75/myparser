@@ -100,7 +100,7 @@ func TestDatabaseIdentRestore(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(strings.TrimSpace(tc.sql), func(t *testing.T) {
 			p := New()
-			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			stmt, err := p.ParseOneStmt(tc.sql)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestDatabaseIdentRestore(t *testing.T) {
 			if restored != tc.want {
 				t.Fatalf("restore = %q, want %q", restored, tc.want)
 			}
-			stmt2, err := p.ParseOneStmt(restored, "", "")
+			stmt2, err := p.ParseOneStmt(restored)
 			if err != nil {
 				t.Fatalf("re-parse %q: %v", restored, err)
 			}
@@ -134,11 +134,11 @@ func TestDatabaseIdentParserReuse(t *testing.T) {
 	const first = "create database `First`"
 	const second = "drop database `Second`"
 	p := New()
-	stmt1, err := p.ParseOneStmt(first, "", "")
+	stmt1, err := p.ParseOneStmt(first)
 	if err != nil {
 		t.Fatalf("first parse: %v", err)
 	}
-	stmt2, err := p.ParseOneStmt(second, "", "")
+	stmt2, err := p.ParseOneStmt(second)
 	if err != nil {
 		t.Fatalf("second parse: %v", err)
 	}

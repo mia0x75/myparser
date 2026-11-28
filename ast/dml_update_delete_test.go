@@ -66,7 +66,7 @@ func (n *dmlTestLimit) Restore(ctx *format.RestoreCtx) error {
 
 func dmlParse(t *testing.T, sql string) ast.StmtNode {
 	t.Helper()
-	n, err := parser.New().ParseOneStmt(sql, "", "")
+	n, err := parser.New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}

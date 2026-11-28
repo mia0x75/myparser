@@ -14,7 +14,7 @@ func TestParserReuseAfterFailureKeepsParameterState(t *testing.T) {
 	for _, failedSQL := range []string{"SELECT ? +", "SELECT /*! /*! ? */ */"} {
 		t.Run(failedSQL, func(t *testing.T) {
 			p := New()
-			old, err := p.ParseOneStmt("SELECT ? + ?", "", "")
+			old, err := p.ParseOneStmt("SELECT ? + ?")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -24,15 +24,15 @@ func TestParserReuseAfterFailureKeepsParameterState(t *testing.T) {
 			}
 			before := restoreStmt(t, old)
 			for range 3 {
-				if stmts, _, err := p.Parse(failedSQL, "", ""); err == nil || stmts != nil {
+				if stmts, _, err := p.ParseWithWarnings(failedSQL); err == nil || stmts != nil {
 					t.Fatal("invalid SQL produced statements or no error")
 				}
 				const sql = "SELECT '中文', ?; SELECT ? LIMIT ?"
-				stmts, warns, err := p.Parse(sql, "", "")
+				stmts, warns, err := p.ParseWithWarnings(sql)
 				if err != nil || len(warns) != 0 || len(stmts) != 2 {
 					t.Fatalf("Parse after failure: statements=%d warnings=%d err=%v", len(stmts), len(warns), err)
 				}
-				fresh, _, err := New().Parse(sql, "", "")
+				fresh, _, err := New().ParseWithWarnings(sql)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -61,7 +61,7 @@ func TestParserReuseAfterFailureKeepsParameterState(t *testing.T) {
 
 func TestRenameTableVisitOnce(t *testing.T) {
 	sql := "RENAME TABLE a TO b, c TO d"
-	stmt, err := New().ParseOneStmt(sql, "", "")
+	stmt, err := New().ParseOneStmt(sql)
 	if err != nil {
 		t.Fatal(err)
 	}

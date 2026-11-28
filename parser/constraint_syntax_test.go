@@ -33,7 +33,7 @@ func TestConstraintSyntaxNamesAndSpans(t *testing.T) {
 						sql += ")"
 					}
 					p := New()
-					stmt, err := p.ParseOneStmt(sql, "", "")
+					stmt, err := p.ParseOneStmt(sql)
 					if err != nil {
 						t.Fatalf("parse %q: %v", sql, err)
 					}
@@ -74,7 +74,7 @@ func TestConstraintSyntaxNamesAndSpans(t *testing.T) {
 						}
 					}
 					before := restoreStmt(t, stmt)
-					reparsed, err := p.ParseOneStmt(before, "", "")
+					reparsed, err := p.ParseOneStmt(before)
 					if err != nil {
 						t.Fatalf("reparse %q: %v", before, err)
 					}

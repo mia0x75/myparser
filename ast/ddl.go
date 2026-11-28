@@ -764,6 +764,9 @@ func (n *ColumnDef) Restore(ctx *format.RestoreCtx) error {
 	if n == nil {
 		return errors.New("restore ColumnDef: nil column")
 	}
+	if len(n.Name.Parts) == 0 {
+		return errors.New("restore ColumnDef: missing column name")
+	}
 	if err := restoreQualifiedName(ctx, n.Name); err != nil {
 		return errors.Annotate(err, "An error occurred while splicing ColumnDef Name")
 	}

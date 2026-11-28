@@ -1395,8 +1395,8 @@ func ValidateDialectCompatibility(node ast.Node, source string, target Dialect) 
 
 // ParseOneStmtForDialect parses the shared grammar, then rejects constructs
 // incompatible with target. ParseOneStmt remains the permissive default.
-func (parser *Parser) ParseOneStmtForDialect(sql, charsetName, collation string, target Dialect) (ast.StmtNode, error) {
-	stmt, err := parser.parseOneStmt(sql, charsetName, collation, target)
+func (parser *Parser) ParseOneStmtForDialect(sql string, target Dialect) (ast.StmtNode, error) {
+	stmt, err := parser.parseOneStmt(sql, target)
 	if err != nil {
 		return nil, err
 	}
