@@ -238,7 +238,7 @@ func (n *ExplainStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *ExplainStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*ExplainStmt)
@@ -766,7 +766,7 @@ func (n *UseStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *UseStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, _ := v.Enter(n)
 	next, ok := newNode.(*UseStmt)
@@ -1846,7 +1846,7 @@ func (n *GrantObject) Restore(ctx *format.RestoreCtx) error {
 
 func (n *GrantObject) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	entered, skip := v.Enter(n)
 	next, ok := entered.(*GrantObject)
@@ -1923,7 +1923,7 @@ func (n *RevokeStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *RevokeStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*RevokeStmt)
@@ -2091,7 +2091,7 @@ func (n *GrantStmt) SecureText() string {
 // Accept implements Node Accept interface.
 func (n *GrantStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*GrantStmt)
@@ -2318,7 +2318,7 @@ func (n *OptimizerHint) Restore(ctx *format.RestoreCtx) error {
 
 func (n *OptimizerHint) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*OptimizerHint)

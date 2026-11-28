@@ -97,7 +97,7 @@ func (n *LogfileGroupOption) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *LogfileGroupOption) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*LogfileGroupOption)
@@ -152,7 +152,7 @@ func (n *CreateLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *CreateLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*CreateLogfileGroupStmt)
@@ -211,7 +211,7 @@ func (n *AlterLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *AlterLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*AlterLogfileGroupStmt)
@@ -267,7 +267,7 @@ func (n *DropLogfileGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DropLogfileGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*DropLogfileGroupStmt)

@@ -100,7 +100,7 @@ func (n *SequenceOption) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *SequenceOption) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*SequenceOption](newNode)
@@ -171,7 +171,7 @@ func (n *CreateSequenceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *CreateSequenceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*CreateSequenceStmt](newNode)
@@ -232,7 +232,7 @@ func (n *DropSequenceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DropSequenceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*DropSequenceStmt](newNode)

@@ -86,7 +86,7 @@ func (n *TableName) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *TableName) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	table, ok := newNode.(*TableName)
@@ -1794,7 +1794,7 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *ShowStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*ShowStmt)

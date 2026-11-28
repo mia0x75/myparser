@@ -49,7 +49,7 @@ func (n *ResourceGroupVCPU) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *ResourceGroupVCPU) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*ResourceGroupVCPU)
@@ -135,7 +135,7 @@ func (n *CreateResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *CreateResourceGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*CreateResourceGroupStmt)
@@ -202,7 +202,7 @@ func (n *AlterResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *AlterResourceGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*AlterResourceGroupStmt)
@@ -261,7 +261,7 @@ func (n *DropResourceGroupStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *DropResourceGroupStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	next, ok := newNode.(*DropResourceGroupStmt)

@@ -65,7 +65,7 @@ func (n *TableMaintenanceStmt) Restore(ctx *format.RestoreCtx) error {
 // Accept implements Node Accept interface.
 func (n *TableMaintenanceStmt) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*TableMaintenanceStmt](newNode)

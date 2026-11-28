@@ -1675,7 +1675,7 @@ AlterTableStmt:
 
 
 BucketsOpt:
-	/* empty */   { $$ = uint64(0) }
+	/* EMPTY */   { $$ = uint64(0) }
 	| with NUM buckets    { $$ = getUint64FromNUM($2) }
 
 
@@ -3772,7 +3772,7 @@ PartitionNumOpt:
 
 
 PartitionDefinitionListOpt:
-	/* empty */ %prec lowerThanCreateTableSelect
+	/* EMPTY */ %prec lowerThanCreateTableSelect
 	{
 		$$ = nil
 	}
@@ -4569,7 +4569,7 @@ ViewName:
 
 
 ViewFieldList:
-	/* Empty */        { $$ = nil }
+	/* EMPTY */        { $$ = nil }
 	| '(' ColumnList ')' { $$ = $2.([]lex.Ident) }
 
 
@@ -4746,8 +4746,7 @@ DropViewStmt:
 		$$ = &ast.DropTableStmt{Tables: $3.([]*ast.TableName), IsView: true}
 		$$.SetSpan(yyVAL.span)
 	}
-	|
-	drop view ifKwd exists TableNameList RestrictOrCascadeOpt
+	| drop view ifKwd exists TableNameList RestrictOrCascadeOpt
 	{
 		$$ = &ast.DropTableStmt{IfExists: true, Tables: $5.([]*ast.TableName), IsView: true}
 		$$.SetSpan(yyVAL.span)

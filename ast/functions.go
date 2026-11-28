@@ -536,7 +536,7 @@ func (n *FuncCallExpr) specialFormatArgs(w io.Writer) bool {
 // Accept implements Node interface.
 func (n *FuncCallExpr) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*FuncCallExpr](newNode)
@@ -719,7 +719,7 @@ func (n *WeightStringExpr) Format(w io.Writer) {
 // Accept implements Node interface.
 func (n *WeightStringExpr) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*WeightStringExpr](newNode)
@@ -870,7 +870,7 @@ func (n *FuncCastExpr) Format(w io.Writer) {
 // Accept implements Node Accept interface.
 func (n *FuncCastExpr) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := nodeAs[*FuncCastExpr](newNode)
@@ -1066,7 +1066,7 @@ func (n *AggregateFuncExpr) Format(w io.Writer) {
 // Accept implements Node Accept interface.
 func (n *AggregateFuncExpr) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := newNode.(*AggregateFuncExpr)
@@ -1264,7 +1264,7 @@ func (n *WindowFuncExpr) Format(w io.Writer) {
 // Accept implements Node Accept interface.
 func (n *WindowFuncExpr) Accept(v Visitor) (Node, bool) {
 	if n == nil {
-		return n, false
+		return nil, false
 	}
 	newNode, skipChildren := v.Enter(n)
 	entered, ok := newNode.(*WindowFuncExpr)
