@@ -50,6 +50,22 @@ func TestParseSharedQueryCore(t *testing.T) {
 	}
 }
 
+func TestParseCommonSelectSemanticFixture(t *testing.T) {
+	node := mustParseOne(t, "SELECT a FROM t WHERE a = 1 ORDER BY a LIMIT 2")
+	stmt, ok := node.(*dialectast.SelectStmt)
+	if !ok {
+		t.Fatalf("statement type = %T, want *dialectast.SelectStmt", node)
+	}
+	if stmt.Fields == nil || len(stmt.Fields.Items) != 1 || stmt.From == nil || stmt.Where == nil || stmt.OrderBy == nil || stmt.Limit == nil {
+		t.Fatalf("common SELECT clauses were not preserved: %#v", stmt.BaseSelectStmt)
+	}
+	restored := restoreStmt(t, stmt)
+	reparsed, ok := mustParseOne(t, restored).(*dialectast.SelectStmt)
+	if !ok || reparsed.Fields == nil || len(reparsed.Fields.Items) != 1 || reparsed.Where == nil || reparsed.OrderBy == nil || reparsed.Limit == nil {
+		t.Fatalf("common SELECT semantics changed after Restore: %q (%T)", restored, reparsed)
+	}
+}
+
 func TestParseSharedColumnRefCore(t *testing.T) {
 	for _, tc := range []struct {
 		name string
