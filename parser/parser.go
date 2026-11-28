@@ -288,12 +288,6 @@ func yyGetParser(l yyLexer) *parseState {
 	return l.(*Scanner).parser
 }
 
-func (st *parseState) newParamMarkerExpr(span loc.Span) *ast.ParamMarkerExpr {
-	param := ast.NewParamMarkerExprAt(span, st.paramIndex)
-	st.paramIndex++
-	return param
-}
-
 // yyErrorf builds a scanner-located error, mirroring the yyLexer.Errorf that the
 // previous generator exposed on the lexer interface.
 func yyErrorf(l yyLexer, format string, a ...interface{}) error {

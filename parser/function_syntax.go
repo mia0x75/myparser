@@ -10,6 +10,11 @@ import (
 	"github.com/mia0x75/myparser/ast"
 )
 
+type lastValueWindow struct {
+	spec       ast.WindowSpec
+	ignoreNull bool
+}
+
 // validateFunctionCall applies argument rules that both pinned servers
 // enforce. Other function calls remain generic.
 func validateSourceFunctionCall(l yyLexer, offset int, name string, args []ast.ExprNode) error {

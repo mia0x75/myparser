@@ -3,6 +3,8 @@ package parser
 import (
 	"sync"
 
+	"github.com/mia0x75/parserkit/loc"
+
 	"github.com/mia0x75/myparser/ast"
 )
 
@@ -20,4 +22,25 @@ var parseStatePool = sync.Pool{
 	New: func() interface{} {
 		return &parseState{}
 	},
+}
+
+func setParseResult(lex yyLexer, statements []ast.StmtNode) {
+	yyGetParser(lex).result = statements
+}
+
+func appendStatement(lex yyLexer, statements []ast.StmtNode, node ast.Node, _ loc.Span) []ast.StmtNode {
+	stmt, ok := node.(ast.StmtNode)
+	if !ok {
+		return statements
+	}
+	// Statement actions already carry precise dialect spans; keep them intact.
+	stmt.SetText(lex.(*Scanner).stmtText())
+	yyGetParser(lex).paramIndex = 0
+	return append(statements, stmt)
+}
+
+func (st *parseState) newParamMarkerExpr(span loc.Span) *ast.ParamMarkerExpr {
+	param := ast.NewParamMarkerExprAt(span, st.paramIndex)
+	st.paramIndex++
+	return param
 }
